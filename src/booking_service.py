@@ -224,9 +224,24 @@ class BookingService:
 
     def login(self, username, password):
         """Log in to the booking system."""
+        # Check if session is still valid
+        try:
+            self.driver.current_url
+            logger.info("Session is active, proceeding with login.")
+        except Exception as e:
+            logger.error(f"Invalid session detected: {str(e)}. Reinitializing WebDriver.")
+            self.driver.quit()
+            self._setup_driver()
+
         # Navigate to login page
         logger.info(f"Navigating to login page: {LOGIN_URL}")
-        self.driver.get(LOGIN_URL)
+        try:
+            self.driver.get(LOGIN_URL)
+        except Exception as e:
+            logger.error(f"Failed to navigate to login page: {str(e)}. Reinitializing WebDriver.")
+            self.driver.quit()
+            self._setup_driver()
+            self.driver.get(LOGIN_URL)
 
         # Wait for login form to load
         logger.info("Waiting for login form to load")
