@@ -44,9 +44,16 @@ class BookingService:
 
     def _setup_driver(self):
         """Set up the Selenium WebDriver with appropriate options for visible operation."""
-        temp_dir = tempfile.mkdtemp()
         chrome_options = Options()
-        chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+
+        # Only use user-data-dir if not on Heroku
+        if not os.environ.get("DYNO"):  # DYNO environment variable is present on Heroku
+            temp_dir = tempfile.mkdtemp()
+            chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+            logger.info("Using temporary user data directory")
+        else:
+            logger.info("Running on Heroku, skipping user data directory setup")
+
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
