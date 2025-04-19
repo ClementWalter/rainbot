@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 
 import gspread
 import pandas as pd
@@ -12,7 +13,7 @@ class DriveClient:
         json_secret = json.loads(os.getenv("CLIENT_SECRET", client_secret))
         scope = ["https://www.googleapis.com/auth/drive"]
         self.credentials = ServiceAccountCredentials.from_json_keyfile_dict(json_secret, scope)
-        self._client = None
+        self._client = gspread.authorize(self.credentials)
         self._worksheets = []
         self._headers = {}
         self.login()
@@ -32,14 +33,10 @@ class DriveClient:
 
     @property
     def worksheets(self):
-        if self._client.auth.expired:
-            self.login()
         return {worksheet.title: worksheet for worksheet in self._worksheets}
 
     @property
     def headers(self):
-        if self._client.auth.expired:
-            self.login()
         return self._headers
 
     def get_sheet_as_dataframe(self, sheet_title: str) -> pd.DataFrame:

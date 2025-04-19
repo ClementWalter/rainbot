@@ -96,7 +96,7 @@ def booking_job():
             places_id=lambda df: df.places.map(lambda _places: [places.get(_p) for _p in _places]),
             in_out=lambda df: df.in_out.str.split(","),
         )
-        .replace({"": np.NaN})
+        .replace({"": np.nan})
         .dropna(subset=["match_day", "places"])
         .filter(regex=r"^(?!(court_\d)$)")
         .assign(
