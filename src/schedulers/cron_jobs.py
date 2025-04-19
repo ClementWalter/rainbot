@@ -13,7 +13,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from inflection import camelize, underscore
+from inflection import underscore
 
 from src.booking_service import BookingService
 from src.emails import EmailService

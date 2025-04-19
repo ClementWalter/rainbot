@@ -65,6 +65,7 @@ class BookingService:
             else:
                 driver_manager = ChromeDriverManager()
                 driver_path = driver_manager.install()
+                # trunk-ignore(bandit/B103)
                 os.chmod(driver_path, 0o755)
                 service = Service(driver_path)
 
