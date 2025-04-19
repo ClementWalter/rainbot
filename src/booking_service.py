@@ -2,6 +2,7 @@ import logging
 import os
 import tempfile
 import time
+import uuid
 from datetime import datetime
 from tempfile import NamedTemporaryFile
 
@@ -46,13 +47,19 @@ class BookingService:
         """Set up the Selenium WebDriver with appropriate options for visible operation."""
         chrome_options = Options()
 
-        # Only use user-data-dir if not on Heroku
-        if not os.environ.get("DYNO"):  # DYNO environment variable is present on Heroku
-            temp_dir = tempfile.mkdtemp()
-            chrome_options.add_argument(f"--user-data-dir={temp_dir}")
-            logger.info("Using temporary user data directory")
+        # Use a unique user data directory to avoid conflicts
+        unique_id = str(uuid.uuid4())[:8]
+        temp_dir = os.path.join(tempfile.gettempdir(), f"chrome_data_{unique_id}")
+        os.makedirs(temp_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+        logger.info(f"Using unique user data directory: {temp_dir}")
+
+        # Enable headless mode on Heroku
+        if os.environ.get("DYNO"):
+            chrome_options.add_argument("--headless")
+            logger.info("Running on Heroku, enabling headless mode")
         else:
-            logger.info("Running on Heroku, skipping user data directory setup")
+            logger.info("Running locally, not enabling headless mode")
 
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
