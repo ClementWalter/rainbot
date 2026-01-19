@@ -117,8 +117,10 @@ src/
 ### Phase 7: Deployment
 **Goal**: Deploy to Scaleway cloud
 
-- [ ] Create Dockerfile
-- [ ] Create docker-compose.yml
+- [x] Create Dockerfile
+- [x] Create docker-compose.yml
+- [x] Create .dockerignore
+- [x] Create .env.example
 - [ ] Configure Scaleway deployment
 - [ ] Set up monitoring and logging
 
@@ -126,7 +128,7 @@ src/
 
 ## Next Action
 
-**Next Step**: Proceed to Phase 7 (Deployment) - Create Dockerfile and docker-compose.yml for Scaleway cloud deployment.
+**Next Step**: Continue Phase 7 (Deployment) - Configure Scaleway deployment and set up monitoring/logging.
 
 Phase 6 is complete with:
 - booking_job(): Full booking workflow implementation

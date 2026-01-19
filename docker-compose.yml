@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  rainbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rainbot
+    restart: unless-stopped
+    environment:
+      # Scheduler configuration
+      - HOUR=${HOUR:-0}
+      - MINUTE=${MINUTE:-0}
+      - SECOND=${SECOND:-10}
+      - JITTER=${JITTER:-0}
+
+      # Google Sheets configuration
+      - GOOGLE_SPREADSHEET_ID=${GOOGLE_SPREADSHEET_ID}
+
+      # 2Captcha configuration
+      - CAPTCHA_API_KEY=${CAPTCHA_API_KEY}
+
+      # Email notification configuration
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - FROM_EMAIL=${FROM_EMAIL}
+
+      # Optional debug mode
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      # Mount Google credentials file
+      - ${GOOGLE_CREDENTIALS_FILE:-./credentials.json}:/app/credentials.json:ro
+    # Shared memory size for Chrome
+    shm_size: '2gb'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
