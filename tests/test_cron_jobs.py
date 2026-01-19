@@ -1,0 +1,481 @@
+"""Tests for the scheduled cron jobs."""
+
+from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from src.models import Booking, BookingRequest, CourtType, DayOfWeek, User
+from src.schedulers.cron_jobs import (
+    _create_booking_from_result,
+    _process_booking_request,
+    booking_job,
+    send_remainder,
+)
+from src.services.paris_tennis import BookingResult, CourtSlot
+
+
+class TestBookingJob:
+    """Tests for the booking_job function."""
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user."""
+        return User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+
+    @pytest.fixture
+    def mock_booking_request(self):
+        """Create a test booking request for today's day of week."""
+        today_dow = datetime.now().weekday()
+        return BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek(today_dow),
+            time_start="18:00",
+            time_end="20:00",
+            facility_preferences=["FAC001"],
+            court_type=CourtType.ANY,
+            partner_name="Partner Name",
+            partner_email="partner@example.com",
+            active=True,
+        )
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_no_active_requests(
+        self, mock_notification, mock_sheets
+    ):
+        """Test booking job with no active requests."""
+        mock_sheets.get_active_booking_requests.return_value = []
+
+        booking_job()
+
+        mock_sheets.get_active_booking_requests.assert_called_once()
+        # Should not attempt to fetch eligible users
+        mock_sheets.get_eligible_users.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_no_eligible_users(
+        self, mock_notification, mock_sheets, mock_booking_request
+    ):
+        """Test booking job when no users are eligible."""
+        mock_sheets.get_active_booking_requests.return_value = [mock_booking_request]
+        mock_sheets.get_eligible_users.return_value = []
+
+        booking_job()
+
+        mock_sheets.get_active_booking_requests.assert_called_once()
+        mock_sheets.get_eligible_users.assert_called_once()
+
+    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_skips_pending_booking(
+        self,
+        mock_notification,
+        mock_sheets,
+        mock_process,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test that booking job skips users with pending bookings."""
+        mock_sheets.get_active_booking_requests.return_value = [mock_booking_request]
+        mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.has_pending_booking.return_value = True
+
+        booking_job()
+
+        mock_sheets.has_pending_booking.assert_called_with(mock_user.id)
+        mock_process.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_processes_eligible_request(
+        self,
+        mock_notification,
+        mock_sheets,
+        mock_process,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test that booking job processes eligible requests."""
+        mock_sheets.get_active_booking_requests.return_value = [mock_booking_request]
+        mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.has_pending_booking.return_value = False
+
+        booking_job()
+
+        mock_process.assert_called_once()
+
+    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_skips_wrong_day(
+        self,
+        mock_notification,
+        mock_sheets,
+        mock_process,
+        mock_user,
+    ):
+        """Test that booking job skips requests not for today."""
+        # Create request for a different day
+        today_dow = datetime.now().weekday()
+        other_dow = (today_dow + 1) % 7
+        request = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek(other_dow),
+            time_start="18:00",
+            time_end="20:00",
+            active=True,
+        )
+        mock_sheets.get_active_booking_requests.return_value = [request]
+        mock_sheets.get_eligible_users.return_value = [mock_user]
+
+        booking_job()
+
+        mock_process.assert_not_called()
+
+
+class TestProcessBookingRequest:
+    """Tests for the _process_booking_request function."""
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user."""
+        return User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+
+    @pytest.fixture
+    def mock_booking_request(self):
+        """Create a test booking request."""
+        return BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="18:00",
+            time_end="20:00",
+            facility_preferences=["FAC001"],
+            partner_name="Partner Name",
+            active=True,
+        )
+
+    @pytest.fixture
+    def mock_slot(self):
+        """Create a test court slot."""
+        return CourtSlot(
+            facility_name="Tennis Club",
+            facility_code="FAC001",
+            court_number="1",
+            date=datetime(2025, 1, 20, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            court_type=CourtType.ANY,
+        )
+
+    @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
+    def test_process_booking_login_failure(
+        self,
+        mock_tennis_session,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test processing when login fails."""
+        mock_sheets = MagicMock()
+        mock_notification = MagicMock()
+
+        mock_service = MagicMock()
+        mock_service.login.return_value = False
+        mock_tennis_session.return_value.__enter__.return_value = mock_service
+
+        _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
+
+        mock_service.login.assert_called_once()
+        mock_notification.send_booking_failure_notification.assert_called_once()
+
+    @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
+    def test_process_booking_no_slots_available(
+        self,
+        mock_tennis_session,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test processing when no slots are available."""
+        mock_sheets = MagicMock()
+        mock_notification = MagicMock()
+
+        mock_service = MagicMock()
+        mock_service.login.return_value = True
+        mock_service.search_available_courts.return_value = []
+        mock_tennis_session.return_value.__enter__.return_value = mock_service
+
+        _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
+
+        mock_service.search_available_courts.assert_called_once()
+        # No notification for empty slots (silent failure - will retry later)
+        mock_notification.send_booking_failure_notification.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
+    def test_process_booking_success(
+        self,
+        mock_tennis_session,
+        mock_user,
+        mock_booking_request,
+        mock_slot,
+    ):
+        """Test successful booking flow."""
+        mock_sheets = MagicMock()
+        mock_sheets.add_booking.return_value = True
+        mock_notification = MagicMock()
+
+        mock_service = MagicMock()
+        mock_service.login.return_value = True
+        mock_service.search_available_courts.return_value = [mock_slot]
+        mock_service.book_court.return_value = BookingResult(
+            success=True,
+            confirmation_id="CONF123",
+            slot=mock_slot,
+        )
+        mock_tennis_session.return_value.__enter__.return_value = mock_service
+
+        _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
+
+        mock_service.book_court.assert_called_once_with(
+            mock_slot, mock_booking_request.partner_name
+        )
+        mock_sheets.add_booking.assert_called_once()
+        mock_notification.send_booking_confirmation.assert_called_once()
+
+    @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
+    def test_process_booking_all_slots_fail(
+        self,
+        mock_tennis_session,
+        mock_user,
+        mock_booking_request,
+        mock_slot,
+    ):
+        """Test when all booking attempts fail."""
+        mock_sheets = MagicMock()
+        mock_notification = MagicMock()
+
+        mock_service = MagicMock()
+        mock_service.login.return_value = True
+        mock_service.search_available_courts.return_value = [mock_slot]
+        mock_service.book_court.return_value = BookingResult(
+            success=False,
+            error_message="Slot already taken",
+            slot=mock_slot,
+        )
+        mock_tennis_session.return_value.__enter__.return_value = mock_service
+
+        _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
+
+        mock_notification.send_booking_failure_notification.assert_called_once()
+
+
+class TestSendRemainder:
+    """Tests for the send_remainder function."""
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user."""
+        return User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+
+    @pytest.fixture
+    def mock_booking_today(self):
+        """Create a test booking for today."""
+        return Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club",
+            facility_code="TC001",
+            court_number="1",
+            date=datetime.now(),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Partner Name",
+            confirmation_id="CONF123",
+        )
+
+    @pytest.fixture
+    def mock_booking_request(self):
+        """Create a test booking request with partner email."""
+        return BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="18:00",
+            time_end="20:00",
+            partner_name="Partner Name",
+            partner_email="partner@example.com",
+            active=True,
+        )
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_send_remainder_not_configured(
+        self, mock_notification_func, mock_sheets
+    ):
+        """Test send_remainder when notification service not configured."""
+        mock_notification = MagicMock()
+        mock_notification.is_configured.return_value = False
+        mock_notification_func.return_value = mock_notification
+
+        send_remainder()
+
+        mock_sheets.get_todays_bookings.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_send_remainder_no_bookings(
+        self, mock_notification_func, mock_sheets
+    ):
+        """Test send_remainder with no bookings today."""
+        mock_notification = MagicMock()
+        mock_notification.is_configured.return_value = True
+        mock_notification_func.return_value = mock_notification
+        mock_sheets.get_todays_bookings.return_value = []
+
+        send_remainder()
+
+        mock_sheets.get_todays_bookings.assert_called_once()
+        mock_notification.send_match_day_reminder.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_send_remainder_sends_to_user(
+        self,
+        mock_notification_func,
+        mock_sheets,
+        mock_user,
+        mock_booking_today,
+        mock_booking_request,
+    ):
+        """Test send_remainder sends reminder to user."""
+        mock_notification = MagicMock()
+        mock_notification.is_configured.return_value = True
+        mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
+        mock_notification_func.return_value = mock_notification
+
+        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_sheets.get_all_users.return_value = [mock_user]
+        mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
+
+        send_remainder()
+
+        # Should be called twice: once for user, once for partner
+        assert mock_notification.send_match_day_reminder.call_count == 2
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_send_remainder_skips_partner_without_email(
+        self,
+        mock_notification_func,
+        mock_sheets,
+        mock_user,
+        mock_booking_today,
+    ):
+        """Test send_remainder skips partner when no email available."""
+        mock_notification = MagicMock()
+        mock_notification.is_configured.return_value = True
+        mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
+        mock_notification_func.return_value = mock_notification
+
+        # Request without partner email
+        request_no_partner_email = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="18:00",
+            time_end="20:00",
+            partner_name="Partner Name",
+            partner_email=None,  # No email
+            active=True,
+        )
+
+        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_sheets.get_all_users.return_value = [mock_user]
+        mock_sheets.get_all_booking_requests.return_value = [request_no_partner_email]
+
+        send_remainder()
+
+        # Should only be called once for the user
+        mock_notification.send_match_day_reminder.assert_called_once()
+
+
+class TestCreateBookingFromResult:
+    """Tests for the _create_booking_from_result function."""
+
+    def test_create_booking_from_result(self):
+        """Test creating a booking from a successful result."""
+        user = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+        request = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="18:00",
+            time_end="20:00",
+            partner_name="Partner Name",
+            active=True,
+        )
+        slot = CourtSlot(
+            facility_name="Tennis Club",
+            facility_code="FAC001",
+            court_number="1",
+            date=datetime(2025, 1, 20, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            court_type=CourtType.ANY,
+        )
+        result = BookingResult(
+            success=True,
+            confirmation_id="CONF123",
+            slot=slot,
+        )
+
+        booking = _create_booking_from_result(user, request, slot, result)
+
+        assert booking.user_id == user.id
+        assert booking.request_id == request.id
+        assert booking.facility_name == slot.facility_name
+        assert booking.facility_code == slot.facility_code
+        assert booking.court_number == slot.court_number
+        assert booking.time_start == slot.time_start
+        assert booking.time_end == slot.time_end
+        assert booking.partner_name == request.partner_name
+        assert booking.confirmation_id == result.confirmation_id
+        assert booking.id is not None  # UUID generated

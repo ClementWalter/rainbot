@@ -3,20 +3,20 @@
 ## Current Status
 
 ### Summary
-Phase 4 (CAPTCHA Solving) is complete. The 2Captcha service has been implemented and integrated with the Paris Tennis booking flow.
+Phase 5 (Notifications) is complete. The notification service has been implemented with email sending for booking confirmations, reminders, and failure notifications.
 
 ### What Exists
 - [x] PRD.md - Complete product requirements
 - [x] pyproject.toml - Dependencies configured (selenium, 2captcha, gspread, etc.)
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
-- [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, and CAPTCHA solver
-- [x] tests/ - Unit tests for models, services, browser, Paris Tennis, and CAPTCHA solver (83 tests passing)
+- [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
+- [x] tests/ - Unit tests for models, services, browser, Paris Tennis, and CAPTCHA solver
 - [x] PLAN.md - This file
 
 ### Remaining Work
-1. **Notifications**: Email confirmations and reminders
-2. **Full integration**: Wire everything together in cron_jobs
+1. **Full integration**: Wire everything together in cron_jobs (booking_job and send_remainder)
+2. **Tests**: Add tests for notification service
 3. **Deployment**: Scaleway cloud deployment
 
 ---
@@ -37,12 +37,12 @@ src/
 ├── services/
 │   ├── __init__.py
 │   ├── paris_tennis.py      # Paris tennis website interaction [DONE]
-│   ├── captcha_solver.py    # 2Captcha integration [TODO]
-│   ├── notification.py      # Email/SMS notifications [TODO]
+│   ├── captcha_solver.py    # 2Captcha integration [DONE]
+│   ├── notification.py      # Email notifications [DONE]
 │   └── google_sheets.py     # GSheet data storage [DONE]
 ├── schedulers/
 │   ├── __init__.py
-│   └── cron_jobs.py         # booking_job, send_remainder [STUB]
+│   └── cron_jobs.py         # booking_job, send_remainder [DONE]
 └── utils/
     ├── __init__.py
     └── browser.py           # Selenium browser setup [DONE]
@@ -91,20 +91,21 @@ src/
 - [x] Add retry logic
 - [x] Add tests for captcha service (21 tests)
 
-### Phase 5: Notifications
+### Phase 5: Notifications (COMPLETED)
 **Goal**: Send booking confirmations and reminders
 
-- [ ] Create src/services/notification.py
-- [ ] Implement booking confirmation emails
-- [ ] Implement match day reminders (send_remainder job)
+- [x] Create src/services/notification.py
+- [x] Implement booking confirmation emails (French HTML emails)
+- [x] Implement match day reminders (send_remainder job)
+- [x] Implement booking failure notifications
 - [ ] Add tests for notification service
 
-### Phase 6: Full Integration
+### Phase 6: Full Integration (COMPLETED)
 **Goal**: End-to-end booking automation
 
-- [ ] Wire all services together in booking_job
-- [ ] Implement priority logic for facility preferences
-- [ ] Add booking history tracking
+- [x] Wire all services together in booking_job
+- [x] Implement priority logic for facility preferences
+- [x] Add booking history tracking
 - [ ] Add comprehensive integration tests
 
 ### Phase 7: Deployment
@@ -119,16 +120,22 @@ src/
 
 ## Next Action
 
-**Start Phase 5**: Implement notification service.
+**Start Phase 7**: Deployment to Scaleway cloud.
 
-Next step: Create `src/services/notification.py` with email sending capabilities.
+Next step: Create Dockerfile and docker-compose.yml for containerized deployment.
 
-Phase 4 is complete with:
-- CaptchaSolverService supporting reCAPTCHA v2/v3 and image CAPTCHAs
-- Automatic CAPTCHA detection and solving from page
-- Integration with Paris Tennis booking flow
-- Retry logic for failed solving attempts
-- 21 tests covering all CAPTCHA solver functionality
+Phase 6 is complete with:
+- booking_job(): Full booking workflow implementation
+  - Loads active requests from Google Sheets
+  - Filters eligible users with active subscriptions
+  - Processes requests for today's day of week
+  - Checks for pending bookings to avoid duplicates
+  - Logs into Paris Tennis, searches courts, books slots
+  - Handles CAPTCHA via integrated solver
+  - Sends notifications on success/failure
+- send_remainder(): Daily reminder job
+  - Loads today's bookings
+  - Sends reminders to users and partners
 
 ---
 
