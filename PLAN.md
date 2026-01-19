@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 184 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
+- [x] tests/ - 187 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -34,6 +34,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 8. **Numeric String day_of_week Parsing** - Fixed: The `BookingRequest.from_dict()` method failed to parse numeric strings like `"0"` or `"1"` for `day_of_week` (which Google Sheets may return). It only handled integer values and string enum names. Now tries to parse as integer first before falling back to enum name lookup.
 9. **Missing Time Boundary Validation** - Fixed: Per PRD section 5.1 "Time boundaries: Courts available from 8:00 to 22:00", the `BookingRequest.from_dict()` method now validates and clamps `time_start` and `time_end` to the valid booking hours (08:00-22:00). Invalid or empty times default to boundary values. If time_start > time_end, they are automatically swapped. Added `MIN_BOOKING_TIME` and `MAX_BOOKING_TIME` constants for clarity.
 10. **Time String Normalization Bug** - Fixed: The `is_time_in_range()` method used string comparison which failed for single-digit hour formats (e.g., "9:00" vs "08:00"). The Paris Tennis website may return times in "H:MM" format instead of "HH:MM", causing valid times like "9:00" to be incorrectly rejected. Added `normalize_time()` function that pads single-digit hours and minutes with leading zeros. Updated both `is_time_in_range()` and `_validate_time()` to use this normalization for consistent time comparisons.
+11. **Pending Booking Check Too Restrictive** - Fixed: The `has_pending_booking()` method in `google_sheets.py` was checking `booking.date >= today`, which incorrectly considered already-played bookings as "pending" on the same day. Per PRD section 5.1 "One active booking per user: Users cannot have multiple pending reservations", a booking that has already happened (end time has passed) should not prevent new bookings. Now the check properly considers: (1) future date bookings are pending, (2) today's bookings are only pending if the end time hasn't passed yet. This allows users to book for next week after their same-day booking has finished.
 
 ---
 

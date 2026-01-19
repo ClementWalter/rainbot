@@ -263,15 +263,36 @@ class GoogleSheetsService:
         """
         Check if a user has a pending booking (future booking).
 
+        A booking is considered "pending" if:
+        - The booking date is in the future (date > today), OR
+        - The booking is today AND the end time hasn't passed yet
+
         Args:
             user_id: The user's unique identifier
 
         Returns:
-            True if user has a future booking, False otherwise
+            True if user has a pending booking, False otherwise
         """
         today = today_paris()
+        now = now_paris()
+        current_time = now.strftime("%H:%M")
         user_bookings = self.get_bookings_for_user(user_id)
-        return any(b.date.date() >= today for b in user_bookings)
+
+        for booking in user_bookings:
+            booking_date = booking.date.date()
+            if booking_date > today:
+                # Future date - definitely pending
+                return True
+            if booking_date == today:
+                # Today's booking - check if end time has passed
+                # Normalize time_end for comparison (handle both "9:00" and "09:00")
+                from src.models.booking_request import normalize_time
+
+                booking_end = normalize_time(booking.time_end)
+                if booking_end and booking_end > current_time:
+                    return True
+
+        return False
 
     def _ensure_locks_sheet(self) -> gspread.Worksheet:
         """
