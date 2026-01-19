@@ -31,6 +31,15 @@ class GoogleSheetsConfig:
 
 
 @dataclass
+class ParisTennisConfig:
+    """Paris Tennis website configuration."""
+
+    base_url: str
+    login_url: str
+    search_url: str
+
+
+@dataclass
 class NotificationConfig:
     """Notification service configuration."""
 
@@ -48,6 +57,7 @@ class Settings:
     scheduler: SchedulerConfig
     captcha: CaptchaConfig
     google_sheets: GoogleSheetsConfig
+    paris_tennis: ParisTennisConfig
     notification: NotificationConfig
     debug: bool
 
@@ -67,6 +77,17 @@ def load_settings() -> Settings:
         google_sheets=GoogleSheetsConfig(
             credentials_file=os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json"),
             spreadsheet_id=os.getenv("GOOGLE_SPREADSHEET_ID", ""),
+        ),
+        paris_tennis=ParisTennisConfig(
+            base_url=os.getenv("PARIS_TENNIS_BASE_URL", "https://tennis.paris.fr"),
+            login_url=os.getenv(
+                "PARIS_TENNIS_LOGIN_URL",
+                "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=authentification",
+            ),
+            search_url=os.getenv(
+                "PARIS_TENNIS_SEARCH_URL",
+                "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=recherche",
+            ),
         ),
         notification=NotificationConfig(
             smtp_host=os.getenv("SMTP_HOST"),
