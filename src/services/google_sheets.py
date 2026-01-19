@@ -11,6 +11,7 @@ from src.config.settings import settings
 from src.models.booking import Booking
 from src.models.booking_request import BookingRequest
 from src.models.user import User
+from src.utils.timezone import now_paris, today_paris
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +269,7 @@ class GoogleSheetsService:
         Returns:
             True if user has a future booking, False otherwise
         """
-        today = datetime.now().date()
+        today = today_paris()
         user_bookings = self.get_bookings_for_user(user_id)
         return any(b.date.date() >= today for b in user_bookings)
 
@@ -306,7 +307,7 @@ class GoogleSheetsService:
         try:
             worksheet = self._ensure_locks_sheet()
             records = worksheet.get_all_records()
-            now = datetime.now()
+            now = now_paris()
 
             # Check for existing lock
             for idx, record in enumerate(records):
@@ -316,6 +317,11 @@ class GoogleSheetsService:
                     if locked_at_str:
                         try:
                             locked_at = datetime.fromisoformat(locked_at_str)
+                            # Handle naive datetime from old lock records by assuming Paris TZ
+                            if locked_at.tzinfo is None:
+                                from src.utils.timezone import PARIS_TZ
+
+                                locked_at = PARIS_TZ.localize(locked_at)
                             age_seconds = (now - locked_at).total_seconds()
                             if age_seconds < LOCK_TIMEOUT_SECONDS:
                                 # Lock is still valid

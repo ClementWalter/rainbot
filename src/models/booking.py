@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from src.utils.timezone import now_paris, today_paris
+
 
 @dataclass
 class Booking:
@@ -42,7 +44,7 @@ class Booking:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = now_paris()
 
     @classmethod
     def from_dict(cls, data: dict) -> "Booking":
@@ -84,5 +86,5 @@ class Booking:
         )
 
     def is_today(self) -> bool:
-        """Check if this booking is for today."""
-        return self.date.date() == datetime.now().date()
+        """Check if this booking is for today (in Paris timezone)."""
+        return self.date.date() == today_paris()

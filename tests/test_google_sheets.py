@@ -7,6 +7,7 @@ import pytest
 
 from src.models import Booking, BookingRequest, DayOfWeek, User
 from src.services.google_sheets import GoogleSheetsService
+from src.utils.timezone import now_paris
 
 
 class TestGoogleSheetsService:
@@ -316,8 +317,8 @@ class TestUserLocking:
     def test_acquire_lock_fails_when_user_already_locked(self, mock_service):
         """Test acquiring a lock fails when user is already locked."""
         mock_worksheet = MagicMock()
-        # Lock acquired 1 minute ago (still valid)
-        locked_at = datetime.now().isoformat()
+        # Lock acquired 1 minute ago (still valid) - use Paris timezone
+        locked_at = now_paris().isoformat()
         mock_worksheet.get_all_records.return_value = [
             {
                 "user_id": "user1",
@@ -335,8 +336,8 @@ class TestUserLocking:
     def test_acquire_lock_success_for_different_user(self, mock_service):
         """Test acquiring a lock for a different user succeeds."""
         mock_worksheet = MagicMock()
-        # User2 is locked, but we're trying to lock user1
-        locked_at = datetime.now().isoformat()
+        # User2 is locked, but we're trying to lock user1 - use Paris timezone
+        locked_at = now_paris().isoformat()
         mock_worksheet.get_all_records.return_value = [
             {
                 "user_id": "user2",

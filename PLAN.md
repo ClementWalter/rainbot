@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 148 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking)
+- [x] tests/ - 167 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -27,6 +27,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
 2. **Race Condition in Booking Job** - Fixed: Multiple booking job instances could run concurrently, causing duplicate bookings for the same user. Now uses a locking mechanism via Google Sheets `Locks` worksheet to prevent concurrent processing of the same user. Locks expire after 5 minutes to prevent deadlocks.
 3. **Partner Reminder Shows Wrong Name** - Fixed: When sending match day reminders to partners, the email incorrectly showed the partner's own name as who they were playing with, instead of the user's name. Now the `send_match_day_reminder` function accepts a `player_name` parameter to correctly display the user's name to partners.
+4. **Timezone Bug in Day-of-Week Filtering** - Fixed: The booking job used `datetime.now()` without timezone awareness, causing incorrect day-of-week detection when the server runs in UTC but users are in Paris timezone. Now uses Paris timezone consistently for all date/time comparisons.
 
 ---
 

@@ -7,7 +7,6 @@ This module contains the main scheduled tasks:
 
 import logging
 import uuid
-from datetime import datetime
 
 from src.models.booking import Booking
 from src.models.booking_request import BookingRequest
@@ -19,6 +18,7 @@ from src.services.paris_tennis import (
     CourtSlot,
     create_paris_tennis_session,
 )
+from src.utils.timezone import now_paris, today_weekday_paris
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +67,8 @@ def booking_job() -> None:
         ]
         logger.info(f"Processing {len(requests_to_process)} requests from eligible users")
 
-        # Get today's day of week
-        today_dow = datetime.now().weekday()
+        # Get today's day of week in Paris timezone
+        today_dow = today_weekday_paris()
 
         for request in requests_to_process:
             user = user_map.get(request.user_id)
@@ -232,7 +232,7 @@ def _create_booking_from_result(
         partner_name=request.partner_name,
         confirmation_id=result.confirmation_id,
         facility_address=slot.facility_address,
-        created_at=datetime.now(),
+        created_at=now_paris(),
     )
 
 
