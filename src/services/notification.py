@@ -186,6 +186,7 @@ class NotificationService:
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Centre :</strong></td>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.facility_name}</td>
                     </tr>
+                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Adresse :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.facility_address}</td></tr>' if booking.facility_address else ''}
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Court :</strong></td>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.court_number}</td>
@@ -260,6 +261,7 @@ class NotificationService:
                         <td style="padding: 8px 0;"><strong>📍 Centre :</strong></td>
                         <td style="padding: 8px 0;">{booking.facility_name}</td>
                     </tr>
+                    {f'<tr><td style="padding: 8px 0;"><strong>🗺️ Adresse :</strong></td><td style="padding: 8px 0;">{booking.facility_address}</td></tr>' if booking.facility_address else ''}
                     <tr>
                         <td style="padding: 8px 0;"><strong>🎾 Court :</strong></td>
                         <td style="padding: 8px 0;">{booking.court_number}</td>

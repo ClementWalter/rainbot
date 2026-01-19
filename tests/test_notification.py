@@ -477,6 +477,53 @@ class TestSendBookingConfirmation:
         # Check that the greeting is generic (just "Bonjour" without a name)
         assert "Bonjour," in body_html or ">Bonjour<" in body_html
 
+    @patch.object(NotificationService, "_send_email")
+    def test_send_booking_confirmation_with_facility_address(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test that booking confirmation includes facility address when available."""
+        booking_with_address = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TC001",
+            court_number="3",
+            date=datetime(2025, 1, 20),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Jean Dupont",
+            confirmation_id="CONF123456",
+            facility_address="15 Rue du Tennis, 75001 Paris",
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_confirmation(mock_user, booking_with_address)
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Check that the address is included in the email
+        assert "15 Rue du Tennis, 75001 Paris" in body_html
+        assert "Adresse" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_booking_confirmation_without_facility_address(
+        self, mock_send_email, configured_service, mock_user, mock_booking
+    ):
+        """Test that booking confirmation works when facility address is not available."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_confirmation(mock_user, mock_booking)
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Address row should not be present when no address is set
+        assert "Adresse :" not in body_html
+
 
 class TestSendMatchDayReminder:
     """Tests for the send_match_day_reminder method."""
@@ -578,6 +625,62 @@ class TestSendMatchDayReminder:
 
         # Should use default greeting
         assert "Bonjour," in body_html or "Bonjour</p>" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_reminder_with_facility_address(
+        self, mock_send_email, configured_service
+    ):
+        """Test that reminder includes facility address when available."""
+        booking_with_address = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TC001",
+            court_number="3",
+            date=datetime(2025, 1, 20),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Jean Dupont",
+            facility_address="15 Rue du Tennis, 75001 Paris",
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_match_day_reminder(
+            recipient_email="user@example.com",
+            recipient_name="Pierre Martin",
+            booking=booking_with_address,
+            is_partner=False,
+        )
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Check that the address is included in the email
+        assert "15 Rue du Tennis, 75001 Paris" in body_html
+        assert "Adresse" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_reminder_without_facility_address(
+        self, mock_send_email, configured_service, mock_booking
+    ):
+        """Test that reminder works when facility address is not available."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_match_day_reminder(
+            recipient_email="user@example.com",
+            recipient_name="Pierre Martin",
+            booking=mock_booking,
+            is_partner=False,
+        )
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Address row should not be present when no address is set
+        assert "Adresse" not in body_html
 
 
 class TestSendBookingFailureNotification:

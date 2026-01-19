@@ -44,6 +44,7 @@ class CourtSlot:
     time_end: str
     court_type: CourtType
     price: Optional[float] = None
+    facility_address: Optional[str] = None
 
 
 @dataclass
@@ -353,6 +354,7 @@ class ParisTennisService:
             time_end = element.get_attribute("data-end") or ""
             court_number = element.get_attribute("data-court") or ""
             facility_name = element.get_attribute("data-facility-name") or ""
+            facility_address = element.get_attribute("data-facility-address") or ""
 
             if not facility_code:
                 facility_code = element.get_attribute("data-facility") or ""
@@ -365,6 +367,7 @@ class ParisTennisService:
                 time_start=time_start,
                 time_end=time_end,
                 court_type=request.court_type,
+                facility_address=facility_address if facility_address else None,
             )
         except Exception as e:
             logger.debug(f"Failed to parse slot element: {e}")

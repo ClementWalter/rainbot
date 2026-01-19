@@ -215,6 +215,7 @@ def _create_booking_from_result(
         time_end=slot.time_end,
         partner_name=request.partner_name,
         confirmation_id=result.confirmation_id,
+        facility_address=slot.facility_address,
         created_at=datetime.now(),
     )
 

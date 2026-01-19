@@ -22,6 +22,7 @@ class Booking:
         time_end: End time of the reservation
         partner_name: Name of the playing partner
         confirmation_id: Confirmation ID from Paris Tennis
+        facility_address: Address of the tennis facility
         created_at: When this booking was made
     """
 
@@ -36,6 +37,7 @@ class Booking:
     time_end: str
     partner_name: Optional[str] = None
     confirmation_id: Optional[str] = None
+    facility_address: Optional[str] = None
     created_at: Optional[datetime] = None
 
     def __post_init__(self):
@@ -77,6 +79,7 @@ class Booking:
             time_end=str(data.get("time_end", "")),
             partner_name=data.get("partner_name"),
             confirmation_id=data.get("confirmation_id"),
+            facility_address=data.get("facility_address"),
             created_at=created_at,
         )
 

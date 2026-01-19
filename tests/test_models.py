@@ -177,6 +177,54 @@ class TestBooking:
         assert booking.partner_name == "Jane Doe"
         assert booking.confirmation_id == "CONF123"
 
+    def test_from_dict_with_facility_address(self):
+        """Test creating Booking with facility_address from dictionary."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": "2025-01-15T18:00:00",
+            "time_start": "18:00",
+            "time_end": "19:00",
+            "facility_address": "15 Rue du Tennis, 75001 Paris",
+        }
+        booking = Booking.from_dict(data)
+        assert booking.facility_address == "15 Rue du Tennis, 75001 Paris"
+
+    def test_booking_creation_with_facility_address(self):
+        """Test booking creation with facility_address."""
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TCP001",
+            court_number="3",
+            date=datetime(2025, 1, 15, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            facility_address="15 Rue du Tennis, 75001 Paris",
+        )
+        assert booking.facility_address == "15 Rue du Tennis, 75001 Paris"
+
+    def test_booking_facility_address_optional(self):
+        """Test that facility_address is optional and defaults to None."""
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TCP001",
+            court_number="3",
+            date=datetime(2025, 1, 15, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+        )
+        assert booking.facility_address is None
+
     def test_is_today(self):
         """Test checking if booking is for today."""
         today_booking = Booking(

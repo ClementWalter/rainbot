@@ -20,6 +20,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 ### Known Issues
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
+3. **Facility Address Extraction** - The `data-facility-address` attribute may need adjustment based on actual website structure.
 
 ---
 
@@ -148,7 +149,7 @@ Phase 6 is complete with:
 - User data is stored in Google Sheets (requires service account credentials)
 - CAPTCHA solving uses 2captcha-python library
 - Browser utility uses webdriver-manager for automatic ChromeDriver management
-- All 131 tests passing as of personalized notification greetings implementation
+- All tests passing as of facility address feature implementation
 
 ---
 
@@ -195,4 +196,5 @@ The spreadsheet should have three worksheets:
 | time_end | HH:MM format |
 | partner_name | Playing partner |
 | confirmation_id | Paris Tennis confirmation |
+| facility_address | Facility street address (for reminders) |
 | created_at | When booking was made |
