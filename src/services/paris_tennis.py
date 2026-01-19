@@ -24,6 +24,7 @@ from src.config.settings import settings
 from src.models.booking_request import BookingRequest, CourtType
 from src.services.captcha_solver import CaptchaSolverService, get_captcha_service
 from src.utils.browser import browser_session
+from src.utils.timezone import now_paris
 
 logger = logging.getLogger(__name__)
 
@@ -253,8 +254,8 @@ class ParisTennisService:
             return []
 
     def _get_next_booking_date(self, day_of_week: int) -> datetime:
-        """Get the next date for the given day of week."""
-        today = datetime.now()
+        """Get the next date for the given day of week in Paris timezone."""
+        today = now_paris()
         days_ahead = day_of_week - today.weekday()
         if days_ahead <= 0:  # Target day already happened this week
             days_ahead += 7

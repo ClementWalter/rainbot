@@ -12,6 +12,7 @@ from src.services.paris_tennis import (
     ParisTennisService,
     create_paris_tennis_session,
 )
+from src.utils.timezone import now_paris, PARIS_TZ
 
 
 @pytest.fixture
@@ -176,7 +177,7 @@ class TestParisTennisService:
 
     def test_get_next_booking_date_future(self, service):
         """Test getting next booking date when day is in future."""
-        today = datetime.now()
+        today = now_paris()
         # Get a day that's definitely in the future this week
         future_day = (today.weekday() + 3) % 7
         result = service._get_next_booking_date(future_day)
@@ -186,7 +187,7 @@ class TestParisTennisService:
 
     def test_get_next_booking_date_past(self, service):
         """Test getting next booking date when day has passed."""
-        today = datetime.now()
+        today = now_paris()
         # Get yesterday's day of week
         past_day = (today.weekday() - 1) % 7
         result = service._get_next_booking_date(past_day)
@@ -194,6 +195,21 @@ class TestParisTennisService:
         # Should be next week
         assert result.weekday() == past_day
         assert result.date() > today.date()
+
+    def test_get_next_booking_date_uses_paris_timezone(self, service):
+        """Test that _get_next_booking_date uses Paris timezone."""
+        with patch("src.services.paris_tennis.now_paris") as mock_now:
+            # Simulate a specific Paris time
+            mock_paris_time = datetime(2024, 3, 15, 10, 0, 0, tzinfo=PARIS_TZ)  # Friday
+            mock_now.return_value = mock_paris_time
+
+            # Request booking for Monday (day_of_week=0)
+            result = service._get_next_booking_date(0)
+
+            # Should be Monday, March 18, 2024
+            assert result.weekday() == 0
+            assert result.date() == datetime(2024, 3, 18).date()
+            mock_now.assert_called_once()
 
     def test_is_logged_in_true(self, service, mock_driver):
         """Test _is_logged_in returns True when user menu found."""
