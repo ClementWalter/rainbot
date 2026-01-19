@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from src.models import Booking, BookingRequest, CourtType, DayOfWeek, User
+from src.models import Booking, BookingRequest, CourtType, DayOfWeek, User, normalize_time
 
 
 class TestUser:
@@ -344,3 +344,118 @@ class TestEnums:
         """Test DayOfWeek enum values."""
         assert DayOfWeek.MONDAY.value == 0
         assert DayOfWeek.SUNDAY.value == 6
+
+
+class TestNormalizeTime:
+    """Tests for normalize_time function."""
+
+    def test_normalize_time_already_normalized(self):
+        """Test that already normalized times are unchanged."""
+        assert normalize_time("08:00") == "08:00"
+        assert normalize_time("09:30") == "09:30"
+        assert normalize_time("18:00") == "18:00"
+        assert normalize_time("22:00") == "22:00"
+
+    def test_normalize_time_single_digit_hour(self):
+        """Test normalization of single-digit hours."""
+        assert normalize_time("8:00") == "08:00"
+        assert normalize_time("9:00") == "09:00"
+        assert normalize_time("9:30") == "09:30"
+
+    def test_normalize_time_single_digit_minute(self):
+        """Test normalization of single-digit minutes."""
+        assert normalize_time("08:5") == "08:05"
+        assert normalize_time("9:5") == "09:05"
+
+    def test_normalize_time_with_whitespace(self):
+        """Test that whitespace is stripped."""
+        assert normalize_time(" 09:00 ") == "09:00"
+        assert normalize_time("9:00 ") == "09:00"
+
+    def test_normalize_time_invalid_returns_empty(self):
+        """Test that invalid times return empty string."""
+        assert normalize_time("") == ""
+        assert normalize_time("invalid") == ""
+        assert normalize_time("12") == ""
+        assert normalize_time(":30") == ""
+        assert normalize_time("12:") == ""
+        assert normalize_time("abc:def") == ""
+        assert normalize_time(None) == ""
+
+    def test_normalize_time_edge_cases(self):
+        """Test edge cases for time normalization."""
+        assert normalize_time("00:00") == "00:00"
+        assert normalize_time("0:0") == "00:00"
+        assert normalize_time("23:59") == "23:59"
+
+
+class TestTimeNormalizationInRange:
+    """Tests for time normalization in is_time_in_range."""
+
+    def test_is_time_in_range_with_single_digit_hour(self):
+        """Test that single-digit hours are correctly checked in range.
+
+        This is a critical bug fix: "9:00" should be considered within
+        the range [08:00, 20:00], but without normalization, string
+        comparison fails because "9" > "2" (comparing "9:00" > "20:00").
+        """
+        request = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="20:00",
+        )
+        # These should all be True with proper normalization
+        assert request.is_time_in_range("9:00") is True
+        assert request.is_time_in_range("8:00") is True
+        assert request.is_time_in_range("8:30") is True
+
+        # Out of range
+        assert request.is_time_in_range("7:59") is False
+        assert request.is_time_in_range("21:00") is False
+
+    def test_is_time_in_range_invalid_time_returns_false(self):
+        """Test that invalid time strings return False."""
+        request = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="20:00",
+        )
+        assert request.is_time_in_range("invalid") is False
+        assert request.is_time_in_range("") is False
+        assert request.is_time_in_range("12") is False
+
+
+class TestTimeValidationInFromDict:
+    """Tests for time validation/normalization in from_dict."""
+
+    def test_from_dict_normalizes_single_digit_hours(self):
+        """Test that single-digit hours are normalized to HH:MM format."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "9:00",  # Single digit
+            "time_end": "20:00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "09:00"  # Normalized
+        assert request.time_end == "20:00"
+
+    def test_from_dict_normalizes_both_times(self):
+        """Test that both time_start and time_end are normalized."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "9:00",  # Single digit
+            "time_end": "8:30",  # Single digit, will be swapped
+        }
+        request = BookingRequest.from_dict(data)
+        # After normalization: 09:00 and 08:30
+        # After swap: time_start=08:30, time_end=09:00
+        assert request.time_start == "08:30"
+        assert request.time_end == "09:00"

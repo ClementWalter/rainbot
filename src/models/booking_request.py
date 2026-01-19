@@ -9,6 +9,43 @@ MIN_BOOKING_TIME = "08:00"
 MAX_BOOKING_TIME = "22:00"
 
 
+def normalize_time(time_str: str) -> str:
+    """
+    Normalize a time string to HH:MM format.
+
+    This ensures consistent string comparison by padding single-digit hours
+    with a leading zero. For example, "9:00" becomes "09:00".
+
+    Args:
+        time_str: Time string in H:MM or HH:MM format
+
+    Returns:
+        Time string in HH:MM format, or empty string if invalid
+    """
+    if not time_str or ":" not in time_str:
+        return ""
+
+    time_str = str(time_str).strip()
+    parts = time_str.split(":")
+
+    if len(parts) != 2:
+        return ""
+
+    hour, minute = parts[0].strip(), parts[1].strip()
+
+    # Validate hour and minute are numeric
+    if not hour.isdigit() or not minute.isdigit():
+        return ""
+
+    # Pad single-digit hour with leading zero
+    hour = hour.zfill(2)
+
+    # Ensure minute is two digits
+    minute = minute.zfill(2)
+
+    return f"{hour}:{minute}"
+
+
 class CourtType(Enum):
     """Court surface/cover type preference."""
 
@@ -63,12 +100,16 @@ class BookingRequest:
         Check if a given time falls within the preferred range.
 
         Args:
-            time_str: Time in "HH:MM" format
+            time_str: Time in "H:MM" or "HH:MM" format
 
         Returns:
-            True if time is within [time_start, time_end]
+            True if time is within [time_start, time_end], False otherwise.
+            Returns False if time_str is invalid or cannot be normalized.
         """
-        return self.time_start <= time_str <= self.time_end
+        normalized = normalize_time(time_str)
+        if not normalized:
+            return False
+        return self.time_start <= normalized <= self.time_end
 
     @staticmethod
     def _validate_time(time_str: str, default: str) -> str:
@@ -76,27 +117,27 @@ class BookingRequest:
         Validate and normalize a time string to be within booking boundaries.
 
         Args:
-            time_str: Time in "HH:MM" format
+            time_str: Time in "H:MM" or "HH:MM" format
             default: Default time to use if invalid
 
         Returns:
-            Validated time string clamped to valid booking hours
+            Validated time string in HH:MM format, clamped to valid booking hours
         """
         if not time_str:
             return default
 
-        # Ensure proper format
-        time_str = str(time_str).strip()
-        if len(time_str) < 5 or ":" not in time_str:
+        # Normalize to HH:MM format (handles "9:00" -> "09:00")
+        normalized = normalize_time(str(time_str))
+        if not normalized:
             return default
 
         # Clamp to valid booking hours
-        if time_str < MIN_BOOKING_TIME:
+        if normalized < MIN_BOOKING_TIME:
             return MIN_BOOKING_TIME
-        if time_str > MAX_BOOKING_TIME:
+        if normalized > MAX_BOOKING_TIME:
             return MAX_BOOKING_TIME
 
-        return time_str
+        return normalized
 
     @classmethod
     def from_dict(cls, data: dict) -> "BookingRequest":
