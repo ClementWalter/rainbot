@@ -61,15 +61,26 @@ class Booking:
         """
         # Parse date
         date_value = data.get("date")
-        if isinstance(date_value, str):
-            date_value = datetime.fromisoformat(date_value)
+        if isinstance(date_value, str) and date_value:
+            try:
+                date_value = datetime.fromisoformat(date_value)
+            except ValueError:
+                date_value = now_paris()
         elif not isinstance(date_value, datetime):
             date_value = now_paris()
 
         # Parse created_at
         created_at = data.get("created_at")
         if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at)
+            if created_at:
+                try:
+                    created_at = datetime.fromisoformat(created_at)
+                except ValueError:
+                    created_at = None  # Will be set in __post_init__
+            else:
+                created_at = None  # Empty string - will be set in __post_init__
+        elif not isinstance(created_at, datetime):
+            created_at = None  # Invalid type - will be set in __post_init__
 
         return cls(
             id=str(data.get("id", "")),

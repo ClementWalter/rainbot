@@ -337,6 +337,80 @@ class TestBooking:
         )
         assert booking.partner_email is None
 
+    def test_from_dict_with_empty_date_string(self):
+        """Test creating Booking with empty date string defaults to now_paris()."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": "",  # Empty string
+            "time_start": "18:00",
+            "time_end": "19:00",
+        }
+        booking = Booking.from_dict(data)
+        # Should default to now_paris() instead of raising ValueError
+        assert booking.date is not None
+        assert isinstance(booking.date, datetime)
+
+    def test_from_dict_with_invalid_date_format(self):
+        """Test creating Booking with invalid date format defaults to now_paris()."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": "invalid-date-format",  # Invalid format
+            "time_start": "18:00",
+            "time_end": "19:00",
+        }
+        booking = Booking.from_dict(data)
+        # Should default to now_paris() instead of raising ValueError
+        assert booking.date is not None
+        assert isinstance(booking.date, datetime)
+
+    def test_from_dict_with_empty_created_at_string(self):
+        """Test creating Booking with empty created_at string."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": "2025-01-15T18:00:00",
+            "time_start": "18:00",
+            "time_end": "19:00",
+            "created_at": "",  # Empty string
+        }
+        booking = Booking.from_dict(data)
+        # Should default to now_paris() via __post_init__
+        assert booking.created_at is not None
+        assert isinstance(booking.created_at, datetime)
+
+    def test_from_dict_with_invalid_created_at_format(self):
+        """Test creating Booking with invalid created_at format."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": "2025-01-15T18:00:00",
+            "time_start": "18:00",
+            "time_end": "19:00",
+            "created_at": "invalid-datetime",  # Invalid format
+        }
+        booking = Booking.from_dict(data)
+        # Should default to now_paris() via __post_init__
+        assert booking.created_at is not None
+        assert isinstance(booking.created_at, datetime)
+
     def test_is_today(self):
         """Test checking if booking is for today."""
         today_booking = Booking(

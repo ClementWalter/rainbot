@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 192 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
+- [x] tests/ - 196 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -22,6 +22,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may need adjustment based on actual website structure.
 4. **Missing Integration Tests** - Phase 6 integration tests are incomplete.
+5. ~~**Empty Date String in Booking.from_dict** - If the date field in Google Sheets is empty, `datetime.fromisoformat("")` would raise a ValueError. Need to handle empty string case.~~ **FIXED**: Now handles empty strings and invalid date formats gracefully by defaulting to `now_paris()` for date and letting `__post_init__` handle created_at.
 
 ### Resolved Issues
 1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
@@ -37,6 +38,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 11. **Pending Booking Check Too Restrictive** - Fixed: The `has_pending_booking()` method in `google_sheets.py` was checking `booking.date >= today`, which incorrectly considered already-played bookings as "pending" on the same day. Per PRD section 5.1 "One active booking per user: Users cannot have multiple pending reservations", a booking that has already happened (end time has passed) should not prevent new bookings. Now the check properly considers: (1) future date bookings are pending, (2) today's bookings are only pending if the end time hasn't passed yet. This allows users to book for next week after their same-day booking has finished.
 12. **CAPTCHA Token JavaScript Injection Vulnerability** - Fixed: The `_inject_recaptcha_token()` method in `captcha_solver.py` was directly interpolating the token into JavaScript strings using f-strings (e.g., `textarea.value = '{token}'`). If the token contained single quotes, double quotes, backslashes, or newlines, this would break JavaScript execution and cause CAPTCHA solving to fail silently. Now uses `json.dumps()` to properly escape the token before embedding it in JavaScript, ensuring all special characters are safely handled.
 13. **Partner Email Not Stored in Booking** - Fixed: The `partner_email` was only stored in `BookingRequest`, not in `Booking`. The `send_reminder()` job relied on looking up the original booking request to get the partner's email for reminders. If a booking request was deleted or modified after booking, the partner reminder would fail. Now `partner_email` is stored directly on the `Booking` model and persisted to Google Sheets, ensuring reminders work correctly regardless of booking request changes.
+14. **Empty Date/Created_at String in Booking.from_dict** - Fixed: The `from_dict()` method in `booking.py` used `datetime.fromisoformat()` directly on string values without checking for empty strings or invalid formats, which would raise a ValueError and crash the application. Now properly handles empty strings, invalid date formats, and non-datetime types by defaulting to `now_paris()` for date and `None` (which triggers `__post_init__` to set `now_paris()`) for created_at.
 
 ---
 
