@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "When it rains, it pours"
 readme = "README.md"
 authors = [{ name = "Clément Walter", email = "clement0walter@gmail.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
   "2captcha-python>=1.5.1",
   "aiohttp>=3.11.16",
