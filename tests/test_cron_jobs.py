@@ -13,6 +13,7 @@ from src.schedulers.cron_jobs import (
     send_reminder,
 )
 from src.services.paris_tennis import BookingResult, CourtSlot
+from src.utils.timezone import now_paris, today_weekday_paris
 
 
 class TestBookingJob:
@@ -32,7 +33,7 @@ class TestBookingJob:
     @pytest.fixture
     def mock_booking_request(self):
         """Create a test booking request for today's day of week."""
-        today_dow = datetime.now().weekday()
+        today_dow = today_weekday_paris()
         return BookingRequest(
             id="req1",
             user_id="user1",
@@ -131,7 +132,7 @@ class TestBookingJob:
     ):
         """Test that booking job skips requests not for today."""
         # Create request for a different day
-        today_dow = datetime.now().weekday()
+        today_dow = today_weekday_paris()
         other_dow = (today_dow + 1) % 7
         request = BookingRequest(
             id="req1",
@@ -346,7 +347,7 @@ class TestSendReminder:
             facility_name="Tennis Club",
             facility_code="TC001",
             court_number="1",
-            date=datetime.now(),
+            date=now_paris(),
             time_start="18:00",
             time_end="19:00",
             partner_name="Partner Name",

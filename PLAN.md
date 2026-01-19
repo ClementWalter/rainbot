@@ -29,6 +29,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 3. **Partner Reminder Shows Wrong Name** - Fixed: When sending match day reminders to partners, the email incorrectly showed the partner's own name as who they were playing with, instead of the user's name. Now the `send_match_day_reminder` function accepts a `player_name` parameter to correctly display the user's name to partners.
 4. **Timezone Bug in Day-of-Week Filtering** - Fixed: The booking job used `datetime.now()` without timezone awareness, causing incorrect day-of-week detection when the server runs in UTC but users are in Paris timezone. Now uses Paris timezone consistently for all date/time comparisons.
 5. **Timezone Bug in _get_next_booking_date** - Fixed: The `_get_next_booking_date` method in `paris_tennis.py` used `datetime.now()` without timezone awareness, inconsistent with the rest of the codebase. Now uses `now_paris()` for consistent Paris timezone handling when calculating the next booking date.
+6. **Timezone Bug in Booking.from_dict()** - Fixed: The `from_dict()` method in `booking.py` used `datetime.now()` as a fallback for invalid date values, which was inconsistent with the Paris timezone used elsewhere. Now uses `now_paris()` for consistency. Also fixed tests in `test_cron_jobs.py` to use Paris timezone functions (`today_weekday_paris()`, `now_paris()`) instead of naive `datetime.now()` to prevent test flakiness in different timezones.
 
 ---
 

@@ -62,7 +62,7 @@ class Booking:
         if isinstance(date_value, str):
             date_value = datetime.fromisoformat(date_value)
         elif not isinstance(date_value, datetime):
-            date_value = datetime.now()
+            date_value = now_paris()
 
         # Parse created_at
         created_at = data.get("created_at")
