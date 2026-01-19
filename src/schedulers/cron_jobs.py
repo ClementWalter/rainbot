@@ -30,13 +30,17 @@ def booking_job() -> None:
     This job:
     1. Fetches all active booking requests from the data source
     2. For each eligible user (paid subscription, active request):
-       a. Checks if user already has a pending booking
-       b. Searches for available courts matching their preferences
-       c. Attempts to book the first matching court
-       d. Handles CAPTCHA verification
-       e. Sends confirmation notification on success
+       a. Acquires a lock to prevent concurrent processing
+       b. Checks if user already has a pending booking
+       c. Searches for available courts matching their preferences
+       d. Attempts to book the first matching court
+       e. Handles CAPTCHA verification
+       f. Sends confirmation notification on success
+       g. Releases the lock
     """
-    logger.info("Starting booking job")
+    # Generate unique job ID for this execution to manage locks
+    job_id = str(uuid.uuid4())
+    logger.info(f"Starting booking job (job_id: {job_id})")
 
     try:
         # Get services
@@ -80,21 +84,33 @@ def booking_job() -> None:
                 )
                 continue
 
-            # Check if user already has a pending booking
-            if sheets.has_pending_booking(user.id):
+            # Try to acquire lock for this user to prevent concurrent processing
+            if not sheets.acquire_user_lock(user.id, job_id):
                 logger.info(
-                    f"User {user.id} already has a pending booking, skipping request {request.id}"
+                    f"Could not acquire lock for user {user.id}, "
+                    f"skipping request {request.id} (another job is processing)"
                 )
                 continue
 
-            # Process this booking request
-            logger.info(f"Processing booking request {request.id} for user {user.id}")
-            _process_booking_request(user, request, sheets, notification)
+            try:
+                # Check if user already has a pending booking (after acquiring lock)
+                if sheets.has_pending_booking(user.id):
+                    logger.info(
+                        f"User {user.id} already has a pending booking, skipping request {request.id}"
+                    )
+                    continue
+
+                # Process this booking request
+                logger.info(f"Processing booking request {request.id} for user {user.id}")
+                _process_booking_request(user, request, sheets, notification)
+            finally:
+                # Always release the lock when done
+                sheets.release_user_lock(user.id, job_id)
 
     except Exception as e:
         logger.error(f"Booking job failed with error: {e}", exc_info=True)
 
-    logger.info("Booking job completed")
+    logger.info(f"Booking job completed (job_id: {job_id})")
 
 
 def _process_booking_request(

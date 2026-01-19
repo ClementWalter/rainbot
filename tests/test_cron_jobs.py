@@ -88,12 +88,14 @@ class TestBookingJob:
         """Test that booking job skips users with pending bookings."""
         mock_sheets.get_active_booking_requests.return_value = [mock_booking_request]
         mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.acquire_user_lock.return_value = True  # Lock acquired
         mock_sheets.has_pending_booking.return_value = True
 
         booking_job()
 
         mock_sheets.has_pending_booking.assert_called_with(mock_user.id)
         mock_process.assert_not_called()
+        mock_sheets.release_user_lock.assert_called()  # Lock should be released
 
     @patch("src.schedulers.cron_jobs._process_booking_request")
     @patch("src.schedulers.cron_jobs.sheets_service")
@@ -109,11 +111,13 @@ class TestBookingJob:
         """Test that booking job processes eligible requests."""
         mock_sheets.get_active_booking_requests.return_value = [mock_booking_request]
         mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.acquire_user_lock.return_value = True  # Lock acquired
         mock_sheets.has_pending_booking.return_value = False
 
         booking_job()
 
         mock_process.assert_called_once()
+        mock_sheets.release_user_lock.assert_called()  # Lock should be released
 
     @patch("src.schedulers.cron_jobs._process_booking_request")
     @patch("src.schedulers.cron_jobs.sheets_service")
@@ -143,6 +147,29 @@ class TestBookingJob:
         booking_job()
 
         mock_process.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_skips_when_lock_not_acquired(
+        self,
+        mock_notification,
+        mock_sheets,
+        mock_process,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test that booking job skips processing when lock cannot be acquired."""
+        mock_sheets.get_active_booking_requests.return_value = [mock_booking_request]
+        mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.acquire_user_lock.return_value = False  # Lock NOT acquired
+
+        booking_job()
+
+        mock_sheets.acquire_user_lock.assert_called()
+        mock_process.assert_not_called()
+        # Should not try to release lock we never acquired
+        mock_sheets.release_user_lock.assert_not_called()
 
 
 class TestProcessBookingRequest:

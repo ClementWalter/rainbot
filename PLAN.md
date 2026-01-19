@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 139 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs)
+- [x] tests/ - 148 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -21,9 +21,11 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may need adjustment based on actual website structure.
+4. **Missing Integration Tests** - Phase 6 integration tests are incomplete.
 
 ### Resolved Issues
 1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
+2. **Race Condition in Booking Job** - Fixed: Multiple booking job instances could run concurrently, causing duplicate bookings for the same user. Now uses a locking mechanism via Google Sheets `Locks` worksheet to prevent concurrent processing of the same user. Locks expire after 5 minutes to prevent deadlocks.
 
 ---
 
@@ -160,7 +162,7 @@ Phase 6 is complete with:
 
 ## Google Sheets Structure
 
-The spreadsheet should have three worksheets:
+The spreadsheet should have four worksheets:
 
 ### Users Sheet
 | Column | Description |
@@ -203,3 +205,12 @@ The spreadsheet should have three worksheets:
 | confirmation_id | Paris Tennis confirmation |
 | facility_address | Facility street address (for reminders) |
 | created_at | When booking was made |
+
+### Locks Sheet
+| Column | Description |
+|--------|-------------|
+| user_id | User currently being processed |
+| locked_at | ISO timestamp when lock was acquired |
+| locked_by | UUID of the job that holds the lock |
+
+**Note:** The Locks sheet is automatically created by the system if it doesn't exist. Locks expire after 5 minutes to prevent deadlocks if a job crashes.

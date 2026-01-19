@@ -24,6 +24,10 @@ SCOPES = [
 USERS_SHEET = "Users"
 BOOKING_REQUESTS_SHEET = "BookingRequests"
 BOOKINGS_SHEET = "Bookings"
+LOCKS_SHEET = "Locks"
+
+# Lock configuration
+LOCK_TIMEOUT_SECONDS = 300  # 5 minutes - locks expire after this time
 
 
 class GoogleSheetsService:
@@ -267,6 +271,123 @@ class GoogleSheetsService:
         today = datetime.now().date()
         user_bookings = self.get_bookings_for_user(user_id)
         return any(b.date.date() >= today for b in user_bookings)
+
+    def _ensure_locks_sheet(self) -> gspread.Worksheet:
+        """
+        Ensure the Locks worksheet exists, creating it if necessary.
+
+        Returns:
+            The Locks worksheet
+        """
+        spreadsheet = self._get_spreadsheet()
+        try:
+            return spreadsheet.worksheet(LOCKS_SHEET)
+        except gspread.WorksheetNotFound:
+            # Create the Locks sheet with headers
+            worksheet = spreadsheet.add_worksheet(title=LOCKS_SHEET, rows=100, cols=3)
+            worksheet.append_row(["user_id", "locked_at", "locked_by"])
+            logger.info("Created Locks worksheet")
+            return worksheet
+
+    def acquire_user_lock(self, user_id: str, job_id: str) -> bool:
+        """
+        Attempt to acquire a lock for processing a user's booking request.
+
+        This prevents multiple concurrent booking jobs from processing the same user,
+        which could result in duplicate bookings.
+
+        Args:
+            user_id: The user's unique identifier
+            job_id: Unique identifier for this job instance
+
+        Returns:
+            True if lock was acquired, False if user is already locked
+        """
+        try:
+            worksheet = self._ensure_locks_sheet()
+            records = worksheet.get_all_records()
+            now = datetime.now()
+
+            # Check for existing lock
+            for idx, record in enumerate(records):
+                if str(record.get("user_id", "")) == user_id:
+                    # Check if lock has expired
+                    locked_at_str = record.get("locked_at", "")
+                    if locked_at_str:
+                        try:
+                            locked_at = datetime.fromisoformat(locked_at_str)
+                            age_seconds = (now - locked_at).total_seconds()
+                            if age_seconds < LOCK_TIMEOUT_SECONDS:
+                                # Lock is still valid
+                                logger.debug(
+                                    f"User {user_id} is locked by {record.get('locked_by')}, "
+                                    f"age: {age_seconds:.0f}s"
+                                )
+                                return False
+                            # Lock has expired, update it
+                            logger.info(
+                                f"Expired lock for user {user_id} found, acquiring new lock"
+                            )
+                            row_num = idx + 2  # +2 for header and 0-based index
+                            worksheet.update_cell(row_num, 2, now.isoformat())
+                            worksheet.update_cell(row_num, 3, job_id)
+                            return True
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Invalid locked_at value: {locked_at_str}, error: {e}")
+                            # Treat invalid lock as expired
+                            row_num = idx + 2
+                            worksheet.update_cell(row_num, 2, now.isoformat())
+                            worksheet.update_cell(row_num, 3, job_id)
+                            return True
+
+            # No existing lock, create new one
+            worksheet.append_row([user_id, now.isoformat(), job_id])
+            logger.debug(f"Acquired lock for user {user_id}, job {job_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to acquire lock for user {user_id}: {e}")
+            # On error, don't proceed with booking to avoid duplicates
+            return False
+
+    def release_user_lock(self, user_id: str, job_id: str) -> bool:
+        """
+        Release a lock for a user.
+
+        Only the job that acquired the lock can release it.
+
+        Args:
+            user_id: The user's unique identifier
+            job_id: Unique identifier for this job instance
+
+        Returns:
+            True if lock was released, False otherwise
+        """
+        try:
+            worksheet = self._ensure_locks_sheet()
+            records = worksheet.get_all_records()
+
+            for idx, record in enumerate(records):
+                if str(record.get("user_id", "")) == user_id:
+                    if record.get("locked_by") == job_id:
+                        # Delete the row (idx + 2 for header and 0-based index)
+                        worksheet.delete_rows(idx + 2)
+                        logger.debug(f"Released lock for user {user_id}, job {job_id}")
+                        return True
+                    else:
+                        logger.warning(
+                            f"Lock for user {user_id} owned by {record.get('locked_by')}, "
+                            f"not {job_id}"
+                        )
+                        return False
+
+            # No lock found - this is fine, might have been released already
+            logger.debug(f"No lock found for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to release lock for user {user_id}: {e}")
+            return False
 
 
 # Global service instance

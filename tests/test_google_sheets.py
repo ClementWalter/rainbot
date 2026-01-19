@@ -277,3 +277,173 @@ class TestGoogleSheetsService:
 
         assert mock_service.has_pending_booking("user1") is True
         assert mock_service.has_pending_booking("user2") is False
+
+
+class TestUserLocking:
+    """Tests for user locking functionality to prevent race conditions."""
+
+    @pytest.fixture
+    def mock_service(self):
+        """Create a GoogleSheetsService with mocked gspread client."""
+        with patch("src.services.google_sheets.ServiceAccountCredentials") as mock_creds:
+            with patch("src.services.google_sheets.gspread") as mock_gspread:
+                service = GoogleSheetsService(
+                    credentials_file="test_creds.json",
+                    spreadsheet_id="test_spreadsheet_id",
+                )
+                # Setup mock client
+                mock_client = MagicMock()
+                mock_gspread.authorize.return_value = mock_client
+                mock_spreadsheet = MagicMock()
+                mock_client.open_by_key.return_value = mock_spreadsheet
+                service._mock_spreadsheet = mock_spreadsheet
+                yield service
+
+    def test_acquire_lock_success_no_existing_lock(self, mock_service):
+        """Test acquiring a lock when no lock exists."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = []
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.acquire_user_lock("user1", "job-123")
+
+        assert result is True
+        mock_worksheet.append_row.assert_called_once()
+        call_args = mock_worksheet.append_row.call_args[0][0]
+        assert call_args[0] == "user1"
+        assert call_args[2] == "job-123"
+
+    def test_acquire_lock_fails_when_user_already_locked(self, mock_service):
+        """Test acquiring a lock fails when user is already locked."""
+        mock_worksheet = MagicMock()
+        # Lock acquired 1 minute ago (still valid)
+        locked_at = datetime.now().isoformat()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "user_id": "user1",
+                "locked_at": locked_at,
+                "locked_by": "other-job-456",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.acquire_user_lock("user1", "job-123")
+
+        assert result is False
+        mock_worksheet.append_row.assert_not_called()
+
+    def test_acquire_lock_success_for_different_user(self, mock_service):
+        """Test acquiring a lock for a different user succeeds."""
+        mock_worksheet = MagicMock()
+        # User2 is locked, but we're trying to lock user1
+        locked_at = datetime.now().isoformat()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "user_id": "user2",
+                "locked_at": locked_at,
+                "locked_by": "other-job-456",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.acquire_user_lock("user1", "job-123")
+
+        assert result is True
+        mock_worksheet.append_row.assert_called_once()
+
+    def test_acquire_lock_success_when_existing_lock_expired(self, mock_service):
+        """Test acquiring a lock succeeds when existing lock has expired."""
+        mock_worksheet = MagicMock()
+        # Lock acquired 10 minutes ago (expired - timeout is 5 minutes)
+        from datetime import timedelta
+        expired_time = (datetime.now() - timedelta(minutes=10)).isoformat()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "user_id": "user1",
+                "locked_at": expired_time,
+                "locked_by": "old-job-456",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.acquire_user_lock("user1", "job-123")
+
+        assert result is True
+        # Should update the existing row, not append
+        mock_worksheet.update_cell.assert_called()
+
+    def test_release_lock_success(self, mock_service):
+        """Test releasing a lock owned by the job."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "user_id": "user1",
+                "locked_at": datetime.now().isoformat(),
+                "locked_by": "job-123",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.release_user_lock("user1", "job-123")
+
+        assert result is True
+        mock_worksheet.delete_rows.assert_called_once_with(2)  # Row 2 (header is row 1)
+
+    def test_release_lock_fails_when_owned_by_other_job(self, mock_service):
+        """Test releasing a lock fails when owned by different job."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "user_id": "user1",
+                "locked_at": datetime.now().isoformat(),
+                "locked_by": "other-job-456",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.release_user_lock("user1", "job-123")
+
+        assert result is False
+        mock_worksheet.delete_rows.assert_not_called()
+
+    def test_release_lock_success_when_no_lock_exists(self, mock_service):
+        """Test releasing a non-existent lock succeeds (idempotent)."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = []
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.release_user_lock("user1", "job-123")
+
+        assert result is True
+        mock_worksheet.delete_rows.assert_not_called()
+
+    def test_ensure_locks_sheet_creates_sheet_if_not_found(self):
+        """Test that _ensure_locks_sheet creates the sheet if it doesn't exist."""
+        import gspread
+        from gspread.exceptions import WorksheetNotFound
+
+        # Create a fresh service without patching gspread module completely
+        with patch("src.services.google_sheets.ServiceAccountCredentials"):
+            with patch("src.services.google_sheets.gspread.authorize") as mock_authorize:
+                service = GoogleSheetsService(
+                    credentials_file="test_creds.json",
+                    spreadsheet_id="test_spreadsheet_id",
+                )
+                mock_client = MagicMock()
+                mock_authorize.return_value = mock_client
+                mock_spreadsheet = MagicMock()
+                mock_client.open_by_key.return_value = mock_spreadsheet
+
+                mock_new_worksheet = MagicMock()
+                mock_spreadsheet.worksheet.side_effect = WorksheetNotFound("Locks")
+                mock_spreadsheet.add_worksheet.return_value = mock_new_worksheet
+
+                result = service._ensure_locks_sheet()
+
+                assert result == mock_new_worksheet
+                mock_spreadsheet.add_worksheet.assert_called_once_with(
+                    title="Locks", rows=100, cols=3
+                )
+                mock_new_worksheet.append_row.assert_called_once_with(
+                    ["user_id", "locked_at", "locked_by"]
+                )
