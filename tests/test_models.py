@@ -135,6 +135,18 @@ class TestBookingRequest:
         request = BookingRequest.from_dict(data)
         assert request.day_of_week == DayOfWeek.WEDNESDAY
 
+    def test_from_dict_with_numeric_string_day(self):
+        """Test creating BookingRequest with numeric string day_of_week (e.g., from Google Sheets)."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "4",  # Friday as string
+            "time_start": "10:00",
+            "time_end": "12:00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.day_of_week == DayOfWeek.FRIDAY
+
 
 class TestBooking:
     """Tests for Booking model."""

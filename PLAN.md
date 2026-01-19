@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 168 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
+- [x] tests/ - 169 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -31,6 +31,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 5. **Timezone Bug in _get_next_booking_date** - Fixed: The `_get_next_booking_date` method in `paris_tennis.py` used `datetime.now()` without timezone awareness, inconsistent with the rest of the codebase. Now uses `now_paris()` for consistent Paris timezone handling when calculating the next booking date.
 6. **Timezone Bug in Booking.from_dict()** - Fixed: The `from_dict()` method in `booking.py` used `datetime.now()` as a fallback for invalid date values, which was inconsistent with the Paris timezone used elsewhere. Now uses `now_paris()` for consistency. Also fixed tests in `test_cron_jobs.py` to use Paris timezone functions (`today_weekday_paris()`, `now_paris()`) instead of naive `datetime.now()` to prevent test flakiness in different timezones.
 7. **Test Assertion for Future Dates Only** - Fixed: The `test_get_next_booking_date_future` test had an overly permissive assertion that allowed same-day booking dates. Per PRD section 5.1 "Future dates only: Cannot book same-day courts", the test now correctly asserts that booking dates are strictly in the future (> today, not >= today).
+8. **Numeric String day_of_week Parsing** - Fixed: The `BookingRequest.from_dict()` method failed to parse numeric strings like `"0"` or `"1"` for `day_of_week` (which Google Sheets may return). It only handled integer values and string enum names. Now tries to parse as integer first before falling back to enum name lookup.
 
 ---
 
