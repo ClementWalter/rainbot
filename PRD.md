@@ -207,3 +207,13 @@ The Paris tennis booking platform requires CAPTCHA verification to complete rese
 | High demand, limited slots | User frustration | Set expectations, prioritize based on subscription tier |
 
 ---
+
+## 11. Technical Requirements
+
+The whole stack NEEDS to be deployed to Scaleway cloud. Use the Scaleway skill to understand how to deploy the stack.
+
+---
+
+## 12. Implementation Path
+
+TBD
