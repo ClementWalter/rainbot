@@ -3,30 +3,27 @@
 ## Current Status
 
 ### Summary
-Phase 1 is complete. The basic project structure is in place and main.py can now import its dependencies. The core business logic (booking, CAPTCHA, notifications) still needs implementation.
+Phase 2 (Data Layer) is complete. The data models and Google Sheets service are implemented and tested. The project can now read users, booking requests, and bookings from Google Sheets.
 
 ### What Exists
 - [x] PRD.md - Complete product requirements
 - [x] pyproject.toml - Dependencies configured (selenium, 2captcha, gspread, etc.)
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
-- [x] src/ - Basic structure with stub implementations
-- [x] tests/ - Basic structure tests
+- [x] src/ - Core structure with data models and Google Sheets service
+- [x] tests/ - Unit tests for models and services (27 tests passing)
 - [x] PLAN.md - This file
 
 ### Remaining Work
-1. **Data layer**: Google Sheets integration for user/booking data
-2. **Paris Tennis service**: Website automation with Selenium
-3. **CAPTCHA solving**: 2Captcha integration
-4. **Notifications**: Email confirmations and reminders
-5. **Full integration**: Wire everything together
-6. **Deployment**: Scaleway cloud deployment
+1. **Paris Tennis service**: Website automation with Selenium
+2. **CAPTCHA solving**: 2Captcha integration
+3. **Notifications**: Email confirmations and reminders
+4. **Full integration**: Wire everything together in cron_jobs
+5. **Deployment**: Scaleway cloud deployment
 
 ---
 
 ## Architecture Overview
-
-Based on the PRD and existing main.py, the architecture should be:
 
 ```
 src/
@@ -36,21 +33,21 @@ src/
 │   └── settings.py          # Environment variables, constants
 ├── models/
 │   ├── __init__.py
-│   ├── booking_request.py   # User booking preferences
-│   ├── booking.py           # Completed booking record
-│   └── user.py              # User credentials and info
+│   ├── booking_request.py   # User booking preferences [DONE]
+│   ├── booking.py           # Completed booking record [DONE]
+│   └── user.py              # User credentials and info [DONE]
 ├── services/
 │   ├── __init__.py
-│   ├── paris_tennis.py      # Paris tennis website interaction
-│   ├── captcha_solver.py    # 2Captcha integration
-│   ├── notification.py      # Email/SMS notifications
-│   └── google_sheets.py     # GSheet data storage
+│   ├── paris_tennis.py      # Paris tennis website interaction [TODO]
+│   ├── captcha_solver.py    # 2Captcha integration [TODO]
+│   ├── notification.py      # Email/SMS notifications [TODO]
+│   └── google_sheets.py     # GSheet data storage [DONE]
 ├── schedulers/
 │   ├── __init__.py
-│   └── cron_jobs.py         # booking_job, send_remainder
+│   └── cron_jobs.py         # booking_job, send_remainder [STUB]
 └── utils/
     ├── __init__.py
-    └── browser.py           # Selenium browser setup
+    └── browser.py           # Selenium browser setup [TODO]
 ```
 
 ---
@@ -67,16 +64,18 @@ src/
 - [x] Create basic tests to verify structure
 - [x] Fix pyproject.toml hatch build configuration
 
-### Phase 2: Data Layer (NEXT)
+### Phase 2: Data Layer (COMPLETED)
 **Goal**: User and booking request management via Google Sheets
 
-- [ ] Create src/services/google_sheets.py
-- [ ] Create src/models/booking_request.py
-- [ ] Create src/models/user.py
-- [ ] Implement reading user preferences from Google Sheets
-- [ ] Add tests for data layer
+- [x] Create src/models/user.py - User model with eligibility check
+- [x] Create src/models/booking_request.py - BookingRequest with time range and from_dict
+- [x] Create src/models/booking.py - Booking model with is_today check
+- [x] Create src/services/google_sheets.py - Full CRUD for users, requests, bookings
+- [x] Add tests/test_models.py - 13 tests for data models
+- [x] Add tests/test_google_sheets.py - 8 tests for sheets service
+- [x] Export models and services via __init__.py
 
-### Phase 3: Paris Tennis Integration
+### Phase 3: Paris Tennis Integration (NEXT)
 **Goal**: Interact with the Paris Tennis booking website
 
 - [ ] Create src/utils/browser.py (Selenium setup)
@@ -122,12 +121,12 @@ src/
 
 ## Next Action
 
-**Implement Phase 2**: Create the data layer with Google Sheets integration.
+**Implement Phase 3**: Create the Paris Tennis integration.
 
 This is the next priority because:
-1. The booking system needs to read user preferences and credentials
-2. It establishes where data comes from for all other services
-3. It's required before implementing the booking logic
+1. The core booking logic depends on interacting with the Paris Tennis website
+2. Data layer is ready to provide user credentials and booking preferences
+3. This is the most complex service and central to the product
 
 ---
 
@@ -137,5 +136,52 @@ This is the next priority because:
   - `booking_job` on interval (configurable via HOUR, MINUTE, SECOND env vars)
   - `booking_job` at 8:00 AM Paris time (every 2 seconds for first 10 seconds)
   - `send_remainder` at 2:00 AM Paris time daily
-- User data is likely stored in Google Sheets (gspread dependency)
+- User data is stored in Google Sheets (requires service account credentials)
 - CAPTCHA solving uses 2captcha-python library
+- All 27 tests passing as of Phase 2 completion
+
+---
+
+## Google Sheets Structure
+
+The spreadsheet should have three worksheets:
+
+### Users Sheet
+| Column | Description |
+|--------|-------------|
+| id | Unique user identifier |
+| email | User's notification email |
+| paris_tennis_email | Paris Tennis login email |
+| paris_tennis_password | Paris Tennis password |
+| subscription_active | true/false for subscription status |
+| phone | Optional phone number |
+
+### BookingRequests Sheet
+| Column | Description |
+|--------|-------------|
+| id | Unique request identifier |
+| user_id | Reference to user |
+| day_of_week | monday-sunday or 0-6 |
+| time_start | HH:MM format |
+| time_end | HH:MM format |
+| facility_preferences | Comma-separated facility codes |
+| court_type | indoor/outdoor/any |
+| partner_name | Playing partner's name |
+| partner_email | Partner's email for reminders |
+| active | true/false |
+
+### Bookings Sheet
+| Column | Description |
+|--------|-------------|
+| id | Unique booking identifier |
+| user_id | Reference to user |
+| request_id | Reference to booking request |
+| facility_name | Tennis facility name |
+| facility_code | Facility identifier |
+| court_number | Court number |
+| date | ISO format date |
+| time_start | HH:MM format |
+| time_end | HH:MM format |
+| partner_name | Playing partner |
+| confirmation_id | Paris Tennis confirmation |
+| created_at | When booking was made |
