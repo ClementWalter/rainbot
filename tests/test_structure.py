@@ -12,10 +12,10 @@ def test_import_src():
 
 def test_import_schedulers():
     """Verify schedulers module can be imported."""
-    from src.schedulers import booking_job, send_remainder
+    from src.schedulers import booking_job, send_reminder
 
     assert booking_job is not None
-    assert send_remainder is not None
+    assert send_reminder is not None
 
 
 def test_import_config():
@@ -34,12 +34,12 @@ def test_booking_job_runs():
     booking_job()
 
 
-def test_send_remainder_runs():
-    """Verify send_remainder function can be called."""
-    from src.schedulers.cron_jobs import send_remainder
+def test_send_reminder_runs():
+    """Verify send_reminder function can be called."""
+    from src.schedulers.cron_jobs import send_reminder
 
     # Should not raise an exception
-    send_remainder()
+    send_reminder()
 
 
 def test_settings_loads():

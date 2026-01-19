@@ -10,7 +10,7 @@ from src.schedulers.cron_jobs import (
     _create_booking_from_result,
     _process_booking_request,
     booking_job,
-    send_remainder,
+    send_reminder,
 )
 from src.services.paris_tennis import BookingResult, CourtSlot
 
@@ -294,8 +294,8 @@ class TestProcessBookingRequest:
         mock_notification.send_booking_failure_notification.assert_called_once()
 
 
-class TestSendRemainder:
-    """Tests for the send_remainder function."""
+class TestSendReminder:
+    """Tests for the send_reminder function."""
 
     @pytest.fixture
     def mock_user(self):
@@ -341,37 +341,37 @@ class TestSendRemainder:
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_remainder_not_configured(
+    def test_send_reminder_not_configured(
         self, mock_notification_func, mock_sheets
     ):
-        """Test send_remainder when notification service not configured."""
+        """Test send_reminder when notification service not configured."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = False
         mock_notification_func.return_value = mock_notification
 
-        send_remainder()
+        send_reminder()
 
         mock_sheets.get_todays_bookings.assert_not_called()
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_remainder_no_bookings(
+    def test_send_reminder_no_bookings(
         self, mock_notification_func, mock_sheets
     ):
-        """Test send_remainder with no bookings today."""
+        """Test send_reminder with no bookings today."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = True
         mock_notification_func.return_value = mock_notification
         mock_sheets.get_todays_bookings.return_value = []
 
-        send_remainder()
+        send_reminder()
 
         mock_sheets.get_todays_bookings.assert_called_once()
         mock_notification.send_match_day_reminder.assert_not_called()
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_remainder_sends_to_user(
+    def test_send_reminder_sends_to_user(
         self,
         mock_notification_func,
         mock_sheets,
@@ -379,7 +379,7 @@ class TestSendRemainder:
         mock_booking_today,
         mock_booking_request,
     ):
-        """Test send_remainder sends reminder to user."""
+        """Test send_reminder sends reminder to user."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = True
         mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
@@ -389,21 +389,21 @@ class TestSendRemainder:
         mock_sheets.get_all_users.return_value = [mock_user]
         mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
 
-        send_remainder()
+        send_reminder()
 
         # Should be called twice: once for user, once for partner
         assert mock_notification.send_match_day_reminder.call_count == 2
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_remainder_skips_partner_without_email(
+    def test_send_reminder_skips_partner_without_email(
         self,
         mock_notification_func,
         mock_sheets,
         mock_user,
         mock_booking_today,
     ):
-        """Test send_remainder skips partner when no email available."""
+        """Test send_reminder skips partner when no email available."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = True
         mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
@@ -425,7 +425,7 @@ class TestSendRemainder:
         mock_sheets.get_all_users.return_value = [mock_user]
         mock_sheets.get_all_booking_requests.return_value = [request_no_partner_email]
 
-        send_remainder()
+        send_reminder()
 
         # Should only be called once for the user
         mock_notification.send_match_day_reminder.assert_called_once()

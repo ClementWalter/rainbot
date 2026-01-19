@@ -2,7 +2,7 @@
 
 This module contains the main scheduled tasks:
 - booking_job: Attempts to book tennis courts for users with active requests
-- send_remainder: Sends reminders to users and partners on match day
+- send_reminder: Sends reminders to users and partners on match day
 """
 
 import logging
@@ -219,7 +219,7 @@ def _create_booking_from_result(
     )
 
 
-def send_remainder() -> None:
+def send_reminder() -> None:
     """
     Send match day reminders to users and their partners.
 

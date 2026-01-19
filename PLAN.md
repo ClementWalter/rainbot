@@ -15,7 +15,7 @@ Phase 5 (Notifications) is complete. The notification service has been implement
 - [x] PLAN.md - This file
 
 ### Remaining Work
-1. **Full integration**: Wire everything together in cron_jobs (booking_job and send_remainder)
+1. **Full integration**: Wire everything together in cron_jobs (booking_job and send_reminder)
 2. **Tests**: Add tests for notification service
 3. **Deployment**: Scaleway cloud deployment
 
@@ -42,7 +42,7 @@ src/
 │   └── google_sheets.py     # GSheet data storage [DONE]
 ├── schedulers/
 │   ├── __init__.py
-│   └── cron_jobs.py         # booking_job, send_remainder [DONE]
+│   └── cron_jobs.py         # booking_job, send_reminder [DONE]
 └── utils/
     ├── __init__.py
     └── browser.py           # Selenium browser setup [DONE]
@@ -57,7 +57,7 @@ src/
 
 - [x] Create src/__init__.py
 - [x] Create src/schedulers/__init__.py
-- [x] Create src/schedulers/cron_jobs.py with booking_job and send_remainder stubs
+- [x] Create src/schedulers/cron_jobs.py with booking_job and send_reminder stubs
 - [x] Create src/config/settings.py for environment variables
 - [x] Create basic tests to verify structure
 - [x] Fix pyproject.toml hatch build configuration
@@ -96,7 +96,7 @@ src/
 
 - [x] Create src/services/notification.py
 - [x] Implement booking confirmation emails (French HTML emails)
-- [x] Implement match day reminders (send_remainder job)
+- [x] Implement match day reminders (send_reminder job)
 - [x] Implement booking failure notifications
 - [x] Add tests for notification service (28 tests)
 
@@ -133,7 +133,7 @@ Phase 6 is complete with:
   - Logs into Paris Tennis, searches courts, books slots
   - Handles CAPTCHA via integrated solver
   - Sends notifications on success/failure
-- send_remainder(): Daily reminder job
+- send_reminder(): Daily reminder job
   - Loads today's bookings
   - Sends reminders to users and partners
 
@@ -144,7 +144,7 @@ Phase 6 is complete with:
 - The scheduler in main.py runs:
   - `booking_job` on interval (configurable via HOUR, MINUTE, SECOND env vars)
   - `booking_job` at 8:00 AM Paris time (every 2 seconds for first 10 seconds)
-  - `send_remainder` at 2:00 AM Paris time daily
+  - `send_reminder` at 2:00 AM Paris time daily
 - User data is stored in Google Sheets (requires service account credentials)
 - CAPTCHA solving uses 2captcha-python library
 - Browser utility uses webdriver-manager for automatic ChromeDriver management
