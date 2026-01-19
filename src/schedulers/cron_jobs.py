@@ -274,6 +274,25 @@ def _create_booking_from_result(
     )
 
 
+def cleanup_old_notifications() -> None:
+    """
+    Clean up old no-slots notification tracking records.
+
+    This job runs periodically to remove outdated records from the
+    NoSlotsNotifications sheet, keeping the spreadsheet manageable.
+    """
+    logger.info("Starting cleanup old notifications job")
+
+    try:
+        sheets = sheets_service
+        deleted_count = sheets.cleanup_old_no_slots_notifications(days_to_keep=7)
+        logger.info(f"Cleanup completed: removed {deleted_count} old notification records")
+    except Exception as e:
+        logger.error(f"Cleanup job failed with error: {e}", exc_info=True)
+
+    logger.info("Cleanup old notifications job completed")
+
+
 def send_reminder() -> None:
     """
     Send match day reminders to users and their partners.

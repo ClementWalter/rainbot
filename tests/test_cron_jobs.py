@@ -10,6 +10,7 @@ from src.schedulers.cron_jobs import (
     _create_booking_from_result,
     _process_booking_request,
     booking_job,
+    cleanup_old_notifications,
     send_reminder,
 )
 from src.services.paris_tennis import BookingResult, CourtSlot
@@ -599,3 +600,39 @@ class TestCreateBookingFromResult:
         assert booking.partner_email == request.partner_email
         assert booking.confirmation_id == result.confirmation_id
         assert booking.id is not None  # UUID generated
+
+
+class TestCleanupOldNotifications:
+    """Tests for the cleanup_old_notifications function."""
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    def test_cleanup_old_notifications_success(self, mock_sheets):
+        """Test cleanup job successfully removes old records."""
+        mock_sheets.cleanup_old_no_slots_notifications.return_value = 5
+
+        cleanup_old_notifications()
+
+        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once_with(
+            days_to_keep=7
+        )
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    def test_cleanup_old_notifications_no_records(self, mock_sheets):
+        """Test cleanup job when no old records exist."""
+        mock_sheets.cleanup_old_no_slots_notifications.return_value = 0
+
+        cleanup_old_notifications()
+
+        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once()
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    def test_cleanup_old_notifications_handles_error(self, mock_sheets):
+        """Test cleanup job handles errors gracefully."""
+        mock_sheets.cleanup_old_no_slots_notifications.side_effect = Exception(
+            "Google API error"
+        )
+
+        # Should not raise exception
+        cleanup_old_notifications()
+
+        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once()

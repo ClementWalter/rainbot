@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.schedulers.cron_jobs import booking_job, send_reminder
+from src.schedulers.cron_jobs import booking_job, cleanup_old_notifications, send_reminder
 from src.utils.timezone import PARIS_TZ
 
 http.client._MAXHEADERS = 1000  # type: ignore
@@ -39,4 +39,6 @@ if __name__ == "__main__":
         )
     # Schedule reminder job at 2:00 AM Paris time daily
     scheduler.add_job(send_reminder, "cron", hour=2)
+    # Schedule cleanup job at 3:00 AM Paris time daily (after reminders)
+    scheduler.add_job(cleanup_old_notifications, "cron", hour=3)
     scheduler.start()
