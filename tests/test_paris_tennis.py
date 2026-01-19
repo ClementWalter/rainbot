@@ -176,14 +176,15 @@ class TestParisTennisService:
             assert service._logged_in is False
 
     def test_get_next_booking_date_future(self, service):
-        """Test getting next booking date when day is in future."""
+        """Test getting next booking date when day is in future this week."""
         today = now_paris()
         # Get a day that's definitely in the future this week
         future_day = (today.weekday() + 3) % 7
         result = service._get_next_booking_date(future_day)
 
         assert result.weekday() == future_day
-        assert result.date() > today.date() or result.date() == today.date()
+        # PRD requires "Future dates only: Cannot book same-day courts"
+        assert result.date() > today.date()
 
     def test_get_next_booking_date_past(self, service):
         """Test getting next booking date when day has passed."""
