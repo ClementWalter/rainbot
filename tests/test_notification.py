@@ -429,6 +429,54 @@ class TestSendBookingConfirmation:
 
         assert result.success is True
 
+    @patch.object(NotificationService, "_send_email")
+    def test_send_booking_confirmation_with_user_name(
+        self, mock_send_email, configured_service, mock_booking
+    ):
+        """Test that booking confirmation uses personalized greeting with user name."""
+        user_with_name = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name="Pierre Martin",
+            subscription_active=True,
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_confirmation(user_with_name, mock_booking)
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Check that the greeting includes the user's name
+        assert "Bonjour Pierre Martin" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_booking_confirmation_without_user_name(
+        self, mock_send_email, configured_service, mock_booking
+    ):
+        """Test that booking confirmation uses generic greeting when user has no name."""
+        user_without_name = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name=None,
+            subscription_active=True,
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_confirmation(user_without_name, mock_booking)
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Check that the greeting is generic (just "Bonjour" without a name)
+        assert "Bonjour," in body_html or ">Bonjour<" in body_html
+
 
 class TestSendMatchDayReminder:
     """Tests for the send_match_day_reminder method."""
@@ -634,6 +682,50 @@ class TestSendBookingFailureNotification:
         assert "CAPTCHA solving failed" in body_html
         assert "Tennis Club Paris" in body_html
         assert "2025-01-20" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_failure_notification_with_user_name(
+        self, mock_send_email, configured_service
+    ):
+        """Test that failure notification uses personalized greeting with user name."""
+        user_with_name = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name="Marie Curie",
+            subscription_active=True,
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_failure_notification(
+            user=user_with_name,
+            error_message="No courts available",
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+
+        # Check that the greeting includes the user's name
+        assert "Bonjour Marie Curie" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_failure_notification_without_user_name(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test that failure notification uses generic greeting when user has no name."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_failure_notification(
+            user=mock_user,
+            error_message="No courts available",
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+
+        # Check that the greeting is generic (just "Bonjour" without a name)
+        assert "Bonjour," in body_html or ">Bonjour<" in body_html
 
 
 class TestGetNotificationService:

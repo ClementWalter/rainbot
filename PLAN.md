@@ -11,17 +11,15 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 125 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs)
+- [x] tests/ - 131 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs)
 - [x] PLAN.md - This file
 
 ### Remaining Work
-1. **Bug Fix - User name in notifications**: Add `name` field to User model for personalized email greetings
-2. **Deployment**: Scaleway cloud deployment (Docker, docker-compose)
+1. **Deployment**: Scaleway cloud deployment (Docker, docker-compose)
 
 ### Known Issues
-1. **User Model Missing Name Field** - The User model has no `name` field, so reminder emails use generic "Bonjour" greetings instead of personalized ones. The PRD requires personalized notifications.
-2. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
-3. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
+1. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
+2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
 
 ---
 
@@ -124,9 +122,7 @@ src/
 
 ## Next Action
 
-**Priority Fix**: Add `name` field to User model and use it for personalized email reminders.
-
-This addresses PRD requirement for personalized notifications. After this fix, proceed to Phase 7 (Deployment).
+**Next Step**: Proceed to Phase 7 (Deployment) - Create Dockerfile and docker-compose.yml for Scaleway cloud deployment.
 
 Phase 6 is complete with:
 - booking_job(): Full booking workflow implementation
@@ -152,7 +148,7 @@ Phase 6 is complete with:
 - User data is stored in Google Sheets (requires service account credentials)
 - CAPTCHA solving uses 2captcha-python library
 - Browser utility uses webdriver-manager for automatic ChromeDriver management
-- All 125 tests passing as of Phase 5 notification service tests implementation
+- All 131 tests passing as of personalized notification greetings implementation
 
 ---
 

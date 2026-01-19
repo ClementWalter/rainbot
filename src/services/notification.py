@@ -160,12 +160,14 @@ class NotificationService:
         """
         subject = f"🎾 RainBot - Réservation confirmée pour le {booking.date.strftime('%d/%m/%Y')}"
 
+        greeting = f"Bonjour {user.name}" if user.name else "Bonjour"
+
         body_html = f"""
         <html>
         <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #2e7d32;">✅ Réservation confirmée !</h2>
 
-            <p>Bonjour,</p>
+            <p>{greeting},</p>
 
             <p>Votre réservation de tennis a été effectuée avec succès.</p>
 
@@ -312,6 +314,8 @@ class NotificationService:
         """
         subject = "🎾 RainBot - Échec de réservation"
 
+        greeting = f"Bonjour {user.name}" if user.name else "Bonjour"
+
         details = ""
         if facility_name:
             details += f"<li>Centre demandé : {facility_name}</li>"
@@ -323,7 +327,7 @@ class NotificationService:
         <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #d32f2f;">❌ Réservation non effectuée</h2>
 
-            <p>Bonjour,</p>
+            <p>{greeting},</p>
 
             <p>Malheureusement, nous n'avons pas pu effectuer votre réservation de tennis.</p>
 
