@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 131 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs)
+- [x] tests/ - 139 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -21,6 +21,9 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may need adjustment based on actual website structure.
+
+### Resolved Issues
+1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
 
 ---
 

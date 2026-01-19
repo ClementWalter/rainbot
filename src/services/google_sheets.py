@@ -242,6 +242,7 @@ class GoogleSheetsService:
                 booking.time_end,
                 booking.partner_name or "",
                 booking.confirmation_id or "",
+                booking.facility_address or "",
                 booking.created_at.isoformat()
                 if isinstance(booking.created_at, datetime)
                 else str(booking.created_at),

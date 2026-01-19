@@ -187,6 +187,39 @@ class TestGoogleSheetsService:
 
         assert result is True
         mock_worksheet.append_row.assert_called_once()
+        # Verify the row content
+        row = mock_worksheet.append_row.call_args[0][0]
+        assert row[0] == "book1"  # id
+        assert row[10] == "CONF123"  # confirmation_id
+        assert row[11] == ""  # facility_address (empty string when None)
+
+    def test_add_booking_with_facility_address(self, mock_service):
+        """Test adding a booking with facility_address."""
+        mock_worksheet = MagicMock()
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club",
+            facility_code="TC001",
+            court_number="1",
+            date=datetime(2025, 1, 15, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Partner",
+            confirmation_id="CONF123",
+            facility_address="123 Rue de Tennis, 75001 Paris",
+        )
+
+        result = mock_service.add_booking(booking)
+
+        assert result is True
+        mock_worksheet.append_row.assert_called_once()
+        # Verify facility_address is saved in the row
+        row = mock_worksheet.append_row.call_args[0][0]
+        assert row[11] == "123 Rue de Tennis, 75001 Paris"
 
     def test_get_bookings_for_user(self, mock_service):
         """Test fetching bookings for specific user."""
