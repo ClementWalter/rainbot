@@ -265,7 +265,7 @@ def send_reminder() -> None:
             logger.info(f"Sending reminder to user {user.email} for booking {booking.id}")
             user_result = notification.send_match_day_reminder(
                 recipient_email=user.email,
-                recipient_name=None,  # Use default greeting
+                recipient_name=user.name,
                 booking=booking,
                 is_partner=False,
             )

@@ -11,6 +11,7 @@ class User:
 
     Attributes:
         id: Unique identifier for the user
+        name: User's display name (for personalized notifications)
         email: User's email address (used for notifications)
         paris_tennis_email: Email used for Paris Tennis account login
         paris_tennis_password: Password for Paris Tennis account
@@ -22,6 +23,7 @@ class User:
     email: str
     paris_tennis_email: str
     paris_tennis_password: str
+    name: Optional[str] = None
     subscription_active: bool = True
     phone: Optional[str] = None
 

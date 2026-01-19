@@ -3,7 +3,7 @@
 ## Current Status
 
 ### Summary
-Phase 5 (Notifications) is complete. The notification service has been implemented with email sending for booking confirmations, reminders, and failure notifications.
+Phase 6 (Full Integration) is complete. All core booking functionality is implemented with the booking workflow, CAPTCHA solving, and notifications working together.
 
 ### What Exists
 - [x] PRD.md - Complete product requirements
@@ -11,13 +11,17 @@ Phase 5 (Notifications) is complete. The notification service has been implement
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - Unit tests for models, services, browser, Paris Tennis, and CAPTCHA solver
+- [x] tests/ - 125 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs)
 - [x] PLAN.md - This file
 
 ### Remaining Work
-1. **Full integration**: Wire everything together in cron_jobs (booking_job and send_reminder)
-2. **Tests**: Add tests for notification service
-3. **Deployment**: Scaleway cloud deployment
+1. **Bug Fix - User name in notifications**: Add `name` field to User model for personalized email greetings
+2. **Deployment**: Scaleway cloud deployment (Docker, docker-compose)
+
+### Known Issues
+1. **User Model Missing Name Field** - The User model has no `name` field, so reminder emails use generic "Bonjour" greetings instead of personalized ones. The PRD requires personalized notifications.
+2. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
+3. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
 
 ---
 
@@ -120,9 +124,9 @@ src/
 
 ## Next Action
 
-**Start Phase 7**: Deployment to Scaleway cloud.
+**Priority Fix**: Add `name` field to User model and use it for personalized email reminders.
 
-Next step: Create Dockerfile and docker-compose.yml for containerized deployment.
+This addresses PRD requirement for personalized notifications. After this fix, proceed to Phase 7 (Deployment).
 
 Phase 6 is complete with:
 - booking_job(): Full booking workflow implementation
@@ -160,6 +164,7 @@ The spreadsheet should have three worksheets:
 | Column | Description |
 |--------|-------------|
 | id | Unique user identifier |
+| name | User's display name (for personalized emails) |
 | email | User's notification email |
 | paris_tennis_email | Paris Tennis login email |
 | paris_tennis_password | Paris Tennis password |

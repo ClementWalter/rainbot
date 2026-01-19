@@ -20,7 +20,21 @@ class TestUser:
         )
         assert user.id == "user1"
         assert user.email == "test@example.com"
+        assert user.name is None  # default
         assert user.subscription_active is True  # default
+
+    def test_user_creation_with_name(self):
+        """Test user creation with name field."""
+        user = User(
+            id="user1",
+            email="test@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="secret123",
+            name="Jean Dupont",
+        )
+        assert user.id == "user1"
+        assert user.name == "Jean Dupont"
+        assert user.email == "test@example.com"
 
     def test_user_is_eligible_with_active_subscription(self):
         """Test user eligibility with active subscription."""

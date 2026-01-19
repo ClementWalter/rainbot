@@ -299,12 +299,13 @@ class TestSendReminder:
 
     @pytest.fixture
     def mock_user(self):
-        """Create a test user."""
+        """Create a test user with name."""
         return User(
             id="user1",
             email="user@example.com",
             paris_tennis_email="tennis@example.com",
             paris_tennis_password="password123",
+            name="Jean Dupont",
             subscription_active=True,
         )
 
@@ -393,6 +394,34 @@ class TestSendReminder:
 
         # Should be called twice: once for user, once for partner
         assert mock_notification.send_match_day_reminder.call_count == 2
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_send_reminder_uses_user_name(
+        self,
+        mock_notification_func,
+        mock_sheets,
+        mock_user,
+        mock_booking_today,
+        mock_booking_request,
+    ):
+        """Test send_reminder uses user's name for personalized greeting."""
+        mock_notification = MagicMock()
+        mock_notification.is_configured.return_value = True
+        mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
+        mock_notification_func.return_value = mock_notification
+
+        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_sheets.get_all_users.return_value = [mock_user]
+        mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
+
+        send_reminder()
+
+        # First call should be for the user with their name
+        user_call = mock_notification.send_match_day_reminder.call_args_list[0]
+        assert user_call.kwargs["recipient_email"] == mock_user.email
+        assert user_call.kwargs["recipient_name"] == mock_user.name
+        assert user_call.kwargs["is_partner"] is False
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")

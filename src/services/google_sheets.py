@@ -31,7 +31,7 @@ class GoogleSheetsService:
     Service for interacting with Google Sheets data store.
 
     Expected spreadsheet structure:
-    - Users sheet: id, email, paris_tennis_email, paris_tennis_password, subscription_active, phone
+    - Users sheet: id, name, email, paris_tennis_email, paris_tennis_password, subscription_active, phone
     - BookingRequests sheet: id, user_id, day_of_week, time_start, time_end,
                              facility_preferences, court_type, partner_name, partner_email, active
     - Bookings sheet: id, user_id, request_id, facility_name, facility_code, court_number,
@@ -94,6 +94,7 @@ class GoogleSheetsService:
                         email=str(record.get("email", "")),
                         paris_tennis_email=str(record.get("paris_tennis_email", "")),
                         paris_tennis_password=str(record.get("paris_tennis_password", "")),
+                        name=record.get("name") or None,
                         subscription_active=record.get("subscription_active", True)
                         in (True, "true", "True", "1", 1),
                         phone=record.get("phone") or None,
