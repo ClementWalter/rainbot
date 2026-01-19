@@ -320,6 +320,28 @@ class TestInjectRecaptchaToken:
         # Should not raise, just log warning
         service._inject_recaptcha_token(mock_driver, "test-token")
 
+    def test_inject_token_with_special_characters(self, service, mock_driver):
+        """Test token injection properly escapes special characters."""
+        # Token with single quotes, double quotes, and backslashes
+        token_with_quotes = "token'with\"special\\chars"
+        service._inject_recaptcha_token(mock_driver, token_with_quotes)
+
+        mock_driver.execute_script.assert_called_once()
+        call_args = mock_driver.execute_script.call_args[0][0]
+        # The token should be JSON-escaped (wrapped in double quotes with escapes)
+        assert '"token\'with\\"special\\\\chars"' in call_args
+
+    def test_inject_token_with_newlines(self, service, mock_driver):
+        """Test token injection properly escapes newlines."""
+        token_with_newline = "token\nwith\rnewlines"
+        service._inject_recaptcha_token(mock_driver, token_with_newline)
+
+        mock_driver.execute_script.assert_called_once()
+        call_args = mock_driver.execute_script.call_args[0][0]
+        # Newlines should be escaped as \n and \r in the JSON string
+        assert "\\n" in call_args
+        assert "\\r" in call_args
+
 
 class TestGetCaptchaService:
     """Tests for get_captcha_service function."""

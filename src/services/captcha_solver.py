@@ -4,6 +4,7 @@ This module provides functionality to solve various types of CAPTCHAs
 encountered on the Paris Tennis booking website.
 """
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -321,25 +322,28 @@ class CaptchaSolverService:
     def _inject_recaptcha_token(self, driver: WebDriver, token: str) -> None:
         """Inject the solved reCAPTCHA token into the page."""
         try:
+            # Escape token for safe JavaScript string injection
+            escaped_token = json.dumps(token)
             # Standard g-recaptcha-response textarea
             driver.execute_script(
                 f"""
+                var token = {escaped_token};
                 var textarea = document.getElementById('g-recaptcha-response');
                 if (textarea) {{
-                    textarea.innerHTML = '{token}';
-                    textarea.value = '{token}';
+                    textarea.innerHTML = token;
+                    textarea.value = token;
                 }}
                 // Also try hidden input
                 var hiddenInputs = document.querySelectorAll('input[name="g-recaptcha-response"]');
                 hiddenInputs.forEach(function(input) {{
-                    input.value = '{token}';
+                    input.value = token;
                 }});
                 // Trigger callback if exists
                 if (typeof ___grecaptcha_cfg !== 'undefined') {{
                     for (var key in ___grecaptcha_cfg.clients) {{
                         var client = ___grecaptcha_cfg.clients[key];
                         if (client && client.hl && client.hl.l) {{
-                            client.hl.l.callback('{token}');
+                            client.hl.l.callback(token);
                         }}
                     }}
                 }}
