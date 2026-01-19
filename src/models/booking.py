@@ -23,6 +23,7 @@ class Booking:
         time_start: Start time of the reservation
         time_end: End time of the reservation
         partner_name: Name of the playing partner
+        partner_email: Email of the playing partner (for reminders)
         confirmation_id: Confirmation ID from Paris Tennis
         facility_address: Address of the tennis facility
         created_at: When this booking was made
@@ -38,6 +39,7 @@ class Booking:
     time_start: str
     time_end: str
     partner_name: Optional[str] = None
+    partner_email: Optional[str] = None
     confirmation_id: Optional[str] = None
     facility_address: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -80,6 +82,7 @@ class Booking:
             time_start=str(data.get("time_start", "")),
             time_end=str(data.get("time_end", "")),
             partner_name=data.get("partner_name"),
+            partner_email=data.get("partner_email"),
             confirmation_id=data.get("confirmation_id"),
             facility_address=data.get("facility_address"),
             created_at=created_at,

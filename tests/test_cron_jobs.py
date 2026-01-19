@@ -351,6 +351,7 @@ class TestSendReminder:
             time_start="18:00",
             time_end="19:00",
             partner_name="Partner Name",
+            partner_email="partner@example.com",
             confirmation_id="CONF123",
         )
 
@@ -406,7 +407,6 @@ class TestSendReminder:
         mock_sheets,
         mock_user,
         mock_booking_today,
-        mock_booking_request,
     ):
         """Test send_reminder sends reminder to user."""
         mock_notification = MagicMock()
@@ -416,11 +416,11 @@ class TestSendReminder:
 
         mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
         mock_sheets.get_all_users.return_value = [mock_user]
-        mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
 
         send_reminder()
 
         # Should be called twice: once for user, once for partner
+        # partner_email is now stored on the booking itself
         assert mock_notification.send_match_day_reminder.call_count == 2
 
     @patch("src.schedulers.cron_jobs.sheets_service")
@@ -431,7 +431,6 @@ class TestSendReminder:
         mock_sheets,
         mock_user,
         mock_booking_today,
-        mock_booking_request,
     ):
         """Test send_reminder uses user's name for personalized greeting."""
         mock_notification = MagicMock()
@@ -441,7 +440,6 @@ class TestSendReminder:
 
         mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
         mock_sheets.get_all_users.return_value = [mock_user]
-        mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
 
         send_reminder()
 
@@ -459,7 +457,6 @@ class TestSendReminder:
         mock_sheets,
         mock_user,
         mock_booking_today,
-        mock_booking_request,
     ):
         """Test send_reminder passes user's name as player_name when sending to partner."""
         mock_notification = MagicMock()
@@ -469,13 +466,13 @@ class TestSendReminder:
 
         mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
         mock_sheets.get_all_users.return_value = [mock_user]
-        mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
 
         send_reminder()
 
         # Second call should be for the partner, with user's name as player_name
+        # partner_email is now stored on the booking itself
         partner_call = mock_notification.send_match_day_reminder.call_args_list[1]
-        assert partner_call.kwargs["recipient_email"] == mock_booking_request.partner_email
+        assert partner_call.kwargs["recipient_email"] == mock_booking_today.partner_email
         assert partner_call.kwargs["is_partner"] is True
         assert partner_call.kwargs["player_name"] == mock_user.name
 
@@ -486,7 +483,6 @@ class TestSendReminder:
         mock_notification_func,
         mock_sheets,
         mock_user,
-        mock_booking_today,
     ):
         """Test send_reminder skips partner when no email available."""
         mock_notification = MagicMock()
@@ -494,21 +490,24 @@ class TestSendReminder:
         mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
         mock_notification_func.return_value = mock_notification
 
-        # Request without partner email
-        request_no_partner_email = BookingRequest(
-            id="req1",
+        # Booking without partner email
+        booking_no_partner_email = Booking(
+            id="book1",
             user_id="user1",
-            day_of_week=DayOfWeek.MONDAY,
+            request_id="req1",
+            facility_name="Tennis Club",
+            facility_code="TC001",
+            court_number="1",
+            date=now_paris(),
             time_start="18:00",
-            time_end="20:00",
+            time_end="19:00",
             partner_name="Partner Name",
-            partner_email=None,  # No email
-            active=True,
+            partner_email=None,  # No email stored on booking
+            confirmation_id="CONF123",
         )
 
-        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_sheets.get_todays_bookings.return_value = [booking_no_partner_email]
         mock_sheets.get_all_users.return_value = [mock_user]
-        mock_sheets.get_all_booking_requests.return_value = [request_no_partner_email]
 
         send_reminder()
 
@@ -535,6 +534,7 @@ class TestCreateBookingFromResult:
             time_start="18:00",
             time_end="20:00",
             partner_name="Partner Name",
+            partner_email="partner@example.com",
             active=True,
         )
         slot = CourtSlot(
@@ -562,5 +562,6 @@ class TestCreateBookingFromResult:
         assert booking.time_start == slot.time_start
         assert booking.time_end == slot.time_end
         assert booking.partner_name == request.partner_name
+        assert booking.partner_email == request.partner_email
         assert booking.confirmation_id == result.confirmation_id
         assert booking.id is not None  # UUID generated

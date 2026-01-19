@@ -302,6 +302,41 @@ class TestBooking:
         )
         assert booking.facility_address is None
 
+    def test_from_dict_with_partner_email(self):
+        """Test creating Booking with partner_email from dictionary."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": "2025-01-15T18:00:00",
+            "time_start": "18:00",
+            "time_end": "19:00",
+            "partner_name": "Jane Doe",
+            "partner_email": "jane@example.com",
+        }
+        booking = Booking.from_dict(data)
+        assert booking.partner_name == "Jane Doe"
+        assert booking.partner_email == "jane@example.com"
+
+    def test_booking_partner_email_optional(self):
+        """Test that partner_email is optional and defaults to None."""
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TCP001",
+            court_number="3",
+            date=datetime(2025, 1, 15, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Jane Doe",
+        )
+        assert booking.partner_email is None
+
     def test_is_today(self):
         """Test checking if booking is for today."""
         today_booking = Booking(

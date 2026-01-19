@@ -40,7 +40,8 @@ class GoogleSheetsService:
     - BookingRequests sheet: id, user_id, day_of_week, time_start, time_end,
                              facility_preferences, court_type, partner_name, partner_email, active
     - Bookings sheet: id, user_id, request_id, facility_name, facility_code, court_number,
-                      date, time_start, time_end, partner_name, confirmation_id, created_at
+                      date, time_start, time_end, partner_name, partner_email, confirmation_id,
+                      facility_address, created_at
     """
 
     def __init__(
@@ -246,6 +247,7 @@ class GoogleSheetsService:
                 booking.time_start,
                 booking.time_end,
                 booking.partner_name or "",
+                booking.partner_email or "",
                 booking.confirmation_id or "",
                 booking.facility_address or "",
                 booking.created_at.isoformat()

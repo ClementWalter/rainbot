@@ -230,6 +230,7 @@ def _create_booking_from_result(
         time_start=slot.time_start,
         time_end=slot.time_end,
         partner_name=request.partner_name,
+        partner_email=request.partner_email,
         confirmation_id=result.confirmation_id,
         facility_address=slot.facility_address,
         created_at=now_paris(),
@@ -268,10 +269,6 @@ def send_reminder() -> None:
         all_users = sheets.get_all_users()
         user_map = {user.id: user for user in all_users}
 
-        # Get all booking requests for partner email lookups
-        all_requests = sheets.get_all_booking_requests()
-        request_map = {req.id: req for req in all_requests}
-
         for booking in todays_bookings:
             user = user_map.get(booking.user_id)
             if not user:
@@ -293,17 +290,14 @@ def send_reminder() -> None:
                 logger.error(f"Failed to send user reminder: {user_result.error_message}")
 
             # Send reminder to the partner if email is available
-            request = request_map.get(booking.request_id)
-            partner_email = None
-            if request and request.partner_email:
-                partner_email = request.partner_email
-
-            if partner_email:
+            # partner_email is stored on the booking to ensure reminders work
+            # even if the booking request is modified or deleted after booking
+            if booking.partner_email:
                 logger.info(
-                    f"Sending reminder to partner {partner_email} for booking {booking.id}"
+                    f"Sending reminder to partner {booking.partner_email} for booking {booking.id}"
                 )
                 partner_result = notification.send_match_day_reminder(
-                    recipient_email=partner_email,
+                    recipient_email=booking.partner_email,
                     recipient_name=booking.partner_name,
                     booking=booking,
                     is_partner=True,
@@ -311,7 +305,7 @@ def send_reminder() -> None:
                 )
 
                 if partner_result.success:
-                    logger.info(f"Partner reminder sent successfully to {partner_email}")
+                    logger.info(f"Partner reminder sent successfully to {booking.partner_email}")
                 else:
                     logger.error(
                         f"Failed to send partner reminder: {partner_result.error_message}"

@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 189 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
+- [x] tests/ - 192 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -36,6 +36,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 10. **Time String Normalization Bug** - Fixed: The `is_time_in_range()` method used string comparison which failed for single-digit hour formats (e.g., "9:00" vs "08:00"). The Paris Tennis website may return times in "H:MM" format instead of "HH:MM", causing valid times like "9:00" to be incorrectly rejected. Added `normalize_time()` function that pads single-digit hours and minutes with leading zeros. Updated both `is_time_in_range()` and `_validate_time()` to use this normalization for consistent time comparisons.
 11. **Pending Booking Check Too Restrictive** - Fixed: The `has_pending_booking()` method in `google_sheets.py` was checking `booking.date >= today`, which incorrectly considered already-played bookings as "pending" on the same day. Per PRD section 5.1 "One active booking per user: Users cannot have multiple pending reservations", a booking that has already happened (end time has passed) should not prevent new bookings. Now the check properly considers: (1) future date bookings are pending, (2) today's bookings are only pending if the end time hasn't passed yet. This allows users to book for next week after their same-day booking has finished.
 12. **CAPTCHA Token JavaScript Injection Vulnerability** - Fixed: The `_inject_recaptcha_token()` method in `captcha_solver.py` was directly interpolating the token into JavaScript strings using f-strings (e.g., `textarea.value = '{token}'`). If the token contained single quotes, double quotes, backslashes, or newlines, this would break JavaScript execution and cause CAPTCHA solving to fail silently. Now uses `json.dumps()` to properly escape the token before embedding it in JavaScript, ensuring all special characters are safely handled.
+13. **Partner Email Not Stored in Booking** - Fixed: The `partner_email` was only stored in `BookingRequest`, not in `Booking`. The `send_reminder()` job relied on looking up the original booking request to get the partner's email for reminders. If a booking request was deleted or modified after booking, the partner reminder would fail. Now `partner_email` is stored directly on the `Booking` model and persisted to Google Sheets, ensuring reminders work correctly regardless of booking request changes.
 
 ---
 
@@ -212,6 +213,7 @@ The spreadsheet should have four worksheets:
 | time_start | HH:MM format |
 | time_end | HH:MM format |
 | partner_name | Playing partner |
+| partner_email | Partner's email for reminders |
 | confirmation_id | Paris Tennis confirmation |
 | facility_address | Facility street address (for reminders) |
 | created_at | When booking was made |
