@@ -98,7 +98,7 @@ src/
 - [x] Implement booking confirmation emails (French HTML emails)
 - [x] Implement match day reminders (send_remainder job)
 - [x] Implement booking failure notifications
-- [ ] Add tests for notification service
+- [x] Add tests for notification service (28 tests)
 
 ### Phase 6: Full Integration (COMPLETED)
 **Goal**: End-to-end booking automation
@@ -148,7 +148,7 @@ Phase 6 is complete with:
 - User data is stored in Google Sheets (requires service account credentials)
 - CAPTCHA solving uses 2captcha-python library
 - Browser utility uses webdriver-manager for automatic ChromeDriver management
-- All 83 tests passing as of Phase 4 CAPTCHA solver implementation
+- All 125 tests passing as of Phase 5 notification service tests implementation
 
 ---
 
