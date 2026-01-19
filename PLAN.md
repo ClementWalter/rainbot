@@ -26,6 +26,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 ### Resolved Issues
 1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
 2. **Race Condition in Booking Job** - Fixed: Multiple booking job instances could run concurrently, causing duplicate bookings for the same user. Now uses a locking mechanism via Google Sheets `Locks` worksheet to prevent concurrent processing of the same user. Locks expire after 5 minutes to prevent deadlocks.
+3. **Partner Reminder Shows Wrong Name** - Fixed: When sending match day reminders to partners, the email incorrectly showed the partner's own name as who they were playing with, instead of the user's name. Now the `send_match_day_reminder` function accepts a `player_name` parameter to correctly display the user's name to partners.
 
 ---
 

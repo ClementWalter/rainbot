@@ -218,6 +218,7 @@ class NotificationService:
         recipient_name: Optional[str],
         booking: Booking,
         is_partner: bool = False,
+        player_name: Optional[str] = None,
     ) -> NotificationResult:
         """
         Send a match day reminder email.
@@ -227,6 +228,7 @@ class NotificationService:
             recipient_name: Name of the recipient (for personalization)
             booking: The booking details
             is_partner: Whether this is being sent to the partner
+            player_name: Name of the user who made the booking (used when sending to partner)
 
         Returns:
             NotificationResult with success status
@@ -236,7 +238,9 @@ class NotificationService:
         greeting = f"Bonjour {recipient_name}" if recipient_name else "Bonjour"
 
         if is_partner:
-            intro_text = f"Vous avez un match de tennis prévu aujourd'hui avec {booking.partner_name or 'votre partenaire'}."
+            # When sending to the partner, show who they're playing with (the user who booked)
+            playing_with = player_name or "votre partenaire"
+            intro_text = f"Vous avez un match de tennis prévu aujourd'hui avec {playing_with}."
         else:
             partner_info = f" avec {booking.partner_name}" if booking.partner_name else ""
             intro_text = f"Vous avez un match de tennis prévu aujourd'hui{partner_info}."

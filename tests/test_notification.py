@@ -682,6 +682,52 @@ class TestSendMatchDayReminder:
         # Address row should not be present when no address is set
         assert "Adresse" not in body_html
 
+    @patch.object(NotificationService, "_send_email")
+    def test_send_reminder_to_partner_shows_player_name(
+        self, mock_send_email, configured_service, mock_booking
+    ):
+        """Test that partner reminder shows the user's name, not the partner's own name."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_match_day_reminder(
+            recipient_email="partner@example.com",
+            recipient_name="Jean Dupont",  # Partner's name (recipient)
+            booking=mock_booking,  # booking.partner_name is also "Jean Dupont"
+            is_partner=True,
+            player_name="Pierre Martin",  # The user who made the booking
+        )
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # The email should say "match with Pierre Martin" (the user), not the partner's own name
+        assert "avec Pierre Martin" in body_html
+        # The greeting should use the partner's name (recipient)
+        assert "Bonjour Jean Dupont" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_reminder_to_partner_without_player_name_uses_fallback(
+        self, mock_send_email, configured_service, mock_booking
+    ):
+        """Test that partner reminder uses fallback when player_name is not provided."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_match_day_reminder(
+            recipient_email="partner@example.com",
+            recipient_name="Jean Dupont",
+            booking=mock_booking,
+            is_partner=True,
+            player_name=None,  # No player name provided
+        )
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        body_html = call_args[0][2]
+
+        # Should use the fallback text
+        assert "avec votre partenaire" in body_html
+
 
 class TestSendBookingFailureNotification:
     """Tests for the send_booking_failure_notification method."""

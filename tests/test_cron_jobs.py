@@ -452,6 +452,34 @@ class TestSendReminder:
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_send_reminder_passes_player_name_to_partner(
+        self,
+        mock_notification_func,
+        mock_sheets,
+        mock_user,
+        mock_booking_today,
+        mock_booking_request,
+    ):
+        """Test send_reminder passes user's name as player_name when sending to partner."""
+        mock_notification = MagicMock()
+        mock_notification.is_configured.return_value = True
+        mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
+        mock_notification_func.return_value = mock_notification
+
+        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_sheets.get_all_users.return_value = [mock_user]
+        mock_sheets.get_all_booking_requests.return_value = [mock_booking_request]
+
+        send_reminder()
+
+        # Second call should be for the partner, with user's name as player_name
+        partner_call = mock_notification.send_match_day_reminder.call_args_list[1]
+        assert partner_call.kwargs["recipient_email"] == mock_booking_request.partner_email
+        assert partner_call.kwargs["is_partner"] is True
+        assert partner_call.kwargs["player_name"] == mock_user.name
+
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_send_reminder_skips_partner_without_email(
         self,
         mock_notification_func,

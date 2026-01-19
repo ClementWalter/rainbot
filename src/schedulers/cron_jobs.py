@@ -307,6 +307,7 @@ def send_reminder() -> None:
                     recipient_name=booking.partner_name,
                     booking=booking,
                     is_partner=True,
+                    player_name=user.name,
                 )
 
                 if partner_result.success:
