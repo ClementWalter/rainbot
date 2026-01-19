@@ -22,6 +22,17 @@ from src.utils.timezone import now_paris, today_weekday_paris
 
 logger = logging.getLogger(__name__)
 
+# French day of week names
+DAY_OF_WEEK_FRENCH = {
+    0: "lundi",
+    1: "mardi",
+    2: "mercredi",
+    3: "jeudi",
+    4: "vendredi",
+    5: "samedi",
+    6: "dimanche",
+}
+
 
 def booking_job() -> None:
     """
@@ -151,6 +162,17 @@ def _process_booking_request(
 
             if not available_slots:
                 logger.info(f"No available slots found for request {request.id}")
+                # Send informational notification to user
+                day_name = DAY_OF_WEEK_FRENCH.get(
+                    request.day_of_week.value, request.day_of_week.name.lower()
+                )
+                time_range = f"{request.time_start} - {request.time_end}"
+                notification.send_no_slots_notification(
+                    user,
+                    day_of_week=day_name,
+                    time_range=time_range,
+                    facility_names=request.facility_preferences or None,
+                )
                 return
 
             logger.info(f"Found {len(available_slots)} available slots")

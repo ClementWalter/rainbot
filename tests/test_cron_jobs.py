@@ -243,7 +243,7 @@ class TestProcessBookingRequest:
         mock_user,
         mock_booking_request,
     ):
-        """Test processing when no slots are available."""
+        """Test processing when no slots are available sends notification."""
         mock_sheets = MagicMock()
         mock_notification = MagicMock()
 
@@ -257,7 +257,9 @@ class TestProcessBookingRequest:
         )
 
         mock_service.search_available_courts.assert_called_once()
-        # No notification for empty slots (silent failure - will retry later)
+        # Should send "no slots available" notification to user
+        mock_notification.send_no_slots_notification.assert_called_once()
+        # The failure notification should NOT be called (no slots is informational, not error)
         mock_notification.send_booking_failure_notification.assert_not_called()
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")

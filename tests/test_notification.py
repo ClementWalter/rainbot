@@ -877,6 +877,139 @@ class TestSendBookingFailureNotification:
         assert "Bonjour," in body_html or ">Bonjour<" in body_html
 
 
+class TestSendNoSlotsNotification:
+    """Tests for the send_no_slots_notification method."""
+
+    @pytest.fixture
+    def configured_service(self):
+        """Create a fully configured notification service."""
+        return NotificationService(
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_user="user@example.com",
+            smtp_password="password",
+            from_email="noreply@example.com",
+        )
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user."""
+        return User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_no_slots_notification_basic(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test sending basic no slots notification."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_no_slots_notification(
+            user=mock_user,
+            day_of_week="lundi",
+            time_range="18:00 - 20:00",
+        )
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+
+        to_email = call_args[0][0]
+        subject = call_args[0][1]
+        body_html = call_args[0][2]
+
+        assert to_email == mock_user.email
+        assert "Aucun créneau" in subject
+        assert "lundi" in body_html
+        assert "18:00 - 20:00" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_no_slots_notification_with_facilities(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test no slots notification with facility names."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_no_slots_notification(
+            user=mock_user,
+            day_of_week="mercredi",
+            time_range="10:00 - 12:00",
+            facility_names=["Tennis Club Paris", "Centre Suzanne Lenglen"],
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+        assert "Tennis Club Paris" in body_html
+        assert "Centre Suzanne Lenglen" in body_html
+        assert "Centres recherchés" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_no_slots_notification_without_facilities(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test no slots notification without facility names."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_no_slots_notification(
+            user=mock_user,
+            day_of_week="vendredi",
+            time_range="14:00 - 16:00",
+            facility_names=None,
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+        # Should not contain the facilities section
+        assert "Centres recherchés" not in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_no_slots_notification_with_user_name(
+        self, mock_send_email, configured_service
+    ):
+        """Test that no slots notification uses personalized greeting."""
+        user_with_name = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name="Sophie Germain",
+            subscription_active=True,
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_no_slots_notification(
+            user=user_with_name,
+            day_of_week="samedi",
+            time_range="09:00 - 11:00",
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+        assert "Bonjour Sophie Germain" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_no_slots_notification_contains_retry_message(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test that no slots notification contains reassuring retry message."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_no_slots_notification(
+            user=mock_user,
+            day_of_week="dimanche",
+            time_range="16:00 - 18:00",
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+        # Should contain reassuring message about automatic retries
+        assert "continuera à chercher" in body_html or "automatiquement" in body_html
+
+
 class TestGetNotificationService:
     """Tests for the get_notification_service function."""
 

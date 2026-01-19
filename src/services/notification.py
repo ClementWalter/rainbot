@@ -360,6 +360,78 @@ class NotificationService:
         logger.info(f"Sending booking failure notification to {user.email}")
         return self._send_email(user.email, subject, body_html)
 
+    def send_no_slots_notification(
+        self,
+        user: User,
+        day_of_week: str,
+        time_range: str,
+        facility_names: Optional[list[str]] = None,
+    ) -> NotificationResult:
+        """
+        Send a notification when no slots are available.
+
+        This is an informational notification (not an error) that tells
+        the user the system searched but no matching slots were found.
+
+        Args:
+            user: The user whose booking request had no matching slots
+            day_of_week: The day of week being searched (e.g., "lundi")
+            time_range: The time range being searched (e.g., "18:00 - 20:00")
+            facility_names: Optional list of facility names that were searched
+
+        Returns:
+            NotificationResult with success status
+        """
+        subject = "🎾 RainBot - Aucun créneau disponible"
+
+        greeting = f"Bonjour {user.name}" if user.name else "Bonjour"
+
+        facilities_text = ""
+        if facility_names:
+            facilities_list = ", ".join(facility_names)
+            facilities_text = f"<li>Centres recherchés : {facilities_list}</li>"
+
+        body_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1976d2;">📭 Aucun créneau disponible</h2>
+
+            <p>{greeting},</p>
+
+            <p>Nous avons recherché un court de tennis pour vous, mais aucun créneau
+            correspondant à vos critères n'était disponible.</p>
+
+            <div style="background-color: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #1976d2;">
+                <p style="margin: 0 0 10px 0;"><strong>Critères de recherche :</strong></p>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li>Jour : {day_of_week}</li>
+                    <li>Créneau horaire : {time_range}</li>
+                    {facilities_text}
+                </ul>
+            </div>
+
+            <p>🔄 <strong>Pas d'inquiétude !</strong> Le système continuera à chercher
+            automatiquement et vous préviendra dès qu'une réservation sera effectuée.</p>
+
+            <p style="color: #666; font-size: 14px;">
+            💡 <em>Conseil : Les créneaux se libèrent souvent quelques jours avant la date.
+            Restez patient !</em>
+            </p>
+
+            <p>Sportivement,<br>
+            <strong>L'équipe RainBot</strong></p>
+
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px;">
+                Cet email a été envoyé automatiquement par RainBot.
+            </p>
+        </body>
+        </html>
+        """
+
+        logger.info(f"Sending no slots notification to {user.email}")
+        return self._send_email(user.email, subject, body_html)
+
 
 # Global service instance (lazy initialization)
 _notification_service: Optional[NotificationService] = None
