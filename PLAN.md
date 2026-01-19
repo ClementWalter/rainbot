@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 201 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone)
+- [x] tests/ - 209 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots tracking)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -40,6 +40,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 13. **Partner Email Not Stored in Booking** - Fixed: The `partner_email` was only stored in `BookingRequest`, not in `Booking`. The `send_reminder()` job relied on looking up the original booking request to get the partner's email for reminders. If a booking request was deleted or modified after booking, the partner reminder would fail. Now `partner_email` is stored directly on the `Booking` model and persisted to Google Sheets, ensuring reminders work correctly regardless of booking request changes.
 14. **Empty Date/Created_at String in Booking.from_dict** - Fixed: The `from_dict()` method in `booking.py` used `datetime.fromisoformat()` directly on string values without checking for empty strings or invalid formats, which would raise a ValueError and crash the application. Now properly handles empty strings, invalid date formats, and non-datetime types by defaulting to `now_paris()` for date and `None` (which triggers `__post_init__` to set `now_paris()`) for created_at.
 15. **Silent Failure When No Slots Available** - Fixed: When the booking job found no available slots matching a user's criteria, it would silently return without notifying the user. This poor user experience left users unaware that their request was being processed. Now sends an informational "no slots available" notification (`send_no_slots_notification()`) that includes the search criteria (day, time range, facilities) and reassures the user that the system will continue searching automatically.
+16. **No-Slots Notification Spam** - Fixed: The `send_no_slots_notification()` was called every time the booking job ran and found no slots. With the default interval scheduling (as frequent as every 10 seconds), this would spam users with repeated identical notifications. Added a `NoSlotsNotifications` worksheet in Google Sheets to track when notifications were sent for each request/target-date combination. Now only sends one "no slots" notification per booking request per target booking date. Also added cleanup function `cleanup_old_no_slots_notifications()` to remove old tracking records.
 
 ---
 
@@ -229,3 +230,12 @@ The spreadsheet should have four worksheets:
 | locked_by | UUID of the job that holds the lock |
 
 **Note:** The Locks sheet is automatically created by the system if it doesn't exist. Locks expire after 5 minutes to prevent deadlocks if a job crashes.
+
+### NoSlotsNotifications Sheet
+| Column | Description |
+|--------|-------------|
+| request_id | The booking request ID |
+| target_date | The target booking date (YYYY-MM-DD format) |
+| sent_at | ISO timestamp when notification was sent |
+
+**Note:** The NoSlotsNotifications sheet is automatically created by the system if it doesn't exist. This sheet tracks when "no slots available" notifications were sent to prevent spamming users with repeated notifications. Old records (older than 7 days by default) can be cleaned up using `cleanup_old_no_slots_notifications()`.

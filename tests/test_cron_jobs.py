@@ -245,6 +245,8 @@ class TestProcessBookingRequest:
     ):
         """Test processing when no slots are available sends notification."""
         mock_sheets = MagicMock()
+        # Mock that no notification has been sent yet for this request/date
+        mock_sheets.was_no_slots_notification_sent.return_value = False
         mock_notification = MagicMock()
 
         mock_service = MagicMock()
@@ -259,8 +261,38 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.assert_called_once()
         # Should send "no slots available" notification to user
         mock_notification.send_no_slots_notification.assert_called_once()
+        # Should mark that notification was sent
+        mock_sheets.mark_no_slots_notification_sent.assert_called_once()
         # The failure notification should NOT be called (no slots is informational, not error)
         mock_notification.send_booking_failure_notification.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
+    def test_process_booking_no_slots_already_notified(
+        self,
+        mock_tennis_session,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test that no duplicate notification is sent when already notified."""
+        mock_sheets = MagicMock()
+        # Mock that notification was already sent for this request/date
+        mock_sheets.was_no_slots_notification_sent.return_value = True
+        mock_notification = MagicMock()
+
+        mock_service = MagicMock()
+        mock_service.login.return_value = True
+        mock_service.search_available_courts.return_value = []
+        mock_tennis_session.return_value.__enter__.return_value = mock_service
+
+        _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
+
+        mock_service.search_available_courts.assert_called_once()
+        # Should NOT send notification (already sent)
+        mock_notification.send_no_slots_notification.assert_not_called()
+        # Should NOT mark notification sent (already marked)
+        mock_sheets.mark_no_slots_notification_sent.assert_not_called()
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
     def test_process_booking_success(

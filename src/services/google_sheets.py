@@ -1,7 +1,7 @@
 """Google Sheets service for reading/writing user and booking data."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import gspread
@@ -26,6 +26,7 @@ USERS_SHEET = "Users"
 BOOKING_REQUESTS_SHEET = "BookingRequests"
 BOOKINGS_SHEET = "Bookings"
 LOCKS_SHEET = "Locks"
+NO_SLOTS_NOTIFICATIONS_SHEET = "NoSlotsNotifications"
 
 # Lock configuration
 LOCK_TIMEOUT_SECONDS = 300  # 5 minutes - locks expire after this time
@@ -417,6 +418,129 @@ class GoogleSheetsService:
         except Exception as e:
             logger.error(f"Failed to release lock for user {user_id}: {e}")
             return False
+
+    def _ensure_no_slots_notifications_sheet(self) -> gspread.Worksheet:
+        """
+        Ensure the NoSlotsNotifications worksheet exists, creating it if necessary.
+
+        This sheet tracks when "no slots available" notifications were sent to avoid
+        spamming users with repeated notifications.
+
+        Returns:
+            The NoSlotsNotifications worksheet
+        """
+        spreadsheet = self._get_spreadsheet()
+        try:
+            return spreadsheet.worksheet(NO_SLOTS_NOTIFICATIONS_SHEET)
+        except gspread.WorksheetNotFound:
+            # Create the sheet with headers
+            worksheet = spreadsheet.add_worksheet(
+                title=NO_SLOTS_NOTIFICATIONS_SHEET, rows=100, cols=3
+            )
+            worksheet.append_row(["request_id", "target_date", "sent_at"])
+            logger.info("Created NoSlotsNotifications worksheet")
+            return worksheet
+
+    def was_no_slots_notification_sent(self, request_id: str, target_date: str) -> bool:
+        """
+        Check if a "no slots" notification was already sent for a request and date.
+
+        This prevents spamming users with repeated "no slots available" notifications
+        when the booking job runs frequently.
+
+        Args:
+            request_id: The booking request ID
+            target_date: The target booking date (YYYY-MM-DD format)
+
+        Returns:
+            True if notification was already sent, False otherwise
+        """
+        try:
+            worksheet = self._ensure_no_slots_notifications_sheet()
+            records = worksheet.get_all_records()
+
+            for record in records:
+                if (
+                    str(record.get("request_id", "")) == request_id
+                    and str(record.get("target_date", "")) == target_date
+                ):
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to check no slots notification status: {e}")
+            # On error, err on the side of not sending (assume it was sent)
+            return True
+
+    def mark_no_slots_notification_sent(self, request_id: str, target_date: str) -> bool:
+        """
+        Record that a "no slots" notification was sent for a request and date.
+
+        Args:
+            request_id: The booking request ID
+            target_date: The target booking date (YYYY-MM-DD format)
+
+        Returns:
+            True if successfully recorded, False otherwise
+        """
+        try:
+            worksheet = self._ensure_no_slots_notifications_sheet()
+            now = now_paris()
+            worksheet.append_row([request_id, target_date, now.isoformat()])
+            logger.debug(
+                f"Marked no slots notification sent for request {request_id}, "
+                f"date {target_date}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to mark no slots notification sent: {e}")
+            return False
+
+    def cleanup_old_no_slots_notifications(self, days_to_keep: int = 7) -> int:
+        """
+        Remove old "no slots" notification records to keep the sheet manageable.
+
+        Args:
+            days_to_keep: Number of days of records to keep
+
+        Returns:
+            Number of records deleted
+        """
+        try:
+            worksheet = self._ensure_no_slots_notifications_sheet()
+            records = worksheet.get_all_records()
+            now = now_paris()
+            cutoff = now - timedelta(days=days_to_keep)
+            deleted = 0
+
+            # Iterate in reverse to avoid index shifting issues when deleting
+            for idx in range(len(records) - 1, -1, -1):
+                record = records[idx]
+                sent_at_str = record.get("sent_at", "")
+                if sent_at_str:
+                    try:
+                        sent_at = datetime.fromisoformat(sent_at_str)
+                        if sent_at.tzinfo is None:
+                            from src.utils.timezone import PARIS_TZ
+
+                            sent_at = PARIS_TZ.localize(sent_at)
+                        if sent_at < cutoff:
+                            worksheet.delete_rows(idx + 2)  # +2 for header and 0-index
+                            deleted += 1
+                    except (ValueError, TypeError):
+                        # Invalid date, delete it
+                        worksheet.delete_rows(idx + 2)
+                        deleted += 1
+
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old no slots notification records")
+            return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup old no slots notifications: {e}")
+            return 0
 
 
 # Global service instance

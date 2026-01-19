@@ -556,3 +556,158 @@ class TestUserLocking:
                 mock_new_worksheet.append_row.assert_called_once_with(
                     ["user_id", "locked_at", "locked_by"]
                 )
+
+
+class TestNoSlotsNotificationTracking:
+    """Tests for no-slots notification tracking to prevent spam."""
+
+    @pytest.fixture
+    def mock_service(self):
+        """Create a GoogleSheetsService with mocked gspread client."""
+        with patch("src.services.google_sheets.ServiceAccountCredentials") as mock_creds:
+            with patch("src.services.google_sheets.gspread") as mock_gspread:
+                service = GoogleSheetsService(
+                    credentials_file="test_creds.json",
+                    spreadsheet_id="test_spreadsheet_id",
+                )
+                # Setup mock client
+                mock_client = MagicMock()
+                mock_gspread.authorize.return_value = mock_client
+                mock_spreadsheet = MagicMock()
+                mock_client.open_by_key.return_value = mock_spreadsheet
+                service._mock_spreadsheet = mock_spreadsheet
+                yield service
+
+    def test_was_no_slots_notification_sent_false_when_not_sent(self, mock_service):
+        """Test checking when no notification was sent returns False."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = []
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.was_no_slots_notification_sent("req1", "2025-01-20")
+
+        assert result is False
+
+    def test_was_no_slots_notification_sent_true_when_sent(self, mock_service):
+        """Test checking when notification was sent returns True."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "request_id": "req1",
+                "target_date": "2025-01-20",
+                "sent_at": "2025-01-19T10:00:00",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.was_no_slots_notification_sent("req1", "2025-01-20")
+
+        assert result is True
+
+    def test_was_no_slots_notification_sent_false_for_different_date(self, mock_service):
+        """Test that different target date returns False."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "request_id": "req1",
+                "target_date": "2025-01-20",
+                "sent_at": "2025-01-19T10:00:00",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        # Same request but different date
+        result = mock_service.was_no_slots_notification_sent("req1", "2025-01-27")
+
+        assert result is False
+
+    def test_was_no_slots_notification_sent_false_for_different_request(self, mock_service):
+        """Test that different request ID returns False."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "request_id": "req1",
+                "target_date": "2025-01-20",
+                "sent_at": "2025-01-19T10:00:00",
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        # Different request but same date
+        result = mock_service.was_no_slots_notification_sent("req2", "2025-01-20")
+
+        assert result is False
+
+    def test_mark_no_slots_notification_sent(self, mock_service):
+        """Test marking a notification as sent."""
+        mock_worksheet = MagicMock()
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.mark_no_slots_notification_sent("req1", "2025-01-20")
+
+        assert result is True
+        mock_worksheet.append_row.assert_called_once()
+        call_args = mock_worksheet.append_row.call_args[0][0]
+        assert call_args[0] == "req1"
+        assert call_args[1] == "2025-01-20"
+        # Third element is the sent_at timestamp (ISO format)
+        assert "T" in call_args[2]  # ISO format contains 'T'
+
+    def test_ensure_no_slots_notifications_sheet_creates_sheet_if_not_found(self):
+        """Test that _ensure_no_slots_notifications_sheet creates sheet if missing."""
+        from gspread.exceptions import WorksheetNotFound
+
+        with patch("src.services.google_sheets.ServiceAccountCredentials"):
+            with patch("src.services.google_sheets.gspread.authorize") as mock_authorize:
+                service = GoogleSheetsService(
+                    credentials_file="test_creds.json",
+                    spreadsheet_id="test_spreadsheet_id",
+                )
+                mock_client = MagicMock()
+                mock_authorize.return_value = mock_client
+                mock_spreadsheet = MagicMock()
+                mock_client.open_by_key.return_value = mock_spreadsheet
+
+                mock_new_worksheet = MagicMock()
+                mock_spreadsheet.worksheet.side_effect = WorksheetNotFound(
+                    "NoSlotsNotifications"
+                )
+                mock_spreadsheet.add_worksheet.return_value = mock_new_worksheet
+
+                result = service._ensure_no_slots_notifications_sheet()
+
+                assert result == mock_new_worksheet
+                mock_spreadsheet.add_worksheet.assert_called_once_with(
+                    title="NoSlotsNotifications", rows=100, cols=3
+                )
+                mock_new_worksheet.append_row.assert_called_once_with(
+                    ["request_id", "target_date", "sent_at"]
+                )
+
+    def test_cleanup_old_no_slots_notifications(self, mock_service):
+        """Test cleaning up old notification records."""
+        mock_worksheet = MagicMock()
+        from datetime import timedelta
+
+        old_time = (datetime.now() - timedelta(days=10)).isoformat()
+        recent_time = datetime.now().isoformat()
+
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "request_id": "req1",
+                "target_date": "2025-01-10",
+                "sent_at": old_time,  # Old (should be deleted)
+            },
+            {
+                "request_id": "req2",
+                "target_date": "2025-01-19",
+                "sent_at": recent_time,  # Recent (should be kept)
+            },
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        deleted = mock_service.cleanup_old_no_slots_notifications(days_to_keep=7)
+
+        assert deleted == 1
+        # Should delete row 2 (old record, index 0 + 2 for header and 0-index)
+        mock_worksheet.delete_rows.assert_called_once_with(2)

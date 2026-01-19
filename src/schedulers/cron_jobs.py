@@ -162,17 +162,32 @@ def _process_booking_request(
 
             if not available_slots:
                 logger.info(f"No available slots found for request {request.id}")
-                # Send informational notification to user
-                day_name = DAY_OF_WEEK_FRENCH.get(
-                    request.day_of_week.value, request.day_of_week.name.lower()
+                # Send informational notification to user (only once per target date)
+                # Get the target date for this booking request
+                target_date = tennis_service._get_next_booking_date(
+                    request.day_of_week.value
                 )
-                time_range = f"{request.time_start} - {request.time_end}"
-                notification.send_no_slots_notification(
-                    user,
-                    day_of_week=day_name,
-                    time_range=time_range,
-                    facility_names=request.facility_preferences or None,
-                )
+                target_date_str = target_date.strftime("%Y-%m-%d")
+
+                # Check if we already sent a notification for this request/date
+                if not sheets.was_no_slots_notification_sent(request.id, target_date_str):
+                    day_name = DAY_OF_WEEK_FRENCH.get(
+                        request.day_of_week.value, request.day_of_week.name.lower()
+                    )
+                    time_range = f"{request.time_start} - {request.time_end}"
+                    notification.send_no_slots_notification(
+                        user,
+                        day_of_week=day_name,
+                        time_range=time_range,
+                        facility_names=request.facility_preferences or None,
+                    )
+                    # Mark that we sent this notification
+                    sheets.mark_no_slots_notification_sent(request.id, target_date_str)
+                else:
+                    logger.debug(
+                        f"No slots notification already sent for request {request.id}, "
+                        f"date {target_date_str}"
+                    )
                 return
 
             logger.info(f"Found {len(available_slots)} available slots")
