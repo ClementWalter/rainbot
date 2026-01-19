@@ -147,6 +147,71 @@ class TestBookingRequest:
         request = BookingRequest.from_dict(data)
         assert request.day_of_week == DayOfWeek.FRIDAY
 
+    def test_from_dict_clamps_time_before_minimum(self):
+        """Test that times before 08:00 are clamped to 08:00 (PRD section 5.1)."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "07:00",  # Before minimum
+            "time_end": "10:00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "08:00"  # Clamped to minimum
+        assert request.time_end == "10:00"
+
+    def test_from_dict_clamps_time_after_maximum(self):
+        """Test that times after 22:00 are clamped to 22:00 (PRD section 5.1)."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "18:00",
+            "time_end": "23:00",  # After maximum
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "18:00"
+        assert request.time_end == "22:00"  # Clamped to maximum
+
+    def test_from_dict_swaps_inverted_times(self):
+        """Test that time_start > time_end are swapped."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "20:00",
+            "time_end": "18:00",  # Inverted
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "18:00"  # Swapped
+        assert request.time_end == "20:00"  # Swapped
+
+    def test_from_dict_uses_defaults_for_empty_times(self):
+        """Test that empty times default to boundary values."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "",
+            "time_end": "",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "08:00"  # Default minimum
+        assert request.time_end == "22:00"  # Default maximum
+
+    def test_from_dict_uses_defaults_for_invalid_format(self):
+        """Test that invalid time formats fall back to defaults."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "invalid",
+            "time_end": "abc",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "08:00"  # Default minimum
+        assert request.time_end == "22:00"  # Default maximum
+
 
 class TestBooking:
     """Tests for Booking model."""

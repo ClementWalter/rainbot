@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+# Time boundaries per PRD section 5.1: Courts available from 8:00 to 22:00
+MIN_BOOKING_TIME = "08:00"
+MAX_BOOKING_TIME = "22:00"
+
 
 class CourtType(Enum):
     """Court surface/cover type preference."""
@@ -66,6 +70,34 @@ class BookingRequest:
         """
         return self.time_start <= time_str <= self.time_end
 
+    @staticmethod
+    def _validate_time(time_str: str, default: str) -> str:
+        """
+        Validate and normalize a time string to be within booking boundaries.
+
+        Args:
+            time_str: Time in "HH:MM" format
+            default: Default time to use if invalid
+
+        Returns:
+            Validated time string clamped to valid booking hours
+        """
+        if not time_str:
+            return default
+
+        # Ensure proper format
+        time_str = str(time_str).strip()
+        if len(time_str) < 5 or ":" not in time_str:
+            return default
+
+        # Clamp to valid booking hours
+        if time_str < MIN_BOOKING_TIME:
+            return MIN_BOOKING_TIME
+        if time_str > MAX_BOOKING_TIME:
+            return MAX_BOOKING_TIME
+
+        return time_str
+
     @classmethod
     def from_dict(cls, data: dict) -> "BookingRequest":
         """
@@ -97,12 +129,24 @@ class BookingRequest:
         if isinstance(facilities, str):
             facilities = [f.strip() for f in facilities.split(",") if f.strip()]
 
+        # Parse and validate time boundaries (PRD section 5.1: 8:00-22:00)
+        time_start = cls._validate_time(
+            str(data.get("time_start", "")), MIN_BOOKING_TIME
+        )
+        time_end = cls._validate_time(
+            str(data.get("time_end", "")), MAX_BOOKING_TIME
+        )
+
+        # Ensure time_start is before time_end
+        if time_start > time_end:
+            time_start, time_end = time_end, time_start
+
         return cls(
             id=str(data.get("id", "")),
             user_id=str(data.get("user_id", "")),
             day_of_week=day_of_week,
-            time_start=str(data.get("time_start", "08:00")),
-            time_end=str(data.get("time_end", "22:00")),
+            time_start=time_start,
+            time_end=time_end,
             facility_preferences=facilities,
             court_type=court_type,
             partner_name=data.get("partner_name"),
