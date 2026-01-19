@@ -4,6 +4,7 @@ This module provides email notification functionality for RainBot,
 including booking confirmations and match day reminders.
 """
 
+import html
 import logging
 import smtplib
 from dataclasses import dataclass
@@ -160,7 +161,17 @@ class NotificationService:
         """
         subject = f"🎾 RainBot - Réservation confirmée pour le {booking.date.strftime('%d/%m/%Y')}"
 
-        greeting = f"Bonjour {user.name}" if user.name else "Bonjour"
+        # Escape user-provided data to prevent HTML injection
+        user_name = html.escape(user.name) if user.name else None
+        facility_name = html.escape(booking.facility_name) if booking.facility_name else ""
+        facility_address = html.escape(booking.facility_address) if booking.facility_address else None
+        court_number = html.escape(booking.court_number) if booking.court_number else ""
+        partner_name = html.escape(booking.partner_name) if booking.partner_name else None
+        confirmation_id = html.escape(booking.confirmation_id) if booking.confirmation_id else None
+        time_start = html.escape(booking.time_start) if booking.time_start else ""
+        time_end = html.escape(booking.time_end) if booking.time_end else ""
+
+        greeting = f"Bonjour {user_name}" if user_name else "Bonjour"
 
         body_html = f"""
         <html>
@@ -180,19 +191,19 @@ class NotificationService:
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Horaire :</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.time_start} - {booking.time_end}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{time_start} - {time_end}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Centre :</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.facility_name}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{facility_name}</td>
                     </tr>
-                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Adresse :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.facility_address}</td></tr>' if booking.facility_address else ''}
+                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Adresse :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{facility_address}</td></tr>' if facility_address else ''}
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Court :</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.court_number}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{court_number}</td>
                     </tr>
-                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Partenaire :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.partner_name}</td></tr>' if booking.partner_name else ''}
-                    {f'<tr><td style="padding: 8px 0;"><strong>N° de confirmation :</strong></td><td style="padding: 8px 0;">{booking.confirmation_id}</td></tr>' if booking.confirmation_id else ''}
+                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Partenaire :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{partner_name}</td></tr>' if partner_name else ''}
+                    {f'<tr><td style="padding: 8px 0;"><strong>N° de confirmation :</strong></td><td style="padding: 8px 0;">{confirmation_id}</td></tr>' if confirmation_id else ''}
                 </table>
             </div>
 
@@ -233,16 +244,26 @@ class NotificationService:
         Returns:
             NotificationResult with success status
         """
-        subject = f"🎾 Rappel : Tennis aujourd'hui à {booking.time_start}"
+        # Escape user-provided data to prevent HTML injection
+        safe_recipient_name = html.escape(recipient_name) if recipient_name else None
+        safe_player_name = html.escape(player_name) if player_name else None
+        safe_partner_name = html.escape(booking.partner_name) if booking.partner_name else None
+        facility_name = html.escape(booking.facility_name) if booking.facility_name else ""
+        facility_address = html.escape(booking.facility_address) if booking.facility_address else None
+        court_number = html.escape(booking.court_number) if booking.court_number else ""
+        time_start = html.escape(booking.time_start) if booking.time_start else ""
+        time_end = html.escape(booking.time_end) if booking.time_end else ""
 
-        greeting = f"Bonjour {recipient_name}" if recipient_name else "Bonjour"
+        subject = f"🎾 Rappel : Tennis aujourd'hui à {time_start}"
+
+        greeting = f"Bonjour {safe_recipient_name}" if safe_recipient_name else "Bonjour"
 
         if is_partner:
             # When sending to the partner, show who they're playing with (the user who booked)
-            playing_with = player_name or "votre partenaire"
+            playing_with = safe_player_name or "votre partenaire"
             intro_text = f"Vous avez un match de tennis prévu aujourd'hui avec {playing_with}."
         else:
-            partner_info = f" avec {booking.partner_name}" if booking.partner_name else ""
+            partner_info = f" avec {safe_partner_name}" if safe_partner_name else ""
             intro_text = f"Vous avez un match de tennis prévu aujourd'hui{partner_info}."
 
         body_html = f"""
@@ -259,16 +280,16 @@ class NotificationService:
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 8px 0;"><strong>🕐 Horaire :</strong></td>
-                        <td style="padding: 8px 0; font-size: 18px; font-weight: bold;">{booking.time_start} - {booking.time_end}</td>
+                        <td style="padding: 8px 0; font-size: 18px; font-weight: bold;">{time_start} - {time_end}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0;"><strong>📍 Centre :</strong></td>
-                        <td style="padding: 8px 0;">{booking.facility_name}</td>
+                        <td style="padding: 8px 0;">{facility_name}</td>
                     </tr>
-                    {f'<tr><td style="padding: 8px 0;"><strong>🗺️ Adresse :</strong></td><td style="padding: 8px 0;">{booking.facility_address}</td></tr>' if booking.facility_address else ''}
+                    {f'<tr><td style="padding: 8px 0;"><strong>🗺️ Adresse :</strong></td><td style="padding: 8px 0;">{facility_address}</td></tr>' if facility_address else ''}
                     <tr>
                         <td style="padding: 8px 0;"><strong>🎾 Court :</strong></td>
-                        <td style="padding: 8px 0;">{booking.court_number}</td>
+                        <td style="padding: 8px 0;">{court_number}</td>
                     </tr>
                 </table>
             </div>
@@ -320,13 +341,19 @@ class NotificationService:
         """
         subject = "🎾 RainBot - Échec de réservation"
 
-        greeting = f"Bonjour {user.name}" if user.name else "Bonjour"
+        # Escape user-provided data to prevent HTML injection
+        user_name = html.escape(user.name) if user.name else None
+        safe_error_message = html.escape(error_message) if error_message else ""
+        safe_facility_name = html.escape(facility_name) if facility_name else None
+        safe_requested_date = html.escape(requested_date) if requested_date else None
+
+        greeting = f"Bonjour {user_name}" if user_name else "Bonjour"
 
         details = ""
-        if facility_name:
-            details += f"<li>Centre demandé : {facility_name}</li>"
-        if requested_date:
-            details += f"<li>Date demandée : {requested_date}</li>"
+        if safe_facility_name:
+            details += f"<li>Centre demandé : {safe_facility_name}</li>"
+        if safe_requested_date:
+            details += f"<li>Date demandée : {safe_requested_date}</li>"
 
         body_html = f"""
         <html>
@@ -339,7 +366,7 @@ class NotificationService:
 
             <div style="background-color: #ffebee; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #d32f2f;">
                 <p style="margin: 0 0 10px 0;"><strong>Raison :</strong></p>
-                <p style="margin: 0; color: #c62828;">{error_message}</p>
+                <p style="margin: 0; color: #c62828;">{safe_error_message}</p>
             </div>
 
             {f'<div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;"><p style="margin: 0 0 10px 0;"><strong>Détails de la demande :</strong></p><ul style="margin: 0; padding-left: 20px;">{details}</ul></div>' if details else ''}
@@ -384,11 +411,18 @@ class NotificationService:
         """
         subject = "🎾 RainBot - Aucun créneau disponible"
 
-        greeting = f"Bonjour {user.name}" if user.name else "Bonjour"
+        # Escape user-provided data to prevent HTML injection
+        user_name = html.escape(user.name) if user.name else None
+        safe_day_of_week = html.escape(day_of_week) if day_of_week else ""
+        safe_time_range = html.escape(time_range) if time_range else ""
+
+        greeting = f"Bonjour {user_name}" if user_name else "Bonjour"
 
         facilities_text = ""
         if facility_names:
-            facilities_list = ", ".join(facility_names)
+            # Escape each facility name before joining
+            safe_facilities = [html.escape(name) for name in facility_names]
+            facilities_list = ", ".join(safe_facilities)
             facilities_text = f"<li>Centres recherchés : {facilities_list}</li>"
 
         body_html = f"""
@@ -404,8 +438,8 @@ class NotificationService:
             <div style="background-color: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #1976d2;">
                 <p style="margin: 0 0 10px 0;"><strong>Critères de recherche :</strong></p>
                 <ul style="margin: 0; padding-left: 20px;">
-                    <li>Jour : {day_of_week}</li>
-                    <li>Créneau horaire : {time_range}</li>
+                    <li>Jour : {safe_day_of_week}</li>
+                    <li>Créneau horaire : {safe_time_range}</li>
                     {facilities_text}
                 </ul>
             </div>

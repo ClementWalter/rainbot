@@ -11,7 +11,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
 - [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, CAPTCHA solver, and notification service
-- [x] tests/ - 209 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots tracking)
+- [x] tests/ - 214 unit tests passing (models, services, browser, Paris Tennis, CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots tracking, HTML escaping)
 - [x] PLAN.md - This file
 
 ### Remaining Work
@@ -41,6 +41,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 14. **Empty Date/Created_at String in Booking.from_dict** - Fixed: The `from_dict()` method in `booking.py` used `datetime.fromisoformat()` directly on string values without checking for empty strings or invalid formats, which would raise a ValueError and crash the application. Now properly handles empty strings, invalid date formats, and non-datetime types by defaulting to `now_paris()` for date and `None` (which triggers `__post_init__` to set `now_paris()`) for created_at.
 15. **Silent Failure When No Slots Available** - Fixed: When the booking job found no available slots matching a user's criteria, it would silently return without notifying the user. This poor user experience left users unaware that their request was being processed. Now sends an informational "no slots available" notification (`send_no_slots_notification()`) that includes the search criteria (day, time range, facilities) and reassures the user that the system will continue searching automatically.
 16. **No-Slots Notification Spam** - Fixed: The `send_no_slots_notification()` was called every time the booking job ran and found no slots. With the default interval scheduling (as frequent as every 10 seconds), this would spam users with repeated identical notifications. Added a `NoSlotsNotifications` worksheet in Google Sheets to track when notifications were sent for each request/target-date combination. Now only sends one "no slots" notification per booking request per target booking date. Also added cleanup function `cleanup_old_no_slots_notifications()` to remove old tracking records.
+17. **HTML Injection Vulnerability in Email Notifications** - Fixed: All notification methods (`send_booking_confirmation`, `send_match_day_reminder`, `send_booking_failure_notification`, `send_no_slots_notification`) were directly interpolating user-provided data into HTML templates using f-strings without escaping. This allowed potential HTML/CSS injection attacks through malicious user names, facility names, partner names, error messages, or other user-controlled fields. While email clients typically don't execute JavaScript, malformed HTML can break email rendering and CSS injection can be used for phishing attempts. Now uses `html.escape()` to properly escape all user-provided data before embedding it in HTML templates.
 
 ---
 

@@ -1010,6 +1010,167 @@ class TestSendNoSlotsNotification:
         assert "continuera à chercher" in body_html or "automatiquement" in body_html
 
 
+class TestHtmlEscaping:
+    """Tests for HTML injection prevention in notification emails."""
+
+    @pytest.fixture
+    def configured_service(self):
+        """Create a configured notification service."""
+        return NotificationService(
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_user="user@example.com",
+            smtp_password="password",
+            from_email="noreply@example.com",
+        )
+
+    @patch.object(NotificationService, "_send_email")
+    def test_booking_confirmation_escapes_user_name(
+        self, mock_send_email, configured_service
+    ):
+        """Test that user name is escaped in booking confirmation."""
+        malicious_user = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name="<script>alert('XSS')</script>",
+            subscription_active=True,
+        )
+        booking = Booking(
+            id="booking1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Center",
+            facility_code="TC01",
+            court_number="1",
+            date=datetime(2024, 3, 15, 14, 0),
+            time_start="14:00",
+            time_end="15:00",
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        configured_service.send_booking_confirmation(malicious_user, booking)
+
+        body_html = mock_send_email.call_args[0][2]
+        # The script tag should be escaped, not rendered
+        assert "<script>" not in body_html
+        assert "&lt;script&gt;" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_booking_confirmation_escapes_facility_name(
+        self, mock_send_email, configured_service
+    ):
+        """Test that facility name is escaped in booking confirmation."""
+        user = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+        booking = Booking(
+            id="booking1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="<img src=x onerror=alert('XSS')>",
+            facility_code="TC01",
+            court_number="1",
+            date=datetime(2024, 3, 15, 14, 0),
+            time_start="14:00",
+            time_end="15:00",
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        configured_service.send_booking_confirmation(user, booking)
+
+        body_html = mock_send_email.call_args[0][2]
+        # The img tag should be escaped
+        assert "<img" not in body_html
+        assert "&lt;img" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_match_day_reminder_escapes_partner_name(
+        self, mock_send_email, configured_service
+    ):
+        """Test that partner name is escaped in match day reminder."""
+        booking = Booking(
+            id="booking1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Center",
+            facility_code="TC01",
+            court_number="1",
+            date=datetime(2024, 3, 15, 14, 0),
+            time_start="14:00",
+            time_end="15:00",
+            partner_name="<b onmouseover=alert('XSS')>Malicious</b>",
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        configured_service.send_match_day_reminder(
+            recipient_email="user@example.com",
+            recipient_name="Test User",
+            booking=booking,
+            is_partner=False,
+        )
+
+        body_html = mock_send_email.call_args[0][2]
+        # The opening tag should be escaped (< becomes &lt;)
+        # This prevents the browser from interpreting it as an HTML tag
+        assert "<b onmouseover" not in body_html
+        assert "&lt;b" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_failure_notification_escapes_error_message(
+        self, mock_send_email, configured_service
+    ):
+        """Test that error message is escaped in failure notification."""
+        user = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        configured_service.send_booking_failure_notification(
+            user=user,
+            error_message="<div style='position:fixed;top:0;left:0;width:100%'>Phishing</div>",
+        )
+
+        body_html = mock_send_email.call_args[0][2]
+        # The div tag should be escaped
+        assert "position:fixed" not in body_html or "&lt;div" in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_no_slots_notification_escapes_facility_names(
+        self, mock_send_email, configured_service
+    ):
+        """Test that facility names list is escaped in no slots notification."""
+        user = User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            subscription_active=True,
+        )
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        configured_service.send_no_slots_notification(
+            user=user,
+            day_of_week="lundi",
+            time_range="18:00 - 20:00",
+            facility_names=["Safe Facility", "<script>evil()</script>"],
+        )
+
+        body_html = mock_send_email.call_args[0][2]
+        # The script tag in facility names should be escaped
+        assert "<script>evil()</script>" not in body_html
+        assert "&lt;script&gt;" in body_html
+
+
 class TestGetNotificationService:
     """Tests for the get_notification_service function."""
 
