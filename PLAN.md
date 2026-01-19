@@ -3,22 +3,21 @@
 ## Current Status
 
 ### Summary
-Phase 3 (Paris Tennis Integration) is complete. The Paris Tennis service with login, search, and booking functionality has been implemented along with the browser utility (Selenium setup).
+Phase 4 (CAPTCHA Solving) is complete. The 2Captcha service has been implemented and integrated with the Paris Tennis booking flow.
 
 ### What Exists
 - [x] PRD.md - Complete product requirements
 - [x] pyproject.toml - Dependencies configured (selenium, 2captcha, gspread, etc.)
 - [x] main.py - Entry point with scheduler setup
 - [x] ralph.py - Loop runner utility for development
-- [x] src/ - Core structure with data models, Google Sheets service, browser utility, and Paris Tennis service
-- [x] tests/ - Unit tests for models, services, browser, and Paris Tennis (62 tests passing)
+- [x] src/ - Core structure with data models, Google Sheets service, browser utility, Paris Tennis service, and CAPTCHA solver
+- [x] tests/ - Unit tests for models, services, browser, Paris Tennis, and CAPTCHA solver (83 tests passing)
 - [x] PLAN.md - This file
 
 ### Remaining Work
-1. **CAPTCHA solving**: 2Captcha integration
-2. **Notifications**: Email confirmations and reminders
-3. **Full integration**: Wire everything together in cron_jobs
-4. **Deployment**: Scaleway cloud deployment
+1. **Notifications**: Email confirmations and reminders
+2. **Full integration**: Wire everything together in cron_jobs
+3. **Deployment**: Scaleway cloud deployment
 
 ---
 
@@ -84,13 +83,13 @@ src/
 - [x] Implement booking flow
 - [x] Add tests for tennis service (22 tests)
 
-### Phase 4: CAPTCHA Solving
+### Phase 4: CAPTCHA Solving (COMPLETED)
 **Goal**: Integrate 2Captcha for verification
 
-- [ ] Create src/services/captcha_solver.py
-- [ ] Integrate with booking flow
-- [ ] Add retry logic
-- [ ] Add tests for captcha service
+- [x] Create src/services/captcha_solver.py
+- [x] Integrate with booking flow
+- [x] Add retry logic
+- [x] Add tests for captcha service (21 tests)
 
 ### Phase 5: Notifications
 **Goal**: Send booking confirmations and reminders
@@ -120,14 +119,16 @@ src/
 
 ## Next Action
 
-**Start Phase 4**: Implement CAPTCHA solving service.
+**Start Phase 5**: Implement notification service.
 
-Next step: Create `src/services/captcha_solver.py` with 2Captcha integration.
+Next step: Create `src/services/notification.py` with email sending capabilities.
 
-Phase 3 is complete with:
-- Browser utility with anti-detection features (13 tests)
-- Paris Tennis service with login, search, and booking (22 tests)
-- Context managers for safe session handling
+Phase 4 is complete with:
+- CaptchaSolverService supporting reCAPTCHA v2/v3 and image CAPTCHAs
+- Automatic CAPTCHA detection and solving from page
+- Integration with Paris Tennis booking flow
+- Retry logic for failed solving attempts
+- 21 tests covering all CAPTCHA solver functionality
 
 ---
 
@@ -140,7 +141,7 @@ Phase 3 is complete with:
 - User data is stored in Google Sheets (requires service account credentials)
 - CAPTCHA solving uses 2captcha-python library
 - Browser utility uses webdriver-manager for automatic ChromeDriver management
-- All 62 tests passing as of Phase 3 Paris Tennis service implementation
+- All 83 tests passing as of Phase 4 CAPTCHA solver implementation
 
 ---
 

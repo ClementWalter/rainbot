@@ -22,6 +22,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from src.config.settings import settings
 from src.models.booking_request import BookingRequest, CourtType
+from src.services.captcha_solver import CaptchaSolverService, get_captcha_service
 from src.utils.browser import browser_session
 
 logger = logging.getLogger(__name__)
@@ -65,19 +66,33 @@ class ParisTennisService:
     - Completing the booking process
     """
 
-    def __init__(self, driver: Optional[WebDriver] = None):
+    def __init__(
+        self,
+        driver: Optional[WebDriver] = None,
+        captcha_solver: Optional[CaptchaSolverService] = None,
+    ):
         """
         Initialize the Paris Tennis service.
 
         Args:
             driver: Optional WebDriver instance. If not provided,
                    a new browser session will be created for each operation.
+            captcha_solver: Optional CAPTCHA solver service. If not provided,
+                           uses the global instance.
         """
         self._driver = driver
+        self._captcha_solver = captcha_solver
         self._logged_in = False
         self.base_url = settings.paris_tennis.base_url
         self.login_url = settings.paris_tennis.login_url
         self.search_url = settings.paris_tennis.search_url
+
+    @property
+    def captcha_solver(self) -> CaptchaSolverService:
+        """Get the CAPTCHA solver service."""
+        if self._captcha_solver is None:
+            self._captcha_solver = get_captcha_service()
+        return self._captcha_solver
 
     @property
     def driver(self) -> WebDriver:
@@ -409,15 +424,20 @@ class ParisTennisService:
                     logger.debug("Partner name field not found")
 
             # Handle CAPTCHA if present
-            # This will be handled by the captcha_solver service
             captcha_present = self._check_for_captcha()
             if captcha_present:
-                logger.info("CAPTCHA detected - needs solving")
-                return BookingResult(
-                    success=False,
-                    error_message="CAPTCHA verification required",
-                    slot=slot,
+                logger.info("CAPTCHA detected - attempting to solve")
+                captcha_result = self.captcha_solver.solve_captcha_from_page(
+                    self.driver, max_retries=3
                 )
+                if not captcha_result.success:
+                    logger.error(f"CAPTCHA solving failed: {captcha_result.error_message}")
+                    return BookingResult(
+                        success=False,
+                        error_message=f"CAPTCHA solving failed: {captcha_result.error_message}",
+                        slot=slot,
+                    )
+                logger.info("CAPTCHA solved successfully")
 
             # Confirm booking
             confirm_button = wait.until(
