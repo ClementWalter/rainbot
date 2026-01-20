@@ -364,6 +364,11 @@ deployment/integration testing remains incomplete.
     and sort purely by time. Sorting now applies substring-aware matching so
     facility priority is preserved even when codes are embedded in facility
     names.
+60. **Zero Interval Schedule Crash** - Fixed: APScheduler raises when the
+    interval job is configured with HOUR/MINUTE/SECOND all set to zero. The
+    scheduler now clamps negative values to zero and defaults to a 10-second
+    interval when all values are zero, preventing startup crashes from invalid
+    configuration.
 
 ---
 

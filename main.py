@@ -33,11 +33,30 @@ REMINDER_MINUTE = int(os.getenv("REMINDER_MINUTE", 0))
 REMINDER_SECOND = int(os.getenv("REMINDER_SECOND", 0))
 
 
+def _normalize_interval(hours: int, minutes: int, seconds: int) -> tuple[int, int, int]:
+    """Normalize interval values to a positive schedule."""
+    if hours < 0 or minutes < 0 or seconds < 0:
+        logging.warning("Interval values must be non-negative; clamping to 0.")
+    hours = max(hours, 0)
+    minutes = max(minutes, 0)
+    seconds = max(seconds, 0)
+    if hours == 0 and minutes == 0 and seconds == 0:
+        logging.warning("Interval cannot be all zeros; defaulting to 10 seconds.")
+        seconds = 10
+    return hours, minutes, seconds
+
+
 def build_scheduler(scheduler_factory=BlockingScheduler) -> BlockingScheduler:
     """Create and configure the APScheduler instance."""
+    interval_hours, interval_minutes, interval_seconds = _normalize_interval(HOUR, MINUTE, SECOND)
     scheduler = scheduler_factory(timezone=PARIS_TZ)
     scheduler.add_job(
-        booking_job, "interval", hours=HOUR, minutes=MINUTE, seconds=SECOND, jitter=JITTER
+        booking_job,
+        "interval",
+        hours=interval_hours,
+        minutes=interval_minutes,
+        seconds=interval_seconds,
+        jitter=JITTER,
     )
     # Schedule booking job at 8:00 AM Paris time (every 2 seconds for first 10 seconds)
     for second in range(0, 10, 2):

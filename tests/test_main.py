@@ -77,3 +77,28 @@ def test_booking_job_morning_cron_minute_zero(monkeypatch):
     assert {job["kwargs"].get("second") for job in booking_cron_jobs} == {0, 2, 4, 6, 8}
     assert all(job["kwargs"].get("hour") == 8 for job in booking_cron_jobs)
     assert all(job["kwargs"].get("minute") == 0 for job in booking_cron_jobs)
+
+
+def test_interval_schedule_defaults_when_all_zero(monkeypatch):
+    """Interval schedule should default when all values are zero."""
+    module = _reload_main(
+        monkeypatch,
+        {
+            "HOUR": "0",
+            "MINUTE": "0",
+            "SECOND": "0",
+        },
+    )
+
+    scheduler = module.build_scheduler(scheduler_factory=FakeScheduler)
+    interval_jobs = [
+        job
+        for job in scheduler.jobs
+        if job["func"] is module.booking_job and job["trigger"] == "interval"
+    ]
+
+    assert len(interval_jobs) == 1
+    interval_kwargs = interval_jobs[0]["kwargs"]
+    assert interval_kwargs["hours"] == 0
+    assert interval_kwargs["minutes"] == 0
+    assert interval_kwargs["seconds"] == 10
