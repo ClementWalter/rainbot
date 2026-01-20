@@ -17,6 +17,7 @@ def normalize_time(time_str: str) -> str:
 
     This ensures consistent string comparison by padding single-digit hours
     with a leading zero. For example, "9:00" becomes "09:00".
+    Accepts "H:MM", "HH:MM", or "HH:MM:SS" formats (seconds are ignored).
 
     Args:
         time_str: Time string in H:MM or HH:MM format
@@ -30,13 +31,16 @@ def normalize_time(time_str: str) -> str:
     time_str = str(time_str).strip()
     parts = time_str.split(":")
 
-    if len(parts) != 2:
+    if len(parts) not in (2, 3):
         return ""
 
     hour, minute = parts[0].strip(), parts[1].strip()
+    second = parts[2].strip() if len(parts) == 3 else None
 
     # Validate hour and minute are numeric
     if not hour.isdigit() or not minute.isdigit():
+        return ""
+    if second is not None and not second.isdigit():
         return ""
 
     # Pad single-digit hour with leading zero

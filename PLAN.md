@@ -232,6 +232,10 @@ deployment/integration testing remains incomplete.
     accepted English day names and would fail on French inputs or extra
     whitespace from Google Sheets, dropping valid requests.~~ **FIXED**: Parsing
     now strips whitespace and accepts French day names (e.g., "mardi").
+27. **Time Strings With Seconds Not Normalized** - `normalize_time()` rejected
+    values like "09:00:00" (common from Google Sheets or site HTML), causing
+    booking time validation and slot filtering to fail. **FIXED**: Now accepts
+    "HH:MM:SS" and strips seconds for consistent comparisons.
 
 ---
 

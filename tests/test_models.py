@@ -692,6 +692,11 @@ class TestNormalizeTime:
         assert normalize_time("08:5") == "08:05"
         assert normalize_time("9:5") == "09:05"
 
+    def test_normalize_time_with_seconds(self):
+        """Test normalization strips seconds from HH:MM:SS."""
+        assert normalize_time("9:00:00") == "09:00"
+        assert normalize_time("09:05:30") == "09:05"
+
     def test_normalize_time_with_whitespace(self):
         """Test that whitespace is stripped."""
         assert normalize_time(" 09:00 ") == "09:00"
@@ -784,3 +789,16 @@ class TestTimeValidationInFromDict:
         # After swap: time_start=08:30, time_end=09:00
         assert request.time_start == "08:30"
         assert request.time_end == "09:00"
+
+    def test_from_dict_normalizes_times_with_seconds(self):
+        """Test that times with seconds are normalized to HH:MM."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "9:00:00",
+            "time_end": "20:00:00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "09:00"
+        assert request.time_end == "20:00"
