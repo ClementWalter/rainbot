@@ -500,15 +500,23 @@ class CaptchaSolverService:
         if not validation_url:
             return CaptchaSolveResult(success=False, error_message="Missing validation URL")
 
+        request_id = transaction.get("requestId")
+        antibot_id = transaction.get("antibotId")
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-LI-sp-key": config.sp_key,
+            "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
+        }
+        if request_id:
+            headers["X-LI-request-id"] = request_id
+        if antibot_id:
+            headers["X-LI-antibot-id"] = antibot_id
+
         try:
             response = requests.post(
                 f"{config.base_url}{validation_url}",
                 data=f"answer={requests.utils.quote(answer)}",
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "X-LI-sp-key": config.sp_key,
-                    "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
-                },
+                headers=headers,
                 timeout=30,
             )
         except requests.RequestException as e:
@@ -527,11 +535,32 @@ class CaptchaSolverService:
         except ValueError:
             return CaptchaSolveResult(success=False, error_message="Invalid validation response")
 
-        token = data.get("message") or data.get("antibotToken")
-        if not token or token == "Invalid response.":
+        if not isinstance(data, dict):
+            return CaptchaSolveResult(success=False, error_message="Invalid validation response")
+
+        error_code = data.get("errorCode") or data.get("error") or data.get("errorMessage")
+        status = str(data.get("status") or "").strip().lower()
+        message = str(data.get("message") or "").strip()
+
+        def is_invalid(value: str) -> bool:
+            lowered = value.lower()
+            return "invalid" in lowered or "blacklist" in lowered
+
+        if error_code:
+            return CaptchaSolveResult(success=False, error_message=str(error_code))
+        if status and any(key in status for key in ("invalid", "blacklist", "error")):
+            return CaptchaSolveResult(success=False, error_message=f"CAPTCHA {status}")
+        if message and is_invalid(message):
+            return CaptchaSolveResult(success=False, error_message=message)
+
+        token = data.get("antibotToken") or data.get("token") or data.get("message")
+        if not token:
+            return CaptchaSolveResult(success=False, error_message="Invalid CAPTCHA response")
+        token_str = str(token).strip()
+        if not token_str or token_str == "Invalid response." or is_invalid(token_str):
             return CaptchaSolveResult(success=False, error_message="Invalid CAPTCHA response")
 
-        return CaptchaSolveResult(success=True, token=token)
+        return CaptchaSolveResult(success=True, token=token_str)
 
     def _inject_liveidentity_token(self, driver: WebDriver, token: str) -> None:
         """Inject the LiveIdentity token into the page and trigger validation."""

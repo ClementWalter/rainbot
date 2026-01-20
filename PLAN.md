@@ -42,8 +42,7 @@ deployment/integration testing remains incomplete.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
 5. **LiveIdentity anti-bot CAPTCHA**: Image-based LI_ANTIBOT flow is wired up,
-   but still needs live-site validation plus handling for invisible challenges
-   and blacklist/invalid token responses.
+   but still needs live-site validation plus support for invisible challenges.
 6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
@@ -77,8 +76,7 @@ deployment/integration testing remains incomplete.
    page and Mon Paris SSO selectors, but the selectors still need live-site
    validation for logged-out sessions.
 4. **LiveIdentity CAPTCHA edge cases** - Image-based LI_ANTIBOT solving is in
-   place, but invisible challenges and blacklist/invalid token responses are not
-   handled.
+   place, but invisible challenges and live-site validation are still pending.
 5. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
 6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
@@ -306,6 +304,9 @@ deployment/integration testing remains incomplete.
 44. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
     now uses live DOM favorites (`window.jsFav` / `.tennisName`) with fallback
     to legacy selectors, improving alignment with tennis.paris.fr.
+45. **LiveIdentity Validation Hardening** - Fixed: Validation requests now pass
+    LiveIdentity request/antibot headers and reject invalid/blacklisted
+    responses before accepting tokens.
 
 ---
 

@@ -8,6 +8,7 @@ import pytest
 from src.services.captcha_solver import (
     CaptchaSolveResult,
     CaptchaSolverService,
+    LiveIdentityConfig,
     get_captcha_service,
 )
 
@@ -439,6 +440,69 @@ class TestLiveIdentityParsing:
         assert config.base_url == "https://captcha.liveidentity.com/captcha"
         assert config.antibot_id == "antibot-id"
         assert config.request_id == "request-id"
+
+
+class TestLiveIdentityValidation:
+    """Tests for LiveIdentity validation responses."""
+
+    def test_validate_liveidentity_answer_success(self, service):
+        """Test validation returns token and passes headers."""
+        config = LiveIdentityConfig(
+            captcha_type="IMAGE",
+            locale="FR",
+            sp_key="sp-key",
+            base_url="https://captcha.liveidentity.com",
+            antibot_id=None,
+            request_id=None,
+        )
+        transaction = {"requestId": "req-123", "antibotId": "anti-456"}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"antibotToken": "token-123"}
+
+        with patch(
+            "src.services.captcha_solver.requests.post", return_value=mock_response
+        ) as mock_post:
+            result = service._validate_liveidentity_answer(
+                config=config,
+                transaction=transaction,
+                answer="answer",
+                validation_url="/validate",
+            )
+
+        assert result.success is True
+        assert result.token == "token-123"
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["X-LI-request-id"] == "req-123"
+        assert headers["X-LI-antibot-id"] == "anti-456"
+
+    def test_validate_liveidentity_answer_blacklisted(self, service):
+        """Test validation rejects blacklisted responses."""
+        config = LiveIdentityConfig(
+            captcha_type="IMAGE",
+            locale="FR",
+            sp_key="sp-key",
+            base_url="https://captcha.liveidentity.com",
+            antibot_id=None,
+            request_id=None,
+        )
+        transaction = {}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "BLACKLISTED"}
+
+        with patch("src.services.captcha_solver.requests.post", return_value=mock_response):
+            result = service._validate_liveidentity_answer(
+                config=config,
+                transaction=transaction,
+                answer="answer",
+                validation_url="/validate",
+            )
+
+        assert result.success is False
+        assert "blacklist" in (result.error_message or "").lower()
 
 
 class TestInjectRecaptchaToken:
