@@ -13,6 +13,8 @@ The source code is in the src directory. The tests are in the tests directory.
 3. If the current git tree is dirty, do an initial commit to isolate previous
    changes from the current feature.
 4. Pick the most important feature or bug to implement first, and fix it.
+   Scrapping the real paris tennis website and passing the captcha are the most
+   important features.
 5. Run the tests to ensure the changes are working, add tests for the new
    feature or bug if needed.
 6. You need to fix all failing tests, not only your tests.
