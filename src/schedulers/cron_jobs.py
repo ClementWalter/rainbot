@@ -215,6 +215,17 @@ def _process_booking_request(
                     else:
                         logger.error(f"Failed to save booking {booking.id} to spreadsheet")
 
+                    # Decrement carnet balance if tracked for the user
+                    if user.carnet_balance is not None:
+                        new_balance = max(user.carnet_balance - 1, 0)
+                        if sheets.update_user_carnet_balance(user.id, new_balance):
+                            user.carnet_balance = new_balance
+                        else:
+                            logger.warning(
+                                "Failed to update carnet balance for user %s after booking",
+                                user.id,
+                            )
+
                     # Send confirmation notification
                     notification.send_booking_confirmation(user, booking)
                     return True

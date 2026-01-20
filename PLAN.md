@@ -236,6 +236,9 @@ deployment/integration testing remains incomplete.
     values like "09:00:00" (common from Google Sheets or site HTML), causing
     booking time validation and slot filtering to fail. **FIXED**: Now accepts
     "HH:MM:SS" and strips seconds for consistent comparisons.
+28. **Carnet Balance Not Decremented After Booking** - Fixed: Successful
+    bookings now decrement and persist the user's carnet balance in the Users
+    sheet when a balance is tracked, preventing overbooking on stale balances.
 
 ---
 

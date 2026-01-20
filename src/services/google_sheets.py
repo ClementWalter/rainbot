@@ -125,6 +125,49 @@ class GoogleSheetsService:
                 return user
         return None
 
+    def update_user_carnet_balance(self, user_id: str, new_balance: int) -> bool:
+        """
+        Update a user's carnet balance in the Users sheet.
+
+        Args:
+            user_id: The user's unique identifier
+            new_balance: New carnet balance value to store
+
+        Returns:
+            True if the balance was updated, False otherwise
+        """
+        try:
+            worksheet = self._get_worksheet(USERS_SHEET)
+            headers = worksheet.row_values(1)
+            if not headers:
+                logger.error("Users sheet missing header row; cannot update carnet balance")
+                return False
+
+            try:
+                balance_col = headers.index("carnet_balance") + 1
+            except ValueError:
+                logger.error("Users sheet missing 'carnet_balance' column")
+                return False
+
+            records = worksheet.get_all_records()
+            for idx, record in enumerate(records):
+                if str(record.get("id", "")) == user_id:
+                    row_num = idx + 2  # +2 for header row and 0-based index
+                    worksheet.update_cell(row_num, balance_col, new_balance)
+                    logger.info(
+                        "Updated carnet balance for user %s to %s",
+                        user_id,
+                        new_balance,
+                    )
+                    return True
+
+            logger.warning("User %s not found in Users sheet", user_id)
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to update carnet balance for user {user_id}: {e}")
+            return False
+
     def get_eligible_users(self) -> list[User]:
         """
         Fetch all users who are eligible for booking.

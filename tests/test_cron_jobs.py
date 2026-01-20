@@ -381,6 +381,8 @@ class TestProcessBookingRequest:
         mock_sheets.add_booking.return_value = True
         mock_notification = MagicMock()
 
+        mock_user.carnet_balance = 2
+
         mock_service = MagicMock()
         mock_service.login.return_value = True
         mock_service.search_available_courts.return_value = [mock_slot]
@@ -399,6 +401,7 @@ class TestProcessBookingRequest:
             mock_slot, mock_booking_request.partner_name
         )
         mock_sheets.add_booking.assert_called_once()
+        mock_sheets.update_user_carnet_balance.assert_called_once_with(mock_user.id, 1)
         mock_notification.send_booking_confirmation.assert_called_once()
         assert result is True
 

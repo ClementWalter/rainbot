@@ -88,6 +88,30 @@ class TestGoogleSheetsService:
         assert len(eligible) == 1
         assert eligible[0].id == "user1"
 
+    def test_update_user_carnet_balance(self, mock_service):
+        """Test updating a user's carnet balance."""
+        mock_worksheet = MagicMock()
+        mock_worksheet.row_values.return_value = [
+            "id",
+            "name",
+            "email",
+            "paris_tennis_email",
+            "paris_tennis_password",
+            "subscription_active",
+            "carnet_balance",
+            "phone",
+        ]
+        mock_worksheet.get_all_records.return_value = [
+            {"id": "user1", "carnet_balance": 2},
+            {"id": "user2", "carnet_balance": 5},
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        result = mock_service.update_user_carnet_balance("user1", 1)
+
+        assert result is True
+        mock_worksheet.update_cell.assert_called_once_with(2, 7, 1)
+
     def test_get_all_booking_requests(self, mock_service):
         """Test fetching all booking requests."""
         mock_worksheet = MagicMock()
