@@ -78,6 +78,10 @@ deployment/integration testing remains incomplete.
    pending.
 4. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
    scraping with AJAX-based slot parsing, which can drift as the site evolves.
+5. **LiveIdentity token blacklisted** - Live site sessions can populate
+   `li-antibot-token` with "Blacklisted end-user" before booking, which may
+   block reservation flows. Needs validation and potential anti-bot mitigation
+   work (profile hygiene, throttling, or human-in-the-loop fallback).
 
 ### Resolved Issues
 
@@ -379,6 +383,11 @@ deployment/integration testing remains incomplete.
     `api.js?render=` or `grecaptcha.execute(...)` were skipped. The solver now
     extracts sitekeys/actions from page source and CAPTCHA detection recognizes
     script-only reCAPTCHA, ensuring v3 challenges are solved.
+63. **Hidden Search Form Results Context** - Fixed: The live search page hides
+    the `#rechercher` submit button, so Selenium timeouts prevented reaching the
+    `action=rechercher_creneau` results context and `captchaRequestId`. The flow
+    now submits `#search_form` directly and only falls back to clicking the
+    button when needed.
 
 ---
 

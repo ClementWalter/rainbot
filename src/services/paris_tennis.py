@@ -484,7 +484,15 @@ class ParisTennisService:
                 self.driver.get(self.search_url)
                 self._accept_cookie_banner()
 
-            # Click the search button to enter results context
+            if self._submit_search_form_if_present():
+                try:
+                    wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
+                except TimeoutException:
+                    pass
+                time.sleep(1)
+                return self._get_captcha_request_id()
+
+            # Click the search button to enter results context (fallback)
             search_button = wait.until(EC.element_to_be_clickable((By.ID, "rechercher")))
             search_button.click()
             wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
@@ -492,6 +500,20 @@ class ParisTennisService:
             return self._get_captcha_request_id()
         except (TimeoutException, WebDriverException):
             return None
+
+    def _submit_search_form_if_present(self) -> bool:
+        """Submit the hidden search form to reach the results context."""
+        try:
+            return bool(self.driver.execute_script("""
+                    const form = document.getElementById('search_form');
+                    if (!form) {
+                        return false;
+                    }
+                    form.submit();
+                    return true;
+                    """))
+        except WebDriverException:
+            return False
 
     def _get_captcha_request_id(self) -> Optional[str]:
         """Extract captchaRequestId from the results page if present."""

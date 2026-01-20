@@ -637,6 +637,37 @@ class TestParisTennisService:
         assert service._submit_captcha_form_if_present() is True
         mock_driver.execute_script.assert_called_once()
 
+    def test_submit_search_form_if_present_success(self, service, mock_driver):
+        """Test search form submission uses JS when form exists."""
+        mock_driver.execute_script.return_value = True
+
+        assert service._submit_search_form_if_present() is True
+        mock_driver.execute_script.assert_called_once()
+
+    def test_submit_search_form_if_present_failure(self, service, mock_driver):
+        """Test search form submission handles WebDriver errors."""
+        from selenium.common.exceptions import WebDriverException
+
+        mock_driver.execute_script.side_effect = WebDriverException("boom")
+
+        assert service._submit_search_form_if_present() is False
+
+    def test_ensure_search_results_page_submits_form(self, service, mock_driver):
+        """Test search results page uses form submission when available."""
+        mock_driver.current_url = (
+            "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?"
+            "page=recherche&view=recherche_creneau"
+        )
+        wait = MagicMock()
+        wait.until.return_value = True
+
+        with patch.object(service, "_submit_search_form_if_present", return_value=True) as submit:
+            with patch.object(service, "_get_captcha_request_id", return_value="captcha-123"):
+                result = service._ensure_search_results_page(wait)
+
+        assert result == "captcha-123"
+        submit.assert_called_once()
+
     def test_check_booking_success_true(self, service, mock_driver):
         """Test booking success detection when confirmed."""
         mock_driver.page_source = "Votre réservation confirmée avec succès"
