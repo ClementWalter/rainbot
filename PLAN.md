@@ -358,6 +358,12 @@ deployment/integration testing remains incomplete.
     now match facility names when a unique substring match exists (useful for
     codes embedded in facility names), reducing failed searches when request
     preferences are stored as codes.
+59. **Facility Preference Ordering With Codes** - Fixed: When requests stored
+    facility preferences as short codes (for example, "FAC001") and slots used
+    normalized facility names, the sorting logic could ignore preference order
+    and sort purely by time. Sorting now applies substring-aware matching so
+    facility priority is preserved even when codes are embedded in facility
+    names.
 
 ---
 
