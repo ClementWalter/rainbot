@@ -1,5 +1,6 @@
 """Tests for the CAPTCHA solver service."""
 
+import base64
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -218,6 +219,24 @@ class TestCaptchaSolverService:
             assert result.success is True
             assert result.token == "ABC123"
             mock_solver.normal.assert_called_once()
+
+    def test_solve_image_captcha_from_url(self, service):
+        """Test solving image CAPTCHA downloaded from a URL."""
+        service._solver = MagicMock()
+        service._solver.normal.return_value = {"code": "URL123"}
+
+        response = MagicMock()
+        response.content = b"captcha-bytes"
+        response.raise_for_status.return_value = None
+
+        with patch("src.services.captcha_solver.requests.get", return_value=response) as mock_get:
+            result = service.solve_image_captcha("https://example.com/captcha.png")
+
+        assert result.success is True
+        assert result.token == "URL123"
+        mock_get.assert_called_once_with("https://example.com/captcha.png", timeout=30)
+        expected_payload = base64.b64encode(b"captcha-bytes").decode("ascii")
+        service._solver.normal.assert_called_once_with(expected_payload)
 
     def test_solve_image_captcha_network_error(self, service):
         """Test image CAPTCHA network error handling."""

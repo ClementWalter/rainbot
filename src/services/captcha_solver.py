@@ -4,6 +4,7 @@ This module provides functionality to solve various types of CAPTCHAs
 encountered on the Paris Tennis booking website.
 """
 
+import base64
 import json
 import logging
 import re
@@ -210,7 +211,22 @@ class CaptchaSolverService:
             if max_length > 0:
                 params["maxLength"] = max_length
 
-            result = self.solver.normal(image_path, **params)
+            image_payload = image_path
+            if isinstance(image_path, str):
+                trimmed = image_path.strip()
+                if trimmed.startswith(("http://", "https://")):
+                    try:
+                        response = requests.get(trimmed, timeout=30)
+                        response.raise_for_status()
+                    except requests.RequestException as e:
+                        logger.error("Failed to fetch CAPTCHA image: %s", e)
+                        return CaptchaSolveResult(
+                            success=False,
+                            error_message=f"Failed to fetch CAPTCHA image: {e}",
+                        )
+                    image_payload = base64.b64encode(response.content).decode("ascii")
+
+            result = self.solver.normal(image_payload, **params)
             logger.info("Image CAPTCHA solved successfully")
             return CaptchaSolveResult(success=True, token=result["code"])
         except TimeoutException:

@@ -41,9 +41,9 @@ testing remains incomplete.
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-5. **LiveIdentity anti-bot CAPTCHA**: The reservation flow uses
-   `captcha.liveidentity.com` (LI_ANTIBOT) instead of reCAPTCHA; integrate its
-   transaction/challenge/validation API and handle blacklisted/invalid tokens.
+5. **LiveIdentity anti-bot CAPTCHA**: Image-based LI_ANTIBOT flow is wired up,
+   but still needs live-site validation plus handling for invisible challenges
+   and blacklist/invalid token responses.
 6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
@@ -73,12 +73,12 @@ testing remains incomplete.
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic
    CSS selectors that need to be updated based on the actual tennis.paris.fr
    website structure.
-3. **Login URL Outdated** - The default `PARIS_TENNIS_LOGIN_URL` points to a 404
-   (authentification); the live flow starts from the landing page and Mon Paris
-   SSO.
-4. **LiveIdentity CAPTCHA** - Reservation uses the LiveIdentity anti-bot iframe
-   (`LI_ANTIBOT`) instead of reCAPTCHA; current solver doesn't handle its
-   transaction/challenge/validation flow or blacklist errors.
+3. **Login entrypoint selectors unvalidated** - The login flow uses the landing
+   page and Mon Paris SSO selectors, but the selectors still need live-site
+   validation.
+4. **LiveIdentity CAPTCHA edge cases** - Image-based LI_ANTIBOT solving is in
+   place, but invisible challenges and blacklist/invalid token responses are not
+   handled.
 5. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
 6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
@@ -295,6 +295,10 @@ testing remains incomplete.
     now configurable via `REMINDER_HOUR`, `REMINDER_MINUTE`, and
     `REMINDER_SECOND`, with a default of 08:00 to align with the PRD's "morning"
     reminder requirement.
+42. **Image CAPTCHA URL Handling** - Fixed: image CAPTCHA sources that are
+    HTTP(S) URLs are now downloaded and base64-encoded before sending to the
+    2Captcha solver, preventing failures when the CAPTCHA image is not a local
+    file path.
 
 ---
 
@@ -434,7 +438,8 @@ Phase 6 is mostly implemented with:
 - The scheduler in main.py runs:
   - `booking_job` on interval (configurable via HOUR, MINUTE, SECOND env vars)
   - `booking_job` at 8:00 AM Paris time (every 2 seconds for first 10 seconds)
-  - `send_reminder` at 2:00 AM Paris time daily
+  - `send_reminder` at 8:00 AM Paris time daily (configurable via
+    `REMINDER_HOUR`, `REMINDER_MINUTE`, `REMINDER_SECOND`)
   - `cleanup_old_notifications` at 3:00 AM Paris time daily (removes no-slots
     notification records older than 7 days)
 - User data is stored in Google Sheets (requires service account credentials)
