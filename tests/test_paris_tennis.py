@@ -730,10 +730,50 @@ class TestParisTennisService:
             return_value=["Max Rousié"],
         ), patch.object(service, "_fetch_availability_html", return_value=""), patch.object(
             service, "_parse_available_slots_html", return_value=[]
+        ), patch.object(
+            service, "_parse_all_results", return_value=[]
         ):
             result = service.search_available_courts(sample_booking_request)
 
         assert result == []
+
+    def test_search_available_courts_dom_fallback_on_ajax_empty(
+        self,
+        service,
+        mock_driver,
+        sample_booking_request,
+        sample_court_slot,
+    ):
+        """Test DOM fallback is used when AJAX search returns no slots."""
+        with patch.object(service, "_ensure_search_results_page"), patch.object(
+            service,
+            "_resolve_facility_preferences",
+            return_value=["Max Rousié"],
+        ), patch.object(service, "_fetch_availability_html", return_value=""), patch.object(
+            service, "_parse_available_slots_html", return_value=[]
+        ), patch.object(
+            service, "_parse_all_results", return_value=[sample_court_slot]
+        ):
+            result = service.search_available_courts(sample_booking_request)
+
+        assert result == [sample_court_slot]
+
+    def test_search_available_courts_dom_fallback_when_no_facilities(
+        self,
+        service,
+        mock_driver,
+        sample_booking_request,
+        sample_court_slot,
+    ):
+        """Test DOM fallback is used when facility preferences cannot be resolved."""
+        with patch.object(service, "_ensure_search_results_page"), patch.object(
+            service,
+            "_resolve_facility_preferences",
+            return_value=[],
+        ), patch.object(service, "_parse_all_results", return_value=[sample_court_slot]):
+            result = service.search_available_courts(sample_booking_request)
+
+        assert result == [sample_court_slot]
 
     def test_fetch_availability_html_uses_search_url_base(self, service, mock_driver):
         """Test availability fetch builds the AJAX URL from search_url."""

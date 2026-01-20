@@ -8,7 +8,9 @@ Core booking modules and unit-test coverage are in place, booking history can be
 exported via the CLI and emailed on demand, but the live integration is not
 production-ready because Paris Tennis login/booking steps still need live-site
 validation, CAPTCHA edge cases and carnet selection remain unverified, and
-deployment/integration testing remains incomplete.
+deployment/integration testing remains incomplete. AJAX slot scraping now falls
+back to DOM parsing to reduce false "no slots" results when the endpoint fails,
+but the fallback still needs live-site validation.
 
 ### What Exists
 
@@ -383,7 +385,12 @@ deployment/integration testing remains incomplete.
     `api.js?render=` or `grecaptcha.execute(...)` were skipped. The solver now
     extracts sitekeys/actions from page source and CAPTCHA detection recognizes
     script-only reCAPTCHA, ensuring v3 challenges are solved.
-63. **Hidden Search Form Results Context** - Fixed: The live search page hides
+63. **AJAX-Only Slot Search Fallback** - Fixed: `search_available_courts()`
+    previously returned no slots when the AJAX endpoint failed or facility
+    preferences could not be resolved, even if slots were visible in the DOM. It
+    now falls back to DOM parsing when AJAX yields no slots or no facility names
+    are resolved.
+64. **Hidden Search Form Results Context** - Fixed: The live search page hides
     the `#rechercher` submit button, so Selenium timeouts prevented reaching the
     `action=rechercher_creneau` results context and `captchaRequestId`. The flow
     now submits `#search_form` directly and only falls back to clicking the

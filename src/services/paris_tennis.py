@@ -427,8 +427,11 @@ class ParisTennisService:
 
             facility_names = self._resolve_facility_preferences(request)
             if not facility_names:
-                logger.warning("No facility preferences resolved; skipping search")
-                return []
+                logger.warning("No facility preferences resolved; falling back to DOM parsing")
+                available_slots = self._parse_all_results(target_date, request)
+                available_slots = self._sort_available_slots(available_slots, request)
+                logger.info(f"Found {len(available_slots)} available slots (DOM fallback)")
+                return available_slots
 
             when_value = target_date.strftime("%d/%m/%Y")
             hour_range = self._format_hour_range(request.time_start, request.time_end)
@@ -453,6 +456,12 @@ class ParisTennisService:
                     captcha_request_id=captcha_request_id,
                 )
                 available_slots.extend(slots)
+
+            if not available_slots:
+                logger.info(
+                    "AJAX availability search returned no slots; falling back to DOM parsing"
+                )
+                available_slots = self._parse_all_results(target_date, request)
 
             available_slots = self._sort_available_slots(available_slots, request)
 
