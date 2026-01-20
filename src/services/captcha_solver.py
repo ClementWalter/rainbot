@@ -4,6 +4,7 @@ This module provides functionality to solve various types of CAPTCHAs
 encountered on the Paris Tennis booking website.
 """
 
+import ast
 import base64
 import json
 import logging
@@ -359,8 +360,10 @@ class CaptchaSolverService:
             return None
 
         try:
-            config_values = json.loads(match.group(1))
-        except json.JSONDecodeError:
+            config_values = self._parse_liveidentity_config_values(match.group(1))
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(config_values, list):
             return None
 
         def get_value(index: int) -> Optional[str]:
@@ -383,6 +386,96 @@ class CaptchaSolverService:
             antibot_id=get_value(7),
             request_id=get_value(8),
         )
+
+    def _parse_liveidentity_config_values(self, raw_values: str) -> Optional[list]:
+        """Parse LiveIdentity config values from a JavaScript array literal."""
+        if not raw_values:
+            return None
+
+        try:
+            parsed = json.loads(raw_values)
+        except json.JSONDecodeError:
+            parsed = None
+
+        if parsed is not None:
+            return parsed if isinstance(parsed, list) else None
+
+        normalized = self._normalize_js_literal_tokens(raw_values)
+        try:
+            parsed = ast.literal_eval(normalized)
+        except (ValueError, SyntaxError):
+            return None
+        return parsed if isinstance(parsed, list) else None
+
+    def _normalize_js_literal_tokens(self, value: str) -> str:
+        """Normalize JS literal tokens to Python equivalents outside quoted strings."""
+        replacements = {
+            "null": "None",
+            "true": "True",
+            "false": "False",
+            "undefined": "None",
+        }
+        output: list[str] = []
+        in_single = False
+        in_double = False
+        escape = False
+        lowered = value.lower()
+        i = 0
+        length = len(value)
+
+        while i < length:
+            ch = value[i]
+            if escape:
+                output.append(ch)
+                escape = False
+                i += 1
+                continue
+
+            if ch == "\\":
+                output.append(ch)
+                escape = True
+                i += 1
+                continue
+
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                output.append(ch)
+                i += 1
+                continue
+
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                output.append(ch)
+                i += 1
+                continue
+
+            if not in_single and not in_double:
+                replaced = False
+                for js_token, py_token in replacements.items():
+                    if lowered.startswith(js_token, i) and self._is_token_boundary(
+                        value, i, len(js_token)
+                    ):
+                        output.append(py_token)
+                        i += len(js_token)
+                        replaced = True
+                        break
+                if replaced:
+                    continue
+
+            output.append(ch)
+            i += 1
+
+        return "".join(output)
+
+    def _is_token_boundary(self, value: str, start: int, length: int) -> bool:
+        """Return True if a token is bounded by non-identifier characters."""
+
+        def is_ident(ch: str) -> bool:
+            return ch.isalnum() or ch in ("_", "$")
+
+        before = value[start - 1] if start > 0 else ""
+        after = value[start + length] if start + length < len(value) else ""
+        return not is_ident(before) and not is_ident(after)
 
     def _solve_liveidentity_antibot(
         self,

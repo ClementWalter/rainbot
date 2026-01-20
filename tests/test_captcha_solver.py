@@ -542,6 +542,24 @@ class TestLiveIdentityParsing:
         assert config.antibot_id == "antibot-id"
         assert config.request_id == "request-id"
 
+    def test_parse_liveidentity_config_single_quotes(self, service):
+        """Test parsing LiveIdentity config with single-quoted JS arrays."""
+        html = (
+            "LI_ANTIBOT.loadAntibot(['IMAGE','AUDIO','FR','+KEY',"
+            "'https://captcha.liveidentity.com/captcha',null,null,"
+            "'antibot-id','request-id',true]);"
+        )
+
+        config = service._parse_liveidentity_config(html)
+
+        assert config is not None
+        assert config.captcha_type == "IMAGE"
+        assert config.locale == "FR"
+        assert config.sp_key == "+KEY"
+        assert config.base_url == "https://captcha.liveidentity.com/captcha"
+        assert config.antibot_id == "antibot-id"
+        assert config.request_id == "request-id"
+
 
 class TestLiveIdentityValidation:
     """Tests for LiveIdentity validation responses."""
