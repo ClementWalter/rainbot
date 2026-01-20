@@ -462,6 +462,10 @@ class ParisTennisService:
                     )
                 logger.info("CAPTCHA solved successfully")
 
+            # Select carnet payment option if present on the page
+            if self._select_carnet_payment_if_present():
+                logger.debug("Carnet payment option selected")
+
             # Confirm booking
             confirm_button = wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".confirm-booking, #confirmBooking"))
@@ -525,6 +529,65 @@ class ParisTennisService:
             except NoSuchElementException:
                 continue
         return False
+
+    def _select_carnet_payment_if_present(self) -> bool:
+        """
+        Attempt to select a carnet payment option if one is present.
+
+        Returns:
+            True if a carnet option was found/selected, False otherwise.
+        """
+        try:
+            input_selectors = [
+                "input[type='radio'][value*='carnet']",
+                "input[type='radio'][name*='carnet']",
+                "input[type='radio'][id*='carnet']",
+                "input[type='checkbox'][value*='carnet']",
+                "input[type='checkbox'][name*='carnet']",
+                "input[type='checkbox'][id*='carnet']",
+                "[data-payment*='carnet']",
+            ]
+
+            for selector in input_selectors:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                for element in elements:
+                    try:
+                        if hasattr(element, "is_selected") and element.is_selected():
+                            return True
+                        element.click()
+                        return True
+                    except WebDriverException:
+                        continue
+
+            label_xpath = (
+                "//label[contains(translate(normalize-space(.), "
+                "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'carnet')]"
+            )
+            labels = self.driver.find_elements(By.XPATH, label_xpath)
+            for label in labels:
+                try:
+                    label.click()
+                    return True
+                except WebDriverException:
+                    continue
+
+            selects = self.driver.find_elements(By.TAG_NAME, "select")
+            for select in selects:
+                try:
+                    options = select.find_elements(By.TAG_NAME, "option")
+                except WebDriverException:
+                    continue
+                for option in options:
+                    text = (option.text or "").strip().lower()
+                    value = (option.get_attribute("value") or "").strip().lower()
+                    if "carnet" in text or "carnet" in value:
+                        option.click()
+                        return True
+
+            return False
+        except WebDriverException as e:
+            logger.debug(f"Failed to select carnet payment option: {e}")
+            return False
 
     def _extract_confirmation_id(self) -> Optional[str]:
         """Extract booking confirmation ID from page."""

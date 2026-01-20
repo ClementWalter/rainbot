@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from selenium.webdriver.common.by import By
 
 from src.models.booking_request import BookingRequest, CourtType, DayOfWeek
 from src.services.paris_tennis import (
@@ -355,6 +356,43 @@ class TestParisTennisService:
         """Test booking success detection when not confirmed."""
         mock_driver.page_source = "Erreur lors de la réservation"
         assert service._check_booking_success() is False
+
+    def test_select_carnet_payment_clicks_radio(self, service, mock_driver):
+        """Test carnet selection clicks a radio input when present."""
+        mock_radio = MagicMock()
+        mock_radio.is_selected.return_value = False
+
+        def find_elements_side_effect(by, value):
+            if by == By.CSS_SELECTOR:
+                return [mock_radio]
+            return []
+
+        mock_driver.find_elements.side_effect = find_elements_side_effect
+
+        assert service._select_carnet_payment_if_present() is True
+        mock_radio.click.assert_called_once()
+
+    def test_select_carnet_payment_selects_option(self, service, mock_driver):
+        """Test carnet selection falls back to select options."""
+        mock_select = MagicMock()
+        mock_option = MagicMock()
+        mock_option.text = "Carnet 10"
+        mock_option.get_attribute.return_value = "carnet-10"
+        mock_select.find_elements.return_value = [mock_option]
+
+        def find_elements_side_effect(by, value):
+            if by == By.CSS_SELECTOR:
+                return []
+            if by == By.XPATH:
+                return []
+            if by == By.TAG_NAME and value == "select":
+                return [mock_select]
+            return []
+
+        mock_driver.find_elements.side_effect = find_elements_side_effect
+
+        assert service._select_carnet_payment_if_present() is True
+        mock_option.click.assert_called_once()
 
     def test_book_court_not_logged_in(self, service, sample_court_slot):
         """Test booking fails when not logged in."""

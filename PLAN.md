@@ -6,7 +6,8 @@
 
 Core booking modules and unit-test coverage are in place, but the live
 integration is not production-ready because the Paris Tennis selectors/flow are
-placeholders and deployment/integration testing remains incomplete.
+placeholders, carnet selection needs assume-the-DOM validation, and
+deployment/integration testing remains incomplete.
 
 ### What Exists
 
@@ -18,7 +19,7 @@ placeholders and deployment/integration testing remains incomplete.
 - [x] src/ - Core structure with data models, Google Sheets service, browser
       utility, Paris Tennis service, CAPTCHA solver, and notification service
 - [x] src/services/booking_history.py - Booking history CSV export helper
-- [x] tests/ - 243 unit tests covering models, services, browser, Paris Tennis,
+- [x] tests/ - 245 unit tests covering models, services, browser, Paris Tennis,
       CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots
       tracking, HTML escaping, cleanup job
 - [x] PLAN.md - This file
@@ -28,9 +29,10 @@ placeholders and deployment/integration testing remains incomplete.
 1. **Paris Tennis selectors/flow**: Replace placeholder CSS selectors and
    booking flow assumptions with real tennis.paris.fr DOM mappings and validate
    end-to-end.
-2. **Carnet payment step**: Add explicit carnet selection/payment confirmation
-   in the booking flow (if required by the live site) so bookings always use the
-   user's ticket carnet.
+2. **Carnet payment step validation**: Align carnet selection/payment
+   confirmation with the live DOM and confirm any post-confirmation payment
+   steps. A best-effort carnet selector exists but is not validated on the live
+   site.
 3. **Subscription/payment**: Add paid subscription handling beyond manual
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
@@ -40,6 +42,9 @@ placeholders and deployment/integration testing remains incomplete.
    unavailable).
 6. **Booking history access**: Expose booking history to users (email export,
    simple UI, or API). Current CSV export helper exists but isn't user-facing.
+7. **User onboarding/request management**: Provide a user-facing interface
+   (admin UI, simple API, or form) for managing users, subscriptions, and
+   booking requests instead of editing Google Sheets directly.
 
 ### Known Issues
 
