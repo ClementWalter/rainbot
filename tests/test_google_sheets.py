@@ -443,6 +443,54 @@ class TestGoogleSheetsService:
         # Booking that ended at 00:01 today should NOT be pending (already passed)
         assert mock_service.has_pending_booking("user1") is False
 
+    def test_has_pending_booking_today_missing_end_time(self, mock_service):
+        """Test that missing end time for today's booking is treated as pending."""
+        mock_worksheet = MagicMock()
+        from src.utils.timezone import today_paris
+
+        today = today_paris()
+        booking_datetime = datetime(today.year, today.month, today.day, 9, 0)
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "id": "book1",
+                "user_id": "user1",
+                "request_id": "req1",
+                "facility_name": "Tennis Club",
+                "facility_code": "TC001",
+                "court_number": "1",
+                "date": booking_datetime.isoformat(),
+                "time_start": "09:00",
+                "time_end": "",  # Missing end time
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        assert mock_service.has_pending_booking("user1") is True
+
+    def test_has_pending_booking_today_invalid_end_time(self, mock_service):
+        """Test that invalid end time for today's booking is treated as pending."""
+        mock_worksheet = MagicMock()
+        from src.utils.timezone import today_paris
+
+        today = today_paris()
+        booking_datetime = datetime(today.year, today.month, today.day, 9, 0)
+        mock_worksheet.get_all_records.return_value = [
+            {
+                "id": "book1",
+                "user_id": "user1",
+                "request_id": "req1",
+                "facility_name": "Tennis Club",
+                "facility_code": "TC001",
+                "court_number": "1",
+                "date": booking_datetime.isoformat(),
+                "time_start": "09:00",
+                "time_end": "invalid",  # Invalid end time
+            }
+        ]
+        mock_service._mock_spreadsheet.worksheet.return_value = mock_worksheet
+
+        assert mock_service.has_pending_booking("user1") is True
+
     def test_has_pending_booking_past_date(self, mock_service):
         """Test that bookings from past dates are not pending."""
         mock_worksheet = MagicMock()

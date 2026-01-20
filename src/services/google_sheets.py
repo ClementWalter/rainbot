@@ -353,7 +353,11 @@ class GoogleSheetsService:
                 from src.models.booking_request import normalize_time
 
                 booking_end = normalize_time(booking.time_end)
-                if booking_end and booking_end > current_time:
+                if booking_end:
+                    if booking_end > current_time:
+                        return True
+                else:
+                    # Missing/invalid end time: treat as pending to avoid duplicates
                     return True
 
         return False

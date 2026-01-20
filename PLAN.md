@@ -244,6 +244,11 @@ deployment/integration testing remains incomplete.
     `subscription_active` and `active` values that are empty or `None` now
     default to `True` to avoid unintentionally disabling eligible users or
     active requests when Sheets cells are blank.
+30. ~~**Missing/Invalid time_end Allows Same-Day Double Booking** - When a
+    booking for today lacks a valid `time_end`, `has_pending_booking()` treated
+    it as not pending, allowing duplicate same-day bookings in violation of the
+    "one active booking per user" rule.~~ **FIXED**: Missing/invalid end times
+    are now treated as pending for the day.
 
 ---
 
