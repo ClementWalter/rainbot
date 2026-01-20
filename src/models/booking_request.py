@@ -214,6 +214,10 @@ class BookingRequest:
         facilities = data.get("facility_preferences", [])
         if isinstance(facilities, str):
             facilities = [f.strip() for f in facilities.split(",") if f.strip()]
+        elif isinstance(facilities, list):
+            facilities = [str(item).strip() for item in facilities if str(item).strip()]
+        else:
+            facilities = []
 
         # Parse and validate time boundaries (PRD section 5.1: 8:00-22:00)
         time_start = cls._validate_time(str(data.get("time_start", "")), MIN_BOOKING_TIME)

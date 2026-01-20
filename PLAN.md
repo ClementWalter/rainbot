@@ -253,6 +253,10 @@ testing remains incomplete.
     validates hour/minute/second ranges (rejecting values like "24:00" or
     "12:99") to prevent invalid times from slipping into request validation and
     slot filtering.
+36. **Facility Preferences None Crash** - Fixed: `BookingRequest.from_dict()`
+    now defaults `facility_preferences` to an empty list when the source value
+    is `None` or an unexpected type, preventing `TypeError` when iterating
+    facility preferences during court searches.
 
 ---
 

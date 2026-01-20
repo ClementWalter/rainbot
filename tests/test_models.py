@@ -312,6 +312,19 @@ class TestBookingRequest:
         assert request.facility_preferences == ["FAC001", "FAC002"]
         assert request.partner_name == "John Doe"
 
+    def test_from_dict_with_none_facility_preferences_defaults_empty_list(self):
+        """Test BookingRequest.from_dict defaults None facility preferences to empty list."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "monday",
+            "time_start": "18:00",
+            "time_end": "20:00",
+            "facility_preferences": None,
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.facility_preferences == []
+
     def test_from_dict_with_uppercase_active_true(self):
         """Test BookingRequest.from_dict handles string 'TRUE' for active flag."""
         data = {
