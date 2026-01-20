@@ -237,6 +237,26 @@ class TestCaptchaSolverService:
 class TestSolveCaptchaFromPage:
     """Tests for solve_captcha_from_page method."""
 
+    def test_liveidentity_captcha_detected_and_solved(self, service, mock_driver):
+        """Test LiveIdentity CAPTCHA detection and solving."""
+        html = (
+            'LI_ANTIBOT.loadAntibot(["IMAGE","AUDIO","FR","+KEY",'
+            '"https://captcha.liveidentity.com/captcha",null,null,'
+            '"antibot-id","request-id",true]);'
+        )
+        mock_driver.page_source = html
+
+        mock_driver.find_element.return_value = MagicMock()
+
+        with patch.object(service, "_solve_liveidentity_antibot") as mock_solver:
+            mock_solver.return_value = CaptchaSolveResult(success=True, token="live-token")
+
+            result = service.solve_captcha_from_page(mock_driver, max_retries=1)
+
+        assert result.success is True
+        assert result.token == "live-token"
+        mock_driver.execute_script.assert_called_once()
+
     def test_no_captcha_detected(self, service, mock_driver):
         """Test when no CAPTCHA is present on page."""
         from selenium.common.exceptions import NoSuchElementException
@@ -378,6 +398,28 @@ class TestSolveCaptchaFromPage:
         )
         mock_v2.assert_not_called()
         mock_inject.assert_called_once_with(mock_driver, "v3-token")
+
+
+class TestLiveIdentityParsing:
+    """Tests for LiveIdentity config parsing."""
+
+    def test_parse_liveidentity_config(self, service):
+        """Test parsing LiveIdentity config from page source."""
+        html = (
+            'LI_ANTIBOT.loadAntibot(["IMAGE","AUDIO","FR","+ACAhl8aUF&v",'
+            '"https://captcha.liveidentity.com/captcha",null,null,'
+            '"antibot-id","request-id",true]);'
+        )
+
+        config = service._parse_liveidentity_config(html)
+
+        assert config is not None
+        assert config.captcha_type == "IMAGE"
+        assert config.locale == "FR"
+        assert config.sp_key == "+ACAhl8aUF&v"
+        assert config.base_url == "https://captcha.liveidentity.com/captcha"
+        assert config.antibot_id == "antibot-id"
+        assert config.request_id == "request-id"
 
 
 class TestInjectRecaptchaToken:

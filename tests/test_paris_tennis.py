@@ -478,17 +478,16 @@ class TestParisTennisService:
 
     def test_search_available_courts_empty(self, service, mock_driver, sample_booking_request):
         """Test search returns empty list when no results."""
-        from selenium.common.exceptions import NoSuchElementException
-
-        mock_driver.find_element.side_effect = NoSuchElementException()
-        mock_driver.find_elements.return_value = []
-
-        with patch("src.services.paris_tennis.WebDriverWait") as mock_wait:
-            mock_wait.return_value.until.return_value = MagicMock()
-
+        with patch.object(service, "_ensure_search_results_page"), patch.object(
+            service,
+            "_resolve_facility_preferences",
+            return_value=["Max Rousié"],
+        ), patch.object(service, "_fetch_availability_html", return_value=""), patch.object(
+            service, "_parse_available_slots_html", return_value=[]
+        ):
             result = service.search_available_courts(sample_booking_request)
 
-            assert result == []
+        assert result == []
 
     def test_logout_success(self, service, mock_driver):
         """Test successful logout."""

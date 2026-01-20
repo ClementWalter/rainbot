@@ -82,11 +82,11 @@ def load_settings() -> Settings:
             base_url=os.getenv("PARIS_TENNIS_BASE_URL", "https://tennis.paris.fr"),
             login_url=os.getenv(
                 "PARIS_TENNIS_LOGIN_URL",
-                "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=authentification",
+                "https://tennis.paris.fr/tennis/",
             ),
             search_url=os.getenv(
                 "PARIS_TENNIS_SEARCH_URL",
-                "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=recherche",
+                "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=recherche&view=recherche_creneau",
             ),
         ),
         notification=NotificationConfig(
