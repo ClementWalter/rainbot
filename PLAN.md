@@ -291,6 +291,10 @@ testing remains incomplete.
     notified the user, even when a partner email was provided. Now a booking
     confirmation email is also sent to the partner when `partner_email` is
     available.
+41. **Reminder Schedule Configuration** - Fixed: Match-day reminder cron time is
+    now configurable via `REMINDER_HOUR`, `REMINDER_MINUTE`, and
+    `REMINDER_SECOND`, with a default of 08:00 to align with the PRD's "morning"
+    reminder requirement.
 
 ---
 
