@@ -344,6 +344,10 @@ deployment/integration testing remains incomplete.
     when the live site emits `data-*` attributes. Parsing now accepts `data-*`
     equipment/court/date/price/captcha attributes, improving real-site scraping
     resilience.
+55. **AJAX Slot Date Format Variants** - Fixed: Availability parsing only
+    handled `YYYY/MM/DD HH:MM:SS` date strings, so slots with dashes or missing
+    seconds were dropped. Parsing now accepts both slash/dash formats and
+    optional seconds to avoid missing valid slots.
 
 ---
 

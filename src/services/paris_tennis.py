@@ -702,6 +702,31 @@ class ParisTennisService:
                 return str(value).strip()
         return None
 
+    def _parse_slot_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        """Parse slot date strings from AJAX results into datetimes."""
+        if not value:
+            return None
+        cleaned = str(value).strip()
+        if not cleaned:
+            return None
+
+        formats = (
+            "%Y/%m/%d %H:%M:%S",
+            "%Y/%m/%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+        )
+        for fmt in formats:
+            try:
+                return datetime.strptime(cleaned, fmt)
+            except ValueError:
+                continue
+
+        try:
+            return datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
     def _extract_facility_address(self, button) -> Optional[str]:
         """Best-effort extraction of a facility address from an availability button."""
         if button is None:
@@ -825,12 +850,8 @@ class ParisTennisService:
         if not equipment_id or not court_id or not date_deb or not date_fin:
             return None
 
-        try:
-            reservation_start = datetime.strptime(date_deb, "%Y/%m/%d %H:%M:%S")
-            reservation_end = datetime.strptime(date_fin, "%Y/%m/%d %H:%M:%S")
-        except ValueError:
-            reservation_start = None
-            reservation_end = None
+        reservation_start = self._parse_slot_datetime(date_deb)
+        reservation_end = self._parse_slot_datetime(date_fin)
 
         time_start = reservation_start.strftime("%H:%M") if reservation_start else ""
         time_end = reservation_end.strftime("%H:%M") if reservation_end else ""

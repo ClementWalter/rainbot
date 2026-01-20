@@ -441,6 +441,37 @@ class TestParisTennisService:
         assert slot.price == 12.0
         assert slot.court_type == CourtType.OUTDOOR
 
+    def test_parse_available_slots_html_accepts_date_formats_without_seconds(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing handles date strings without seconds."""
+        html = """
+        <div class="tennis-court">
+            <button class="buttonAllOk"
+                equipmentid="E3"
+                courtid="C3"
+                datedeb="2025-01-15 18:00"
+                datefin="2025-01-15 19:00"
+                price="10"
+                typeprice="Couvert"></button>
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Tennis Club Paris",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id=None,
+        )
+
+        assert slots
+        slot = slots[0]
+        assert slot.time_start == "18:00"
+        assert slot.time_end == "19:00"
+
     def test_parse_facility_results_filters_mismatched_court_type(
         self,
         service,
