@@ -406,6 +406,40 @@ class TestParisTennisService:
         assert slots
         assert slots[0].facility_address == "15 Rue du Tennis, 75001 Paris"
 
+    def test_parse_available_slots_html_accepts_data_attributes(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing handles data-* slot attributes."""
+        html = """
+        <div class="tennis-court">
+            <button data-equipment-id="E2"
+                data-court-id="C2"
+                data-date-deb="2025/01/15 18:00:00"
+                data-date-fin="2025/01/15 19:00:00"
+                data-price="12"
+                data-type-price="Decouvert"
+                data-captcha-request-id="CAP-123"></button>
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Tennis Club Paris",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id="CAP-DEFAULT",
+        )
+
+        assert slots
+        slot = slots[0]
+        assert slot.equipment_id == "E2"
+        assert slot.court_id == "C2"
+        assert slot.captcha_request_id == "CAP-123"
+        assert slot.price == 12.0
+        assert slot.court_type == CourtType.OUTDOOR
+
     def test_parse_facility_results_filters_mismatched_court_type(
         self,
         service,

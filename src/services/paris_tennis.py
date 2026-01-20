@@ -673,7 +673,7 @@ class ParisTennisService:
             return []
 
         soup = BeautifulSoup(html, "html.parser")
-        buttons = soup.select("button.buttonAllOk")
+        buttons = soup.select("button")
         slots: list[CourtSlot] = []
 
         for button in buttons:
@@ -691,6 +691,16 @@ class ParisTennisService:
                 slots.append(slot)
 
         return slots
+
+    def _get_slot_button_attr(self, button, *names: str) -> Optional[str]:
+        """Return the first non-empty attribute value from a slot button."""
+        if button is None:
+            return None
+        for name in names:
+            value = button.get(name)
+            if value:
+                return str(value).strip()
+        return None
 
     def _extract_facility_address(self, button) -> Optional[str]:
         """Best-effort extraction of a facility address from an availability button."""
@@ -765,12 +775,52 @@ class ParisTennisService:
         captcha_request_id: Optional[str],
     ) -> Optional[CourtSlot]:
         """Parse a buttonAllOk element into a CourtSlot."""
-        equipment_id = button.get("equipmentid")
-        court_id = button.get("courtid")
-        date_deb = button.get("datedeb")
-        date_fin = button.get("datefin")
-        price_value = button.get("price")
-        type_price = button.get("typeprice", "")
+        equipment_id = self._get_slot_button_attr(
+            button,
+            "equipmentid",
+            "data-equipmentid",
+            "data-equipment-id",
+        )
+        court_id = self._get_slot_button_attr(
+            button,
+            "courtid",
+            "data-courtid",
+            "data-court-id",
+        )
+        date_deb = self._get_slot_button_attr(
+            button,
+            "datedeb",
+            "data-datedeb",
+            "data-date-deb",
+        )
+        date_fin = self._get_slot_button_attr(
+            button,
+            "datefin",
+            "data-datefin",
+            "data-date-fin",
+        )
+        price_value = self._get_slot_button_attr(
+            button,
+            "price",
+            "data-price",
+        )
+        type_price = (
+            self._get_slot_button_attr(
+                button,
+                "typeprice",
+                "data-typeprice",
+                "data-type-price",
+            )
+            or ""
+        )
+        button_captcha_request_id = self._get_slot_button_attr(
+            button,
+            "captcharequestid",
+            "data-captcharequestid",
+            "data-captcha-request-id",
+        )
+        if button_captcha_request_id:
+            captcha_request_id = button_captcha_request_id
 
         if not equipment_id or not court_id or not date_deb or not date_fin:
             return None
