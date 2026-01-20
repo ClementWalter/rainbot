@@ -339,6 +339,11 @@ deployment/integration testing remains incomplete.
 53. **Image CAPTCHA Data URI Handling** - Fixed: Image CAPTCHA sources embedded
     as `data:` URIs now have their base64 payload extracted before sending to
     the solver, preventing failures when CAPTCHAs are inlined in HTML.
+54. **AJAX Slot Attribute Variants** - Fixed: AJAX slot parsing only matched
+    `buttonAllOk` buttons and camel-case attributes, so slots could be missed
+    when the live site emits `data-*` attributes. Parsing now accepts `data-*`
+    equipment/court/date/price/captcha attributes, improving real-site scraping
+    resilience.
 
 ---
 

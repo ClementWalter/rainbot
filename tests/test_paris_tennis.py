@@ -1,5 +1,6 @@
 """Tests for the Paris Tennis service."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -428,7 +429,7 @@ class TestParisTennisService:
             html=html,
             facility_name="Tennis Club Paris",
             target_date=now_paris(),
-            request=sample_booking_request,
+            request=replace(sample_booking_request, court_type=CourtType.ANY),
             captcha_request_id="CAP-DEFAULT",
         )
 

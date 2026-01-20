@@ -884,10 +884,10 @@ class ParisTennisService:
         """Infer court type from court/price labels."""
         combined = " ".join([court_text or "", price_text or ""]).lower()
         normalized = _normalize_court_type_text(combined)
-        if "couvert" in normalized:
-            return CourtType.INDOOR
         if "decouvert" in normalized or "exterieur" in normalized:
             return CourtType.OUTDOOR
+        if "couvert" in normalized:
+            return CourtType.INDOOR
         return CourtType.ANY
 
     def _submit_reservation_form(
