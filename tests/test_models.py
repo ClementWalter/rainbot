@@ -1,6 +1,6 @@
 """Tests for data models."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -12,6 +12,7 @@ from src.models import (
     User,
     normalize_time,
 )
+from src.utils.timezone import PARIS_TZ
 
 
 class TestUser:
@@ -707,6 +708,28 @@ class TestBooking:
         # Should default to now_paris() instead of raising ValueError
         assert booking.date is not None
         assert isinstance(booking.date, datetime)
+
+    def test_from_dict_normalizes_timezone_offsets(self):
+        """Test timezone-aware ISO strings are normalized to Paris timezone."""
+        utc_dt = datetime(2025, 1, 15, 23, 30, tzinfo=timezone.utc)
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": utc_dt.isoformat(),
+            "time_start": "18:00",
+            "time_end": "19:00",
+            "created_at": utc_dt.isoformat(),
+        }
+        booking = Booking.from_dict(data)
+        assert booking.date.tzinfo is not None
+        assert booking.date.tzinfo.zone == PARIS_TZ.zone
+        assert booking.date.date() == utc_dt.astimezone(PARIS_TZ).date()
+        assert booking.created_at.tzinfo is not None
+        assert booking.created_at.tzinfo.zone == PARIS_TZ.zone
 
     def test_from_dict_with_empty_created_at_string(self):
         """Test creating Booking with empty created_at string."""

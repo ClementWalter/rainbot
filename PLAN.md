@@ -41,8 +41,9 @@ deployment/integration testing remains incomplete.
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-5. **LiveIdentity anti-bot CAPTCHA**: Image-based LI_ANTIBOT flow is wired up,
-   but still needs live-site validation plus support for invisible challenges.
+5. **LiveIdentity anti-bot CAPTCHA**: Image-based LI_ANTIBOT flow is wired up.
+   Invisible challenges now fall back to reCAPTCHA detection, but live-site
+   validation is still required to confirm behavior.
 6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
@@ -75,13 +76,17 @@ deployment/integration testing remains incomplete.
 3. **Login entrypoint selectors unvalidated** - The login flow uses the landing
    page and Mon Paris SSO selectors, but the selectors still need live-site
    validation for logged-out sessions.
-4. **LiveIdentity CAPTCHA edge cases** - Image-based LI_ANTIBOT solving is in
-   place, but invisible challenges, validation headers (request/antibot IDs),
-   and blacklist/invalid token responses still need handling.
+4. **LiveIdentity CAPTCHA edge cases** - Invisible challenge handling now defers
+   to reCAPTCHA detection, but live-site validation on tennis.paris.fr is still
+   pending.
 5. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
 6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
    scraping with AJAX-based slot parsing, which can drift as the site evolves.
+7. **Booking.is_today uses naive datetimes without Paris TZ** - Bookings created
+   from slot parsing carry naive datetimes and `Booking.is_today()` compares the
+   naive date to `today_paris()` without localizing, which can skip reminders or
+   fail tests when the host timezone differs from Paris.
 
 ### Resolved Issues
 
@@ -309,6 +314,15 @@ deployment/integration testing remains incomplete.
     `paris_tennis.py` used a double-escaped regex that matched literal `\s`/`\d`
     sequences, so labels like "Court n° 3" were not reduced to the numeric court
     number. The regex now correctly extracts digits from common labels.
+46. **Booking Date Timezone Normalization** - Fixed: `Booking.from_dict()`
+    parsed ISO datetime strings with timezone offsets but did not normalize them
+    to Paris time, so dates near midnight could be off by a day for reminders
+    and pending-booking checks. Parsed `date`/`created_at` values are now
+    converted to Europe/Paris, and `Booking.is_today()` compares Paris dates for
+    timezone-aware values.
+47. **LiveIdentity invisible CAPTCHA fallback** - Fixed: Invisible LI_ANTIBOT
+    responses no longer hard-fail the CAPTCHA solver; the flow now defers to
+    reCAPTCHA detection so invisible challenges can still be solved.
 
 ---
 

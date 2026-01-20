@@ -322,6 +322,8 @@ class CaptchaSolverService:
                 )
 
             solve_result = self._solve_liveidentity_antibot(config)
+            if solve_result is None:
+                return None
             if solve_result.success and solve_result.token:
                 self._inject_liveidentity_token(driver, solve_result.token)
             return solve_result
@@ -365,8 +367,15 @@ class CaptchaSolverService:
             request_id=get_value(8),
         )
 
-    def _solve_liveidentity_antibot(self, config: LiveIdentityConfig) -> CaptchaSolveResult:
+    def _solve_liveidentity_antibot(
+        self,
+        config: LiveIdentityConfig,
+    ) -> Optional[CaptchaSolveResult]:
         """Solve LiveIdentity anti-bot using the public API."""
+        if str(config.captcha_type).upper() == "INVISIBLE_CAPTCHA":
+            logger.info("LiveIdentity invisible CAPTCHA detected; falling back to other solvers")
+            return None
+
         transaction = self._fetch_liveidentity_transaction(config)
         if not transaction:
             return CaptchaSolveResult(
@@ -375,10 +384,10 @@ class CaptchaSolverService:
             )
 
         if transaction.get("antibotMethod") == "INVISIBLE_CAPTCHA":
-            return CaptchaSolveResult(
-                success=False,
-                error_message="Invisible LiveIdentity CAPTCHA is not supported",
+            logger.info(
+                "LiveIdentity invisible CAPTCHA reported by API; falling back to other solvers"
             )
+            return None
 
         challenge = self._fetch_liveidentity_challenge(config, transaction)
         if not challenge:

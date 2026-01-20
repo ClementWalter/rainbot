@@ -313,6 +313,42 @@ class TestSolveCaptchaFromPage:
             assert result.success is True
             assert result.token == "solved-token"
 
+    def test_liveidentity_invisible_falls_back_to_recaptcha(self, service, mock_driver):
+        """Test LiveIdentity invisible flow defers to reCAPTCHA detection."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_driver.page_source = (
+            'LI_ANTIBOT.loadAntibot(["IMAGE","AUDIO","FR","+KEY",'
+            '"https://captcha.liveidentity.com/captcha",null,null,'
+            '"antibot-id","request-id",true]);'
+        )
+        mock_driver.find_element.side_effect = NoSuchElementException()
+        mock_driver.current_url = "https://tennis.paris.fr/booking"
+
+        config = LiveIdentityConfig(
+            captcha_type="IMAGE",
+            locale="FR",
+            sp_key="+KEY",
+            base_url="https://captcha.liveidentity.com/captcha",
+            antibot_id="antibot-id",
+            request_id="request-id",
+        )
+
+        with patch.object(service, "_parse_liveidentity_config", return_value=config), patch.object(
+            service,
+            "_fetch_liveidentity_transaction",
+            return_value={"antibotMethod": "INVISIBLE_CAPTCHA"},
+        ), patch.object(
+            service,
+            "_detect_and_solve_recaptcha",
+            return_value=CaptchaSolveResult(success=True, token="rc-token"),
+        ) as mock_recaptcha:
+            result = service.solve_captcha_from_page(mock_driver, max_retries=1)
+
+        assert result.success is True
+        assert result.token == "rc-token"
+        mock_recaptcha.assert_called_once_with(mock_driver, mock_driver.current_url)
+
     def test_captcha_solving_max_retries(self, service, mock_driver):
         """Test CAPTCHA solving respects max retries."""
         from selenium.common.exceptions import NoSuchElementException
