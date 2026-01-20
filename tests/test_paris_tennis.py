@@ -579,6 +579,17 @@ class TestParisTennisService:
         mock_driver.find_element.side_effect = NoSuchElementException()
         assert service._check_for_captcha() is False
 
+    def test_check_for_captcha_detects_recaptcha_script(self, service, mock_driver):
+        """Test CAPTCHA detection when only reCAPTCHA script is present."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_driver.find_element.side_effect = NoSuchElementException()
+        mock_driver.page_source = (
+            "<script src='https://www.google.com/recaptcha/api.js?render=sitekey'></script>"
+        )
+
+        assert service._check_for_captcha() is True
+
     def test_submit_captcha_form_clicks_submit_button(self, service, mock_driver):
         """Test captcha form submission clicks a submit button when present."""
         mock_form = MagicMock()

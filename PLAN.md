@@ -369,6 +369,11 @@ deployment/integration testing remains incomplete.
     scheduler now clamps negative values to zero and defaults to a 10-second
     interval when all values are zero, preventing startup crashes from invalid
     configuration.
+61. **reCAPTCHA v3 Script-Only Detection** - Fixed: CAPTCHA solving relied on
+    DOM elements with `data-sitekey`, so pages that only embed reCAPTCHA v3 via
+    `api.js?render=` or `grecaptcha.execute(...)` were skipped. The solver now
+    extracts sitekeys/actions from page source and CAPTCHA detection recognizes
+    script-only reCAPTCHA, ensuring v3 challenges are solved.
 
 ---
 

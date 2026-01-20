@@ -495,6 +495,31 @@ class TestSolveCaptchaFromPage:
         mock_v2.assert_not_called()
         mock_inject.assert_called_once_with(mock_driver, "v3-token")
 
+    def test_recaptcha_v3_sitekey_from_script(self, service, mock_driver):
+        """Test reCAPTCHA v3 detection from script tags."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_driver.find_element.side_effect = NoSuchElementException()
+        mock_driver.page_source = (
+            "<script src='https://www.google.com/recaptcha/api.js?render=sitekey-123'></script>"
+            "<script>grecaptcha.execute('sitekey-123', {action: 'reserve'})</script>"
+        )
+
+        with patch.object(service, "solve_recaptcha_v3") as mock_v3, patch.object(
+            service, "_inject_recaptcha_token"
+        ) as mock_inject:
+            mock_v3.return_value = CaptchaSolveResult(success=True, token="v3-token")
+
+            result = service.solve_captcha_from_page(mock_driver)
+
+        assert result.success is True
+        mock_v3.assert_called_once_with(
+            "sitekey-123",
+            mock_driver.current_url,
+            action="reserve",
+        )
+        mock_inject.assert_called_once_with(mock_driver, "v3-token")
+
 
 class TestLiveIdentityParsing:
     """Tests for LiveIdentity config parsing."""

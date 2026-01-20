@@ -609,6 +609,47 @@ class CaptchaSolverService:
         except WebDriverException as e:
             logger.warning(f"Failed to inject LiveIdentity token: {e}")
 
+    def _extract_recaptcha_sitekey(self, page_source: str) -> Optional[str]:
+        """Extract a reCAPTCHA sitekey from page source."""
+        if not page_source:
+            return None
+
+        patterns = [
+            r"data-sitekey=['\"]([^'\"]+)['\"]",
+            r"recaptcha/api\.js\?render=([^\"'&<>]+)",
+            r"[?&]render=([^\"'&<>]+)",
+            r"grecaptcha\.execute\(\s*['\"]([^'\"]+)['\"]",
+            r"['\"]sitekey['\"]\s*:\s*['\"]([^'\"]+)['\"]",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, page_source, re.IGNORECASE)
+            if not match:
+                continue
+            candidate = match.group(1).strip()
+            if not candidate:
+                continue
+            if candidate.lower() in ("explicit", "onload"):
+                continue
+            return candidate
+
+        return None
+
+    def _extract_recaptcha_action(self, page_source: str) -> Optional[str]:
+        """Extract a reCAPTCHA v3 action from page source."""
+        if not page_source:
+            return None
+
+        match = re.search(
+            r"grecaptcha\.execute\([^,]+,\s*\{\s*action\s*:\s*['\"]([^'\"]+)['\"]",
+            page_source,
+            re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()
+
+        return None
+
     def _detect_and_solve_recaptcha(
         self,
         driver: WebDriver,
@@ -625,6 +666,8 @@ class CaptchaSolverService:
 
             sitekey = None
             element_with_sitekey = None
+            action = None
+            invisible = False
             for selector in recaptcha_selectors:
                 try:
                     element = driver.find_element(By.CSS_SELECTOR, selector)
@@ -641,11 +684,9 @@ class CaptchaSolverService:
                 except NoSuchElementException:
                     continue
 
-            if not sitekey:
-                return None
+            page_source = driver.page_source or ""
+            lower_source = page_source.lower()
 
-            invisible = False
-            action = None
             if element_with_sitekey is not None:
                 try:
                     container = driver.find_element(By.CSS_SELECTOR, ".g-recaptcha")
@@ -659,10 +700,17 @@ class CaptchaSolverService:
                 if data_size == "invisible":
                     invisible = True
 
-            page_source = (driver.page_source or "").lower()
+            if not sitekey:
+                sitekey = self._extract_recaptcha_sitekey(page_source)
+            if not action:
+                action = self._extract_recaptcha_action(page_source)
+
+            if not sitekey:
+                return None
+
             is_v3 = bool(action)
             if not is_v3 and (
-                "grecaptcha.execute" in page_source or "recaptcha/api.js?render=" in page_source
+                "grecaptcha.execute" in lower_source or "recaptcha/api.js?render=" in lower_source
             ):
                 is_v3 = True
 

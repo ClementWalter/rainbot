@@ -1363,6 +1363,14 @@ class ParisTennisService:
                 return True
             except NoSuchElementException:
                 continue
+        page_source = (self.driver.page_source or "").lower()
+        if (
+            "recaptcha/api.js?render=" in page_source
+            or "grecaptcha.execute" in page_source
+            or "data-sitekey" in page_source
+            or "li_antibot.loadantibot" in page_source
+        ):
+            return True
         return False
 
     def _submit_captcha_form_if_present(self, wait: Optional[WebDriverWait] = None) -> bool:
