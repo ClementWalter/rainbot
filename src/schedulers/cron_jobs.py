@@ -72,35 +72,42 @@ def booking_job() -> None:
         user_map = {user.id: user for user in eligible_users}
         logger.info(f"Found {len(eligible_users)} eligible users")
 
-        # Filter requests to only those from eligible users
+        # Filter requests to only those from eligible users and group by user
         requests_to_process = [req for req in active_requests if req.user_id in eligible_user_ids]
         logger.info(f"Processing {len(requests_to_process)} requests from eligible users")
 
+        requests_by_user: dict[str, list[BookingRequest]] = {}
         for request in requests_to_process:
-            user = user_map.get(request.user_id)
+            requests_by_user.setdefault(request.user_id, []).append(request)
+
+        for user_id, user_requests in requests_by_user.items():
+            user = user_map.get(user_id)
             if not user:
-                logger.warning(f"User {request.user_id} not found for request {request.id}")
+                logger.warning(f"User {user_id} not found for requests")
                 continue
 
             # Try to acquire lock for this user to prevent concurrent processing
             if not sheets.acquire_user_lock(user.id, job_id):
                 logger.info(
                     f"Could not acquire lock for user {user.id}, "
-                    f"skipping request {request.id} (another job is processing)"
+                    "skipping requests (another job is processing)"
                 )
                 continue
 
             try:
                 # Check if user already has a pending booking (after acquiring lock)
                 if sheets.has_pending_booking(user.id):
-                    logger.info(
-                        f"User {user.id} already has a pending booking, skipping request {request.id}"
-                    )
+                    logger.info(f"User {user.id} already has a pending booking, skipping requests")
                     continue
 
-                # Process this booking request
-                logger.info(f"Processing booking request {request.id} for user {user.id}")
-                _process_booking_request(user, request, sheets, notification)
+                # Process booking requests for this user until one succeeds
+                for request in user_requests:
+                    logger.info(f"Processing booking request {request.id} for user {user.id}")
+                    if _process_booking_request(user, request, sheets, notification):
+                        logger.info(
+                            f"Booking completed for user {user.id}, skipping remaining requests"
+                        )
+                        break
             finally:
                 # Always release the lock when done
                 sheets.release_user_lock(user.id, job_id)
@@ -116,7 +123,7 @@ def _process_booking_request(
     request: BookingRequest,
     sheets: GoogleSheetsService,
     notification: NotificationService,
-) -> None:
+) -> bool:
     """
     Process a single booking request for a user.
 
@@ -125,6 +132,9 @@ def _process_booking_request(
         request: The booking request to process
         sheets: Google Sheets service for data persistence
         notification: Notification service for sending emails
+
+    Returns:
+        True if a booking was successfully completed, False otherwise.
     """
     try:
         with create_paris_tennis_session() as tennis_service:
@@ -141,7 +151,7 @@ def _process_booking_request(
                     "Impossible de se connecter au site Paris Tennis. "
                     "Veuillez vérifier vos identifiants.",
                 )
-                return
+                return False
 
             # Search for available courts
             logger.info(f"Searching for courts matching request {request.id}")
@@ -180,7 +190,7 @@ def _process_booking_request(
                         f"No slots notification already sent for request {request.id}, "
                         f"date {target_date_str}"
                     )
-                return
+                return False
 
             logger.info(f"Found {len(available_slots)} available slots")
 
@@ -207,7 +217,7 @@ def _process_booking_request(
 
                     # Send confirmation notification
                     notification.send_booking_confirmation(user, booking)
-                    return
+                    return True
 
                 logger.warning(f"Booking failed for slot: {result.error_message}")
 
@@ -218,6 +228,7 @@ def _process_booking_request(
                 "Tous les créneaux disponibles ont été réservés par d'autres utilisateurs.",
                 facility_name=available_slots[0].facility_name if available_slots else None,
             )
+            return False
 
     except Exception as e:
         logger.error(f"Error processing booking request {request.id}: {e}", exc_info=True)
@@ -228,6 +239,9 @@ def _process_booking_request(
             )
         except Exception as notify_error:
             logger.error(f"Failed to send failure notification: {notify_error}")
+        return False
+
+    return False
 
 
 def _create_booking_from_result(

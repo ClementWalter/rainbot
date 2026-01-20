@@ -123,6 +123,45 @@ class TestBookingJob:
     @patch("src.schedulers.cron_jobs._process_booking_request")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
+    def test_booking_job_stops_after_success_for_user(
+        self,
+        mock_notification,
+        mock_sheets,
+        mock_process,
+        mock_user,
+    ):
+        """Test booking job stops after a successful booking for a user."""
+        request_one = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="18:00",
+            time_end="20:00",
+            active=True,
+        )
+        request_two = BookingRequest(
+            id="req2",
+            user_id="user1",
+            day_of_week=DayOfWeek.TUESDAY,
+            time_start="18:00",
+            time_end="20:00",
+            active=True,
+        )
+        mock_sheets.get_active_booking_requests.return_value = [request_one, request_two]
+        mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.acquire_user_lock.return_value = True
+        mock_sheets.has_pending_booking.return_value = False
+        mock_process.return_value = True
+
+        booking_job()
+
+        assert mock_process.call_count == 1
+        assert mock_process.call_args_list[0].args[1].id == "req1"
+        mock_sheets.release_user_lock.assert_called()
+
+    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_booking_job_processes_requests_any_day(
         self,
         mock_notification,
@@ -232,10 +271,13 @@ class TestProcessBookingRequest:
         mock_service.login.return_value = False
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+        result = _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
 
         mock_service.login.assert_called_once()
         mock_notification.send_booking_failure_notification.assert_called_once()
+        assert result is False
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
     def test_process_booking_no_slots_available(
@@ -256,7 +298,9 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+        result = _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
 
         mock_service.search_available_courts.assert_called_once()
         # Should send "no slots available" notification to user
@@ -265,6 +309,7 @@ class TestProcessBookingRequest:
         mock_sheets.mark_no_slots_notification_sent.assert_called_once()
         # The failure notification should NOT be called (no slots is informational, not error)
         mock_notification.send_booking_failure_notification.assert_not_called()
+        assert result is False
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
     def test_process_booking_no_slots_already_notified(
@@ -284,13 +329,16 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+        result = _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
 
         mock_service.search_available_courts.assert_called_once()
         # Should NOT send notification (already sent)
         mock_notification.send_no_slots_notification.assert_not_called()
         # Should NOT mark notification sent (already marked)
         mock_sheets.mark_no_slots_notification_sent.assert_not_called()
+        assert result is False
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
     def test_process_booking_no_slots_notification_failed(
@@ -312,10 +360,13 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+        result = _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
 
         mock_notification.send_no_slots_notification.assert_called_once()
         mock_sheets.mark_no_slots_notification_sent.assert_not_called()
+        assert result is False
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
     def test_process_booking_success(
@@ -340,13 +391,16 @@ class TestProcessBookingRequest:
         )
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+        result = _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
 
         mock_service.book_court.assert_called_once_with(
             mock_slot, mock_booking_request.partner_name
         )
         mock_sheets.add_booking.assert_called_once()
         mock_notification.send_booking_confirmation.assert_called_once()
+        assert result is True
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
     def test_process_booking_all_slots_fail(
@@ -370,9 +424,12 @@ class TestProcessBookingRequest:
         )
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+        result = _process_booking_request(
+            mock_user, mock_booking_request, mock_sheets, mock_notification
+        )
 
         mock_notification.send_booking_failure_notification.assert_called_once()
+        assert result is False
 
 
 class TestSendReminder:

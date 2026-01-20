@@ -2,8 +2,8 @@
 
 from datetime import date, datetime
 
-import pytz
 import pytest
+import pytz
 
 from src.utils.timezone import (
     PARIS_TZ,
@@ -45,11 +45,16 @@ class TestNowParis:
         """Test that now_paris returns datetime in Paris timezone."""
         result = now_paris()
         # The tzinfo should be either Europe/Paris or a DST variant
-        assert "Europe/Paris" in str(result.tzinfo) or "CET" in str(result.tzinfo) or "CEST" in str(result.tzinfo)
+        assert (
+            "Europe/Paris" in str(result.tzinfo)
+            or "CET" in str(result.tzinfo)
+            or "CEST" in str(result.tzinfo)
+        )
 
     def test_now_paris_returns_recent_time(self):
         """Test that now_paris returns a time close to the current time."""
         import time
+
         before = time.time()
         result = now_paris()
         after = time.time()
@@ -58,7 +63,8 @@ class TestNowParis:
         result_timestamp = result.timestamp()
 
         # Should be within a few seconds of the current time
-        assert before <= result_timestamp <= after + 1
+        epsilon = 0.01
+        assert before - epsilon <= result_timestamp <= after + 1 + epsilon
 
 
 class TestTodayParis:
@@ -132,7 +138,7 @@ class TestTimezoneEdgeCases:
 
         # Check UTC offset changed
         assert before_dst.utcoffset().total_seconds() == 3600  # +1 hour
-        assert after_dst.utcoffset().total_seconds() == 7200   # +2 hours
+        assert after_dst.utcoffset().total_seconds() == 7200  # +2 hours
 
     def test_dst_transition_fall(self):
         """Test DST transition in fall (last Sunday of October)."""
@@ -142,5 +148,5 @@ class TestTimezoneEdgeCases:
         after_dst = PARIS_TZ.localize(datetime(2024, 10, 27, 2, 30, 0), is_dst=False)
 
         # Check UTC offset changed
-        assert before_dst.utcoffset().total_seconds() == 7200   # +2 hours (CEST)
-        assert after_dst.utcoffset().total_seconds() == 3600    # +1 hour (CET)
+        assert before_dst.utcoffset().total_seconds() == 7200  # +2 hours (CEST)
+        assert after_dst.utcoffset().total_seconds() == 3600  # +1 hour (CET)

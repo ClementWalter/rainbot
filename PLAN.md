@@ -28,11 +28,14 @@ placeholders and deployment/integration testing remains incomplete.
 1. **Paris Tennis selectors/flow**: Replace placeholder CSS selectors and
    booking flow assumptions with real tennis.paris.fr DOM mappings and validate
    end-to-end.
-2. **Subscription/payment**: Add paid subscription handling beyond manual
+2. **Carnet payment step**: Add explicit carnet selection/payment confirmation
+   in the booking flow (if required by the live site) so bookings always use the
+   user's ticket carnet.
+3. **Subscription/payment**: Add paid subscription handling beyond manual
    `subscription_active` flags.
-3. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
+4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-4. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
+5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance (install it if
    unavailable).
 
@@ -213,6 +216,11 @@ placeholders and deployment/integration testing remains incomplete.
     "TRUE" values for `subscription_active` and `active` were treated as false,
     unintentionally disabling eligible users/requests. Parsing is now
     case-insensitive for these flags.
+25. ~~**User Lock Scope Per Request** - The booking job released the per-user
+    lock after each request, allowing another job to process the same user
+    between requests and potentially book multiple courts.~~ **FIXED**: The
+    booking job now groups requests by user, holds the lock across all of that
+    user's requests, and stops after the first successful booking per user.
 
 ---
 
