@@ -949,6 +949,10 @@ class ParisTennisService:
 
         date_deb = reservation_start.strftime("%Y/%m/%d %H:%M:%S")
         date_fin = reservation_end.strftime("%Y/%m/%d %H:%M:%S")
+        action_url = urljoin(
+            self.search_url,
+            "Portal.jsp?page=reservation&view=reservation_captcha",
+        )
 
         try:
             self.driver.execute_script(
@@ -958,15 +962,16 @@ class ParisTennisService:
                 const dateDeb = arguments[2];
                 const dateFin = arguments[3];
                 const captchaRequestId = arguments[4];
+                const actionUrl = arguments[5];
 
                 let form = document.getElementById("formReservation");
                 if (!form) {
                     form = document.createElement("form");
                     form.id = "formReservation";
-                    form.method = "post";
-                    form.action = "jsp/site/Portal.jsp?page=reservation&view=reservation_captcha";
                     document.body.appendChild(form);
                 }
+                form.method = "post";
+                form.action = actionUrl;
 
                 const setInput = (name, value) => {
                     let input = form.querySelector(`input[name='${name}']`);
@@ -995,6 +1000,7 @@ class ParisTennisService:
                 date_deb,
                 date_fin,
                 captcha_request_id,
+                action_url,
             )
         except WebDriverException as e:
             logger.error("Failed to submit reservation form: %s", e)

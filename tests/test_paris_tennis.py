@@ -3,6 +3,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
+from urllib.parse import urljoin
 
 import pytest
 from selenium.webdriver.common.by import By
@@ -382,6 +383,31 @@ class TestParisTennisService:
         assert service._parse_court_number("court no 12") == "12"
         assert service._parse_court_number("Court 7") == "7"
         assert service._parse_court_number("Court Central") == "Court Central"
+
+    def test_submit_reservation_form_uses_absolute_action_url(self, service, mock_driver):
+        """Ensure reservation form uses an absolute action URL."""
+        start_time = now_paris()
+        slot = CourtSlot(
+            facility_name="Facility",
+            facility_code="FAC1",
+            court_number="1",
+            date=start_time,
+            time_start="08:00",
+            time_end="09:00",
+            court_type=CourtType.ANY,
+            equipment_id="equip-1",
+            court_id="court-1",
+            reservation_start=start_time,
+            reservation_end=start_time + timedelta(hours=1),
+        )
+
+        service._submit_reservation_form(slot, captcha_request_id="captcha-1")
+
+        args, _ = mock_driver.execute_script.call_args
+        assert args[-1] == urljoin(
+            service.search_url,
+            "Portal.jsp?page=reservation&view=reservation_captcha",
+        )
 
     def test_parse_slot_element_detects_court_type_from_attributes(
         self,

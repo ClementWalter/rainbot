@@ -369,7 +369,12 @@ deployment/integration testing remains incomplete.
     scheduler now clamps negative values to zero and defaults to a 10-second
     interval when all values are zero, preventing startup crashes from invalid
     configuration.
-61. **reCAPTCHA v3 Script-Only Detection** - Fixed: CAPTCHA solving relied on
+61. **Reservation Form Action URL** - Fixed: The reservation form submission
+    used a relative action path (`jsp/site/Portal.jsp...`) that could duplicate
+    `jsp/site` when resolved from the search results page, potentially breaking
+    booking. The action URL is now built from the search URL and passed into the
+    submission script, with tests covering the absolute URL.
+62. **reCAPTCHA v3 Script-Only Detection** - Fixed: CAPTCHA solving relied on
     DOM elements with `data-sitekey`, so pages that only embed reCAPTCHA v3 via
     `api.js?render=` or `grecaptcha.execute(...)` were skipped. The solver now
     extracts sitekeys/actions from page source and CAPTCHA detection recognizes
