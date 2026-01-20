@@ -76,7 +76,8 @@ deployment/integration testing remains incomplete.
    page and Mon Paris SSO selectors, but the selectors still need live-site
    validation for logged-out sessions.
 4. **LiveIdentity CAPTCHA edge cases** - Image-based LI_ANTIBOT solving is in
-   place, but invisible challenges and live-site validation are still pending.
+   place, but invisible challenges, validation headers (request/antibot IDs),
+   and blacklist/invalid token responses still need handling.
 5. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
 6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
@@ -304,9 +305,10 @@ deployment/integration testing remains incomplete.
 44. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
     now uses live DOM favorites (`window.jsFav` / `.tennisName`) with fallback
     to legacy selectors, improving alignment with tennis.paris.fr.
-45. **LiveIdentity Validation Hardening** - Fixed: Validation requests now pass
-    LiveIdentity request/antibot headers and reject invalid/blacklisted
-    responses before accepting tokens.
+45. **Court Number Parsing Regex** - Fixed: Court number parsing in
+    `paris_tennis.py` used a double-escaped regex that matched literal `\s`/`\d`
+    sequences, so labels like "Court n° 3" were not reduced to the numeric court
+    number. The regex now correctly extracts digits from common labels.
 
 ---
 

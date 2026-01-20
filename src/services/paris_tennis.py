@@ -641,7 +641,7 @@ class ParisTennisService:
         """Extract court number from the court description text."""
         if not text:
             return ""
-        match = re.search(r"court\\s*n[°o]?\\s*(\\d+)", text, re.IGNORECASE)
+        match = re.search(r"court\s*(?:n[°oº]?\s*)?(\d+)", text, re.IGNORECASE)
         if match:
             return match.group(1)
         return text.strip()

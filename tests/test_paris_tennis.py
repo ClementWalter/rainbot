@@ -324,6 +324,13 @@ class TestParisTennisService:
             "19:00",
         ]
 
+    def test_parse_court_number_extracts_numeric(self, service):
+        """Test court number parsing extracts digits from common labels."""
+        assert service._parse_court_number("Court n° 3") == "3"
+        assert service._parse_court_number("court no 12") == "12"
+        assert service._parse_court_number("Court 7") == "7"
+        assert service._parse_court_number("Court Central") == "Court Central"
+
     def test_parse_slot_element_detects_court_type_from_attributes(
         self,
         service,
