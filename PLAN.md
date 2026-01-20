@@ -3,9 +3,11 @@
 ## Current Status
 
 ### Summary
+
 Phase 6 (Full Integration) is complete. All core booking functionality is implemented with the booking workflow, CAPTCHA solving, and notifications working together.
 
 ### What Exists
+
 - [x] PRD.md - Complete product requirements
 - [x] pyproject.toml - Dependencies configured (selenium, 2captcha, gspread, etc.)
 - [x] main.py - Entry point with scheduler setup
@@ -15,9 +17,11 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 - [x] PLAN.md - This file
 
 ### Remaining Work
+
 1. **Deployment**: Scaleway cloud deployment (Docker, docker-compose)
 
 ### Known Issues
+
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest, but PRD says both user AND partner should receive reminders. The code handles this gracefully by skipping partners without email.
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic CSS selectors that need to be updated based on the actual tennis.paris.fr website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may need adjustment based on actual website structure.
@@ -26,11 +30,12 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 6. ~~**User Model Missing from_dict Method** - The `User` model lacked a `from_dict()` class method, unlike `BookingRequest` and `Booking` models. This caused inconsistency in how models were parsed from Google Sheets data, with User parsing logic duplicated in `google_sheets.py`.~~ **FIXED**: Added `User.from_dict()` class method for consistent model instantiation from dictionary data.
 
 ### Resolved Issues
+
 1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
 2. **Race Condition in Booking Job** - Fixed: Multiple booking job instances could run concurrently, causing duplicate bookings for the same user. Now uses a locking mechanism via Google Sheets `Locks` worksheet to prevent concurrent processing of the same user. Locks expire after 5 minutes to prevent deadlocks.
 3. **Partner Reminder Shows Wrong Name** - Fixed: When sending match day reminders to partners, the email incorrectly showed the partner's own name as who they were playing with, instead of the user's name. Now the `send_match_day_reminder` function accepts a `player_name` parameter to correctly display the user's name to partners.
 4. **Timezone Bug in Day-of-Week Filtering** - Fixed: The booking job used `datetime.now()` without timezone awareness, causing incorrect day-of-week detection when the server runs in UTC but users are in Paris timezone. Now uses Paris timezone consistently for all date/time comparisons.
-5. **Timezone Bug in _get_next_booking_date** - Fixed: The `_get_next_booking_date` method in `paris_tennis.py` used `datetime.now()` without timezone awareness, inconsistent with the rest of the codebase. Now uses `now_paris()` for consistent Paris timezone handling when calculating the next booking date.
+5. **Timezone Bug in \_get_next_booking_date** - Fixed: The `_get_next_booking_date` method in `paris_tennis.py` used `datetime.now()` without timezone awareness, inconsistent with the rest of the codebase. Now uses `now_paris()` for consistent Paris timezone handling when calculating the next booking date.
 6. **Timezone Bug in Booking.from_dict()** - Fixed: The `from_dict()` method in `booking.py` used `datetime.now()` as a fallback for invalid date values, which was inconsistent with the Paris timezone used elsewhere. Now uses `now_paris()` for consistency. Also fixed tests in `test_cron_jobs.py` to use Paris timezone functions (`today_weekday_paris()`, `now_paris()`) instead of naive `datetime.now()` to prevent test flakiness in different timezones.
 7. **Test Assertion for Future Dates Only** - Fixed: The `test_get_next_booking_date_future` test had an overly permissive assertion that allowed same-day booking dates. Per PRD section 5.1 "Future dates only: Cannot book same-day courts", the test now correctly asserts that booking dates are strictly in the future (> today, not >= today).
 8. **Numeric String day_of_week Parsing** - Fixed: The `BookingRequest.from_dict()` method failed to parse numeric strings like `"0"` or `"1"` for `day_of_week` (which Google Sheets may return). It only handled integer values and string enum names. Now tries to parse as integer first before falling back to enum name lookup.
@@ -44,6 +49,9 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 16. **No-Slots Notification Spam** - Fixed: The `send_no_slots_notification()` was called every time the booking job ran and found no slots. With the default interval scheduling (as frequent as every 10 seconds), this would spam users with repeated identical notifications. Added a `NoSlotsNotifications` worksheet in Google Sheets to track when notifications were sent for each request/target-date combination. Now only sends one "no slots" notification per booking request per target booking date. Also added cleanup function `cleanup_old_no_slots_notifications()` to remove old tracking records.
 17. **HTML Injection Vulnerability in Email Notifications** - Fixed: All notification methods (`send_booking_confirmation`, `send_match_day_reminder`, `send_booking_failure_notification`, `send_no_slots_notification`) were directly interpolating user-provided data into HTML templates using f-strings without escaping. This allowed potential HTML/CSS injection attacks through malicious user names, facility names, partner names, error messages, or other user-controlled fields. While email clients typically don't execute JavaScript, malformed HTML can break email rendering and CSS injection can be used for phishing attempts. Now uses `html.escape()` to properly escape all user-provided data before embedding it in HTML templates.
 18. **Missing Cleanup Job for NoSlotsNotifications** - Fixed: The `cleanup_old_no_slots_notifications()` function existed in `google_sheets.py` but was never called by any scheduled job. This would cause the NoSlotsNotifications sheet to grow indefinitely, potentially causing performance issues. Added `cleanup_old_notifications()` cron job that runs daily at 3:00 AM Paris time (after the reminder job) to clean up records older than 7 days.
+19. **BookingRequest court_type defaults** - Fixed: `BookingRequest.from_dict()` now treats blank or invalid `court_type` values as `CourtType.ANY` instead of raising and dropping the request.
+20. **Priority Logic Slot Ordering** - Fixed: Available slots are now sorted by facility preference order and earliest start time to guarantee the intended priority logic from the PRD.
+21. **Booking Job Too Restrictive by Day** - Fixed: booking_job no longer restricts processing to requests whose day_of_week matches today. It now processes requests daily and always searches for the next occurrence of the requested day, improving continuous monitoring and booking success chances.
 
 ---
 
@@ -79,16 +87,18 @@ src/
 ## Implementation Phases
 
 ### Phase 1: Core Structure (COMPLETED)
+
 **Goal**: Make main.py runnable with placeholder implementations
 
-- [x] Create src/__init__.py
-- [x] Create src/schedulers/__init__.py
+- [x] Create src/**init**.py
+- [x] Create src/schedulers/**init**.py
 - [x] Create src/schedulers/cron_jobs.py with booking_job and send_reminder stubs
 - [x] Create src/config/settings.py for environment variables
 - [x] Create basic tests to verify structure
 - [x] Fix pyproject.toml hatch build configuration
 
 ### Phase 2: Data Layer (COMPLETED)
+
 **Goal**: User and booking request management via Google Sheets
 
 - [x] Create src/models/user.py - User model with eligibility check
@@ -97,9 +107,10 @@ src/
 - [x] Create src/services/google_sheets.py - Full CRUD for users, requests, bookings
 - [x] Add tests/test_models.py - 13 tests for data models
 - [x] Add tests/test_google_sheets.py - 8 tests for sheets service
-- [x] Export models and services via __init__.py
+- [x] Export models and services via **init**.py
 
 ### Phase 3: Paris Tennis Integration (COMPLETED)
+
 **Goal**: Interact with the Paris Tennis booking website
 
 - [x] Create src/utils/browser.py (Selenium setup with anti-detection)
@@ -110,6 +121,7 @@ src/
 - [x] Add tests for tennis service (22 tests)
 
 ### Phase 4: CAPTCHA Solving (COMPLETED)
+
 **Goal**: Integrate 2Captcha for verification
 
 - [x] Create src/services/captcha_solver.py
@@ -118,6 +130,7 @@ src/
 - [x] Add tests for captcha service (21 tests)
 
 ### Phase 5: Notifications (COMPLETED)
+
 **Goal**: Send booking confirmations and reminders
 
 - [x] Create src/services/notification.py
@@ -127,6 +140,7 @@ src/
 - [x] Add tests for notification service (28 tests)
 
 ### Phase 6: Full Integration (COMPLETED)
+
 **Goal**: End-to-end booking automation
 
 - [x] Wire all services together in booking_job
@@ -135,6 +149,7 @@ src/
 - [ ] Add comprehensive integration tests
 
 ### Phase 7: Deployment
+
 **Goal**: Deploy to Scaleway cloud
 
 - [x] Create Dockerfile
@@ -151,10 +166,11 @@ src/
 **Next Step**: Continue Phase 7 (Deployment) - Configure Scaleway deployment and set up monitoring/logging.
 
 Phase 6 is complete with:
+
 - booking_job(): Full booking workflow implementation
   - Loads active requests from Google Sheets
   - Filters eligible users with active subscriptions
-  - Processes requests for today's day of week
+  - Processes requests daily for the next occurrence of the requested day of week
   - Checks for pending bookings to avoid duplicates
   - Logs into Paris Tennis, searches courts, books slots
   - Handles CAPTCHA via integrated solver
@@ -184,62 +200,67 @@ Phase 6 is complete with:
 The spreadsheet should have four worksheets:
 
 ### Users Sheet
-| Column | Description |
-|--------|-------------|
-| id | Unique user identifier |
-| name | User's display name (for personalized emails) |
-| email | User's notification email |
-| paris_tennis_email | Paris Tennis login email |
-| paris_tennis_password | Paris Tennis password |
-| subscription_active | true/false for subscription status |
-| phone | Optional phone number |
+
+| Column                | Description                                   |
+| --------------------- | --------------------------------------------- |
+| id                    | Unique user identifier                        |
+| name                  | User's display name (for personalized emails) |
+| email                 | User's notification email                     |
+| paris_tennis_email    | Paris Tennis login email                      |
+| paris_tennis_password | Paris Tennis password                         |
+| subscription_active   | true/false for subscription status            |
+| phone                 | Optional phone number                         |
 
 ### BookingRequests Sheet
-| Column | Description |
-|--------|-------------|
-| id | Unique request identifier |
-| user_id | Reference to user |
-| day_of_week | monday-sunday or 0-6 |
-| time_start | HH:MM format |
-| time_end | HH:MM format |
+
+| Column               | Description                    |
+| -------------------- | ------------------------------ |
+| id                   | Unique request identifier      |
+| user_id              | Reference to user              |
+| day_of_week          | monday-sunday or 0-6           |
+| time_start           | HH:MM format                   |
+| time_end             | HH:MM format                   |
 | facility_preferences | Comma-separated facility codes |
-| court_type | indoor/outdoor/any |
-| partner_name | Playing partner's name |
-| partner_email | Partner's email for reminders |
-| active | true/false |
+| court_type           | indoor/outdoor/any             |
+| partner_name         | Playing partner's name         |
+| partner_email        | Partner's email for reminders  |
+| active               | true/false                     |
 
 ### Bookings Sheet
-| Column | Description |
-|--------|-------------|
-| id | Unique booking identifier |
-| user_id | Reference to user |
-| request_id | Reference to booking request |
-| facility_name | Tennis facility name |
-| facility_code | Facility identifier |
-| court_number | Court number |
-| date | ISO format date |
-| time_start | HH:MM format |
-| time_end | HH:MM format |
-| partner_name | Playing partner |
-| partner_email | Partner's email for reminders |
-| confirmation_id | Paris Tennis confirmation |
+
+| Column           | Description                             |
+| ---------------- | --------------------------------------- |
+| id               | Unique booking identifier               |
+| user_id          | Reference to user                       |
+| request_id       | Reference to booking request            |
+| facility_name    | Tennis facility name                    |
+| facility_code    | Facility identifier                     |
+| court_number     | Court number                            |
+| date             | ISO format date                         |
+| time_start       | HH:MM format                            |
+| time_end         | HH:MM format                            |
+| partner_name     | Playing partner                         |
+| partner_email    | Partner's email for reminders           |
+| confirmation_id  | Paris Tennis confirmation               |
 | facility_address | Facility street address (for reminders) |
-| created_at | When booking was made |
+| created_at       | When booking was made                   |
 
 ### Locks Sheet
-| Column | Description |
-|--------|-------------|
-| user_id | User currently being processed |
+
+| Column    | Description                          |
+| --------- | ------------------------------------ |
+| user_id   | User currently being processed       |
 | locked_at | ISO timestamp when lock was acquired |
-| locked_by | UUID of the job that holds the lock |
+| locked_by | UUID of the job that holds the lock  |
 
 **Note:** The Locks sheet is automatically created by the system if it doesn't exist. Locks expire after 5 minutes to prevent deadlocks if a job crashes.
 
 ### NoSlotsNotifications Sheet
-| Column | Description |
-|--------|-------------|
-| request_id | The booking request ID |
+
+| Column      | Description                                 |
+| ----------- | ------------------------------------------- |
+| request_id  | The booking request ID                      |
 | target_date | The target booking date (YYYY-MM-DD format) |
-| sent_at | ISO timestamp when notification was sent |
+| sent_at     | ISO timestamp when notification was sent    |
 
 **Note:** The NoSlotsNotifications sheet is automatically created by the system if it doesn't exist. This sheet tracks when "no slots available" notifications were sent to prevent spamming users with repeated notifications. Old records (older than 7 days by default) can be cleaned up using `cleanup_old_no_slots_notifications()`.

@@ -18,7 +18,7 @@ from src.services.paris_tennis import (
     CourtSlot,
     create_paris_tennis_session,
 )
-from src.utils.timezone import now_paris, today_weekday_paris
+from src.utils.timezone import now_paris
 
 logger = logging.getLogger(__name__)
 
@@ -73,26 +73,13 @@ def booking_job() -> None:
         logger.info(f"Found {len(eligible_users)} eligible users")
 
         # Filter requests to only those from eligible users
-        requests_to_process = [
-            req for req in active_requests if req.user_id in eligible_user_ids
-        ]
+        requests_to_process = [req for req in active_requests if req.user_id in eligible_user_ids]
         logger.info(f"Processing {len(requests_to_process)} requests from eligible users")
-
-        # Get today's day of week in Paris timezone
-        today_dow = today_weekday_paris()
 
         for request in requests_to_process:
             user = user_map.get(request.user_id)
             if not user:
                 logger.warning(f"User {request.user_id} not found for request {request.id}")
-                continue
-
-            # Check if request is for today's day of week
-            if request.day_of_week.value != today_dow:
-                logger.debug(
-                    f"Skipping request {request.id}: not for today "
-                    f"(request: {request.day_of_week.name}, today: {today_dow})"
-                )
                 continue
 
             # Try to acquire lock for this user to prevent concurrent processing
@@ -164,9 +151,7 @@ def _process_booking_request(
                 logger.info(f"No available slots found for request {request.id}")
                 # Send informational notification to user (only once per target date)
                 # Get the target date for this booking request
-                target_date = tennis_service._get_next_booking_date(
-                    request.day_of_week.value
-                )
+                target_date = tennis_service._get_next_booking_date(request.day_of_week.value)
                 target_date_str = target_date.strftime("%Y-%m-%d")
 
                 # Check if we already sent a notification for this request/date
@@ -363,9 +348,7 @@ def send_reminder() -> None:
                 if partner_result.success:
                     logger.info(f"Partner reminder sent successfully to {booking.partner_email}")
                 else:
-                    logger.error(
-                        f"Failed to send partner reminder: {partner_result.error_message}"
-                    )
+                    logger.error(f"Failed to send partner reminder: {partner_result.error_message}")
             else:
                 logger.debug(
                     f"No partner email for booking {booking.id}, skipping partner reminder"

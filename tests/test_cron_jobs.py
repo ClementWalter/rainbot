@@ -50,9 +50,7 @@ class TestBookingJob:
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_booking_job_no_active_requests(
-        self, mock_notification, mock_sheets
-    ):
+    def test_booking_job_no_active_requests(self, mock_notification, mock_sheets):
         """Test booking job with no active requests."""
         mock_sheets.get_active_booking_requests.return_value = []
 
@@ -124,14 +122,14 @@ class TestBookingJob:
     @patch("src.schedulers.cron_jobs._process_booking_request")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_booking_job_skips_wrong_day(
+    def test_booking_job_processes_requests_any_day(
         self,
         mock_notification,
         mock_sheets,
         mock_process,
         mock_user,
     ):
-        """Test that booking job skips requests not for today."""
+        """Test that booking job processes requests regardless of day of week."""
         # Create request for a different day
         today_dow = today_weekday_paris()
         other_dow = (today_dow + 1) % 7
@@ -145,10 +143,13 @@ class TestBookingJob:
         )
         mock_sheets.get_active_booking_requests.return_value = [request]
         mock_sheets.get_eligible_users.return_value = [mock_user]
+        mock_sheets.acquire_user_lock.return_value = True
+        mock_sheets.has_pending_booking.return_value = False
 
         booking_job()
 
-        mock_process.assert_not_called()
+        mock_process.assert_called_once()
+        mock_sheets.release_user_lock.assert_called()
 
     @patch("src.schedulers.cron_jobs._process_booking_request")
     @patch("src.schedulers.cron_jobs.sheets_service")
@@ -230,9 +231,7 @@ class TestProcessBookingRequest:
         mock_service.login.return_value = False
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(
-            mock_user, mock_booking_request, mock_sheets, mock_notification
-        )
+        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
 
         mock_service.login.assert_called_once()
         mock_notification.send_booking_failure_notification.assert_called_once()
@@ -255,9 +254,7 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(
-            mock_user, mock_booking_request, mock_sheets, mock_notification
-        )
+        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
 
         mock_service.search_available_courts.assert_called_once()
         # Should send "no slots available" notification to user
@@ -285,9 +282,7 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(
-            mock_user, mock_booking_request, mock_sheets, mock_notification
-        )
+        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
 
         mock_service.search_available_courts.assert_called_once()
         # Should NOT send notification (already sent)
@@ -318,9 +313,7 @@ class TestProcessBookingRequest:
         )
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(
-            mock_user, mock_booking_request, mock_sheets, mock_notification
-        )
+        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
 
         mock_service.book_court.assert_called_once_with(
             mock_slot, mock_booking_request.partner_name
@@ -350,9 +343,7 @@ class TestProcessBookingRequest:
         )
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        _process_booking_request(
-            mock_user, mock_booking_request, mock_sheets, mock_notification
-        )
+        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
 
         mock_notification.send_booking_failure_notification.assert_called_once()
 
@@ -406,9 +397,7 @@ class TestSendReminder:
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_reminder_not_configured(
-        self, mock_notification_func, mock_sheets
-    ):
+    def test_send_reminder_not_configured(self, mock_notification_func, mock_sheets):
         """Test send_reminder when notification service not configured."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = False
@@ -420,9 +409,7 @@ class TestSendReminder:
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_reminder_no_bookings(
-        self, mock_notification_func, mock_sheets
-    ):
+    def test_send_reminder_no_bookings(self, mock_notification_func, mock_sheets):
         """Test send_reminder with no bookings today."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = True
@@ -612,9 +599,7 @@ class TestCleanupOldNotifications:
 
         cleanup_old_notifications()
 
-        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once_with(
-            days_to_keep=7
-        )
+        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once_with(days_to_keep=7)
 
     @patch("src.schedulers.cron_jobs.sheets_service")
     def test_cleanup_old_notifications_no_records(self, mock_sheets):
@@ -628,9 +613,7 @@ class TestCleanupOldNotifications:
     @patch("src.schedulers.cron_jobs.sheets_service")
     def test_cleanup_old_notifications_handles_error(self, mock_sheets):
         """Test cleanup job handles errors gracefully."""
-        mock_sheets.cleanup_old_no_slots_notifications.side_effect = Exception(
-            "Google API error"
-        )
+        mock_sheets.cleanup_old_no_slots_notifications.side_effect = Exception("Google API error")
 
         # Should not raise exception
         cleanup_old_notifications()
