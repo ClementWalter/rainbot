@@ -67,6 +67,12 @@ placeholders and deployment/integration testing remains incomplete.
    with User parsing logic duplicated in `google_sheets.py`.~~ **FIXED**: Added
    `User.from_dict()` class method for consistent model instantiation from
    dictionary data.
+8. ~~**No-Slots Notifications Marked Sent on Failure** - The booking job
+   recorded a "no slots available" notification as sent even when the email
+   failed to deliver (e.g., SMTP not configured). This prevented future retries
+   and could leave users uninformed.~~ **FIXED**: Only mark a no-slots
+   notification as sent after a successful send; log failures and allow future
+   retries.
 
 ### Resolved Issues
 

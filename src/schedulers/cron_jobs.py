@@ -160,14 +160,21 @@ def _process_booking_request(
                         request.day_of_week.value, request.day_of_week.name.lower()
                     )
                     time_range = f"{request.time_start} - {request.time_end}"
-                    notification.send_no_slots_notification(
+                    notification_result = notification.send_no_slots_notification(
                         user,
                         day_of_week=day_name,
                         time_range=time_range,
                         facility_names=request.facility_preferences or None,
                     )
-                    # Mark that we sent this notification
-                    sheets.mark_no_slots_notification_sent(request.id, target_date_str)
+                    if getattr(notification_result, "success", False):
+                        # Mark that we sent this notification
+                        sheets.mark_no_slots_notification_sent(request.id, target_date_str)
+                    else:
+                        logger.warning(
+                            "Failed to send no slots notification for request %s: %s",
+                            request.id,
+                            getattr(notification_result, "error_message", "unknown error"),
+                        )
                 else:
                     logger.debug(
                         f"No slots notification already sent for request {request.id}, "

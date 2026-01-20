@@ -13,6 +13,7 @@ from src.schedulers.cron_jobs import (
     cleanup_old_notifications,
     send_reminder,
 )
+from src.services.notification import NotificationResult
 from src.services.paris_tennis import BookingResult, CourtSlot
 from src.utils.timezone import now_paris, today_weekday_paris
 
@@ -248,6 +249,7 @@ class TestProcessBookingRequest:
         # Mock that no notification has been sent yet for this request/date
         mock_sheets.was_no_slots_notification_sent.return_value = False
         mock_notification = MagicMock()
+        mock_notification.send_no_slots_notification.return_value = NotificationResult(success=True)
 
         mock_service = MagicMock()
         mock_service.login.return_value = True
@@ -288,6 +290,31 @@ class TestProcessBookingRequest:
         # Should NOT send notification (already sent)
         mock_notification.send_no_slots_notification.assert_not_called()
         # Should NOT mark notification sent (already marked)
+        mock_sheets.mark_no_slots_notification_sent.assert_not_called()
+
+    @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
+    def test_process_booking_no_slots_notification_failed(
+        self,
+        mock_tennis_session,
+        mock_user,
+        mock_booking_request,
+    ):
+        """Test that no-slots notifications are not marked when sending fails."""
+        mock_sheets = MagicMock()
+        mock_sheets.was_no_slots_notification_sent.return_value = False
+        mock_notification = MagicMock()
+        mock_notification.send_no_slots_notification.return_value = NotificationResult(
+            success=False, error_message="SMTP settings not configured"
+        )
+
+        mock_service = MagicMock()
+        mock_service.login.return_value = True
+        mock_service.search_available_courts.return_value = []
+        mock_tennis_session.return_value.__enter__.return_value = mock_service
+
+        _process_booking_request(mock_user, mock_booking_request, mock_sheets, mock_notification)
+
+        mock_notification.send_no_slots_notification.assert_called_once()
         mock_sheets.mark_no_slots_notification_sent.assert_not_called()
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")
