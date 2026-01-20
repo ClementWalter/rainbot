@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.services.captcha_solver import (
-    CaptchaSolverService,
     CaptchaSolveResult,
+    CaptchaSolverService,
     get_captcha_service,
 )
 
@@ -298,6 +298,86 @@ class TestSolveCaptchaFromPage:
 
             assert result.success is False
             assert "after 2 attempts" in result.error_message
+
+    def test_recaptcha_invisible_uses_v2(self, service, mock_driver):
+        """Test invisible reCAPTCHA uses v2 flow with invisible flag."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_recaptcha_element = MagicMock()
+
+        def get_attribute_side_effect(attr):
+            if attr == "data-sitekey":
+                return "test-sitekey"
+            if attr == "data-size":
+                return "invisible"
+            if attr == "data-action":
+                return None
+            return None
+
+        mock_recaptcha_element.get_attribute.side_effect = get_attribute_side_effect
+
+        def find_element_side_effect(by, value):
+            if "recaptcha" in value or "sitekey" in value or "g-recaptcha" in value:
+                return mock_recaptcha_element
+            raise NoSuchElementException()
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+
+        with patch.object(service, "solve_recaptcha_v2") as mock_v2, patch.object(
+            service, "solve_recaptcha_v3"
+        ) as mock_v3, patch.object(service, "_inject_recaptcha_token") as mock_inject:
+            mock_v2.return_value = CaptchaSolveResult(success=True, token="v2-token")
+
+            result = service.solve_captcha_from_page(mock_driver)
+
+        assert result.success is True
+        mock_v2.assert_called_once_with(
+            "test-sitekey",
+            mock_driver.current_url,
+            invisible=True,
+        )
+        mock_v3.assert_not_called()
+        mock_inject.assert_called_once_with(mock_driver, "v2-token")
+
+    def test_recaptcha_v3_uses_action(self, service, mock_driver):
+        """Test reCAPTCHA v3 uses action when available."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_recaptcha_element = MagicMock()
+
+        def get_attribute_side_effect(attr):
+            if attr == "data-sitekey":
+                return "test-sitekey"
+            if attr == "data-size":
+                return ""
+            if attr == "data-action":
+                return "signup"
+            return None
+
+        mock_recaptcha_element.get_attribute.side_effect = get_attribute_side_effect
+
+        def find_element_side_effect(by, value):
+            if "recaptcha" in value or "sitekey" in value or "g-recaptcha" in value:
+                return mock_recaptcha_element
+            raise NoSuchElementException()
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+
+        with patch.object(service, "solve_recaptcha_v2") as mock_v2, patch.object(
+            service, "solve_recaptcha_v3"
+        ) as mock_v3, patch.object(service, "_inject_recaptcha_token") as mock_inject:
+            mock_v3.return_value = CaptchaSolveResult(success=True, token="v3-token")
+
+            result = service.solve_captcha_from_page(mock_driver)
+
+        assert result.success is True
+        mock_v3.assert_called_once_with(
+            "test-sitekey",
+            mock_driver.current_url,
+            action="signup",
+        )
+        mock_v2.assert_not_called()
+        mock_inject.assert_called_once_with(mock_driver, "v3-token")
 
 
 class TestInjectRecaptchaToken:

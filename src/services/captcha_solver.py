@@ -113,9 +113,7 @@ class CaptchaSolverService:
             return CaptchaSolveResult(success=True, token=result["code"])
         except TimeoutException:
             logger.error("reCAPTCHA solving timed out")
-            return CaptchaSolveResult(
-                success=False, error_message="CAPTCHA solving timed out"
-            )
+            return CaptchaSolveResult(success=False, error_message="CAPTCHA solving timed out")
         except ApiException as e:
             logger.error(f"2Captcha API error: {e}")
             return CaptchaSolveResult(success=False, error_message=str(e))
@@ -155,9 +153,7 @@ class CaptchaSolverService:
             return CaptchaSolveResult(success=True, token=result["code"])
         except TimeoutException:
             logger.error("reCAPTCHA v3 solving timed out")
-            return CaptchaSolveResult(
-                success=False, error_message="CAPTCHA solving timed out"
-            )
+            return CaptchaSolveResult(success=False, error_message="CAPTCHA solving timed out")
         except ApiException as e:
             logger.error(f"2Captcha API error: {e}")
             return CaptchaSolveResult(success=False, error_message=str(e))
@@ -203,9 +199,7 @@ class CaptchaSolverService:
             return CaptchaSolveResult(success=True, token=result["code"])
         except TimeoutException:
             logger.error("Image CAPTCHA solving timed out")
-            return CaptchaSolveResult(
-                success=False, error_message="CAPTCHA solving timed out"
-            )
+            return CaptchaSolveResult(success=False, error_message="CAPTCHA solving timed out")
         except ApiException as e:
             logger.error(f"2Captcha API error: {e}")
             return CaptchaSolveResult(success=False, error_message=str(e))
@@ -255,9 +249,7 @@ class CaptchaSolverService:
 
             # No CAPTCHA detected
             logger.info("No CAPTCHA detected on page")
-            return CaptchaSolveResult(
-                success=True, error_message="No CAPTCHA detected"
-            )
+            return CaptchaSolveResult(success=True, error_message="No CAPTCHA detected")
 
         return CaptchaSolveResult(
             success=False,
@@ -279,6 +271,7 @@ class CaptchaSolverService:
             ]
 
             sitekey = None
+            element_with_sitekey = None
             for selector in recaptcha_selectors:
                 try:
                     element = driver.find_element(By.CSS_SELECTOR, selector)
@@ -287,7 +280,10 @@ class CaptchaSolverService:
                         # Try to get from parent or iframe
                         parent = driver.find_element(By.CSS_SELECTOR, ".g-recaptcha")
                         sitekey = parent.get_attribute("data-sitekey")
+                        if sitekey:
+                            element = parent
                     if sitekey:
+                        element_with_sitekey = element
                         break
                 except NoSuchElementException:
                     continue
@@ -295,19 +291,35 @@ class CaptchaSolverService:
             if not sitekey:
                 return None
 
-            # Detect if it's v3 by checking for score-related attributes
-            is_v3 = False
-            try:
-                element = driver.find_element(By.CSS_SELECTOR, "[data-sitekey]")
-                if element.get_attribute("data-size") == "invisible":
-                    is_v3 = True
-            except NoSuchElementException:
-                pass
+            invisible = False
+            action = None
+            if element_with_sitekey is not None:
+                try:
+                    container = driver.find_element(By.CSS_SELECTOR, ".g-recaptcha")
+                    if container.get_attribute("data-sitekey"):
+                        element_with_sitekey = container
+                except NoSuchElementException:
+                    pass
+
+                data_size = element_with_sitekey.get_attribute("data-size")
+                action = element_with_sitekey.get_attribute("data-action")
+                if data_size == "invisible":
+                    invisible = True
+
+            page_source = (driver.page_source or "").lower()
+            is_v3 = bool(action)
+            if not is_v3 and (
+                "grecaptcha.execute" in page_source or "recaptcha/api.js?render=" in page_source
+            ):
+                is_v3 = True
+
+            if invisible:
+                is_v3 = False
 
             if is_v3:
-                result = self.solve_recaptcha_v3(sitekey, url)
+                result = self.solve_recaptcha_v3(sitekey, url, action=action or "verify")
             else:
-                result = self.solve_recaptcha_v2(sitekey, url)
+                result = self.solve_recaptcha_v2(sitekey, url, invisible=invisible)
 
             if result.success and result.token:
                 # Inject the token into the page
@@ -325,8 +337,7 @@ class CaptchaSolverService:
             # Escape token for safe JavaScript string injection
             escaped_token = json.dumps(token)
             # Standard g-recaptcha-response textarea
-            driver.execute_script(
-                f"""
+            driver.execute_script(f"""
                 var token = {escaped_token};
                 var textarea = document.getElementById('g-recaptcha-response');
                 if (textarea) {{
@@ -347,8 +358,7 @@ class CaptchaSolverService:
                         }}
                     }}
                 }}
-                """
-            )
+                """)
             logger.info("reCAPTCHA token injected successfully")
         except WebDriverException as e:
             logger.warning(f"Failed to inject reCAPTCHA token: {e}")

@@ -252,6 +252,11 @@ incomplete.
     it as not pending, allowing duplicate same-day bookings in violation of the
     "one active booking per user" rule.~~ **FIXED**: Missing/invalid end times
     are now treated as pending for the day.
+31. ~~**Invisible reCAPTCHA Misclassified as v3** - The CAPTCHA solver treated
+    `data-size="invisible"` as reCAPTCHA v3, causing invalid solve calls for
+    invisible v2 widgets.~~ **FIXED**: Invisible v2 now calls
+    `solve_recaptcha_v2(..., invisible=True)` while v3 detection uses
+    `data-action` and page hints.
 
 ---
 
