@@ -490,6 +490,58 @@ class TestParisTennisService:
 
         assert result == []
 
+    def test_fetch_availability_html_uses_search_url_base(self, service, mock_driver):
+        """Test availability fetch builds the AJAX URL from search_url."""
+        mock_driver.execute_async_script.return_value = {"ok": True, "text": "<html></html>"}
+        service.search_url = (
+            "https://example.com/tennis/jsp/site/Portal.jsp?"
+            "page=recherche&view=recherche_creneau"
+        )
+
+        html = service._fetch_availability_html(
+            hour_range="8-10",
+            when_value="01/01/2025",
+            facility_name="Facility",
+            sel_in_out=["V"],
+            sel_coating=["X"],
+        )
+
+        assert html == "<html></html>"
+        args = mock_driver.execute_async_script.call_args[0]
+        assert args[-1] == (
+            "https://example.com/tennis/jsp/site/Portal.jsp?"
+            "page=recherche&action=ajax_rechercher_creneau"
+        )
+
+    def test_get_available_facility_names_from_js_favorites(self, service, mock_driver):
+        """Test facility name discovery uses jsFav when available."""
+        mock_driver.execute_script.return_value = ["Jesse Owens", " ", "Max Rousié"]
+        mock_driver.find_elements.return_value = []
+
+        names = service._get_available_facility_names()
+
+        assert names == ["Jesse Owens", "Max Rousié"]
+        mock_driver.execute_script.assert_called_once_with("return window.jsFav || []")
+
+    def test_get_available_facility_names_falls_back_to_dom(self, service, mock_driver):
+        """Test facility name discovery falls back to DOM tokens."""
+        from selenium.common.exceptions import WebDriverException
+
+        mock_driver.execute_script.side_effect = WebDriverException("JS blocked")
+
+        def find_elements_side_effect(by, selector):
+            if selector == ".tennisName":
+                return [MagicMock(text="Jesse Owens"), MagicMock(text="Max Rousié")]
+            if selector == "#bookmarkList .tennis-label":
+                return [MagicMock(text="Jesse Owens"), MagicMock(text="Bertrand Dauvin")]
+            return []
+
+        mock_driver.find_elements.side_effect = find_elements_side_effect
+
+        names = service._get_available_facility_names()
+
+        assert names == ["Jesse Owens", "Max Rousié", "Bertrand Dauvin"]
+
     def test_logout_success(self, service, mock_driver):
         """Test successful logout."""
         service._logged_in = True

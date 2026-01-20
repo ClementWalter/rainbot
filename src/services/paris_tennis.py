@@ -11,6 +11,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from selenium.common.exceptions import (
@@ -52,9 +53,12 @@ COOKIE_ACCEPT_SELECTORS = (
     "#tarteaucitronCloseAlert",
 )
 
-PARIS_TENNIS_LOGOUT_SELECTOR = "#banner-mon-compte_menu__logout"
+PARIS_TENNIS_LOGOUT_SELECTORS = (
+    "#banner-mon-compte__logout",
+    "#banner-mon-compte_menu__logout",
+)
 SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
-SEARCH_AJAX_PATH = "jsp/site/Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
+SEARCH_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
 
 
 def _normalize_court_type_text(value: str) -> str:
@@ -217,7 +221,9 @@ class ParisTennisService:
             indicators = [
                 (By.CSS_SELECTOR, ".user-menu"),
                 (By.CSS_SELECTOR, ".logout"),
-                (By.CSS_SELECTOR, PARIS_TENNIS_LOGOUT_SELECTOR),
+                (By.CSS_SELECTOR, ".banner-mon-compte__connected-avatar"),
+                (By.CSS_SELECTOR, "#banner-mon-compte__logout"),
+                (By.CSS_SELECTOR, "#banner-mon-compte_menu__logout"),
                 (By.LINK_TEXT, "Déconnexion"),
                 (By.PARTIAL_LINK_TEXT, "Mon compte"),
             ]
@@ -408,12 +414,39 @@ class ParisTennisService:
 
     def _get_available_facility_names(self) -> list[str]:
         """Return tennis names visible in the results bookmark list."""
+        names: list[str] = []
+
+        try:
+            favorites = self.driver.execute_script("return window.jsFav || []")
+        except WebDriverException:
+            favorites = []
+        if isinstance(favorites, (list, tuple)):
+            for name in favorites:
+                if isinstance(name, str):
+                    cleaned = name.strip()
+                    if cleaned:
+                        names.append(cleaned)
+
+        try:
+            elements = self.driver.find_elements(By.CSS_SELECTOR, ".tennisName")
+            names.extend([element.text.strip() for element in elements if element.text])
+        except WebDriverException:
+            pass
+
         try:
             elements = self.driver.find_elements(By.CSS_SELECTOR, "#bookmarkList .tennis-label")
-            names = [element.text.strip() for element in elements if element.text]
-            return [name for name in names if name]
+            names.extend([element.text.strip() for element in elements if element.text])
         except WebDriverException:
-            return []
+            pass
+
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for name in names:
+            if name and name not in seen:
+                seen.add(name)
+                deduped.append(name)
+
+        return deduped
 
     def _normalize_facility_code(self, name: str) -> str:
         """Normalize a facility name into a slug-like code."""
@@ -470,6 +503,7 @@ class ParisTennisService:
     ) -> Optional[str]:
         """Fetch available slots HTML for a facility via AJAX."""
         try:
+            ajax_url = urljoin(self.search_url, SEARCH_AJAX_PATH)
             response = self.driver.execute_async_script(
                 """
                 const callback = arguments[arguments.length - 1];
@@ -499,7 +533,7 @@ class ParisTennisService:
                 facility_name,
                 sel_in_out,
                 sel_coating,
-                SEARCH_AJAX_PATH,
+                ajax_url,
             )
             if not response or not response.get("ok"):
                 logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
@@ -1131,11 +1165,15 @@ class ParisTennisService:
     def logout(self) -> bool:
         """Log out of the Paris Tennis website."""
         try:
-            try:
-                logout_link = self.driver.find_element(
-                    By.CSS_SELECTOR, PARIS_TENNIS_LOGOUT_SELECTOR
-                )
-            except NoSuchElementException:
+            logout_link = None
+            for selector in PARIS_TENNIS_LOGOUT_SELECTORS:
+                try:
+                    logout_link = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    break
+                except NoSuchElementException:
+                    continue
+
+            if logout_link is None:
                 logout_link = self.driver.find_element(By.PARTIAL_LINK_TEXT, "Déconnexion")
 
             logout_link.click()

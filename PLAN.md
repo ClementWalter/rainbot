@@ -6,9 +6,9 @@
 
 Core booking modules and unit-test coverage are in place, booking history can be
 exported via the CLI and emailed on demand, but the live integration is not
-production-ready because the Paris Tennis selectors/flow are placeholders,
-carnet selection needs assume-the-DOM validation, and deployment/integration
-testing remains incomplete.
+production-ready because Paris Tennis login/booking steps still need live-site
+validation, CAPTCHA edge cases and carnet selection remain unverified, and
+deployment/integration testing remains incomplete.
 
 ### What Exists
 
@@ -28,11 +28,11 @@ testing remains incomplete.
 
 ### Remaining Work
 
-1. **Paris Tennis selectors/flow**: Replace placeholder CSS selectors and
-   booking flow assumptions with real tennis.paris.fr DOM mappings and validate
-   end-to-end (Mon Paris SSO login button, AJAX search via
-   `action=ajax_rechercher_creneau`, and booking via `formReservation` with
-   equipmentId/courtId/dateDeb/dateFin).
+1. **Paris Tennis selectors/flow**: Validate the remaining live DOM selectors
+   (login entrypoint, confirmation page, partner fields) and complete an
+   end-to-end run on tennis.paris.fr. AJAX search
+   (`action=ajax_rechercher_creneau`) now uses the `search_url` base for its
+   endpoint, but still needs full booking validation on the live site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
    steps. A best-effort carnet selector exists but is not validated on the live
@@ -70,12 +70,12 @@ testing remains incomplete.
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest,
    but PRD says both user AND partner should receive reminders. The code handles
    this gracefully by skipping partners without email.
-2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic
-   CSS selectors that need to be updated based on the actual tennis.paris.fr
-   website structure.
+2. **Facility preference mapping gaps** - Booking requests store facility codes,
+   but the live search API expects facility names. Mapping is best-effort
+   (favorites/tokens), so non-favorite codes may not resolve correctly.
 3. **Login entrypoint selectors unvalidated** - The login flow uses the landing
    page and Mon Paris SSO selectors, but the selectors still need live-site
-   validation.
+   validation for logged-out sessions.
 4. **LiveIdentity CAPTCHA edge cases** - Image-based LI_ANTIBOT solving is in
    place, but invisible challenges and blacklist/invalid token responses are not
    handled.
@@ -299,6 +299,13 @@ testing remains incomplete.
     HTTP(S) URLs are now downloaded and base64-encoded before sending to the
     2Captcha solver, preventing failures when the CAPTCHA image is not a local
     file path.
+43. **AJAX Availability Endpoint Path** - Fixed: the availability fetch now
+    builds the AJAX URL from `search_url` so it resolves to
+    `/tennis/jsp/site/Portal.jsp?page=recherche&action=ajax_rechercher_creneau`
+    instead of a relative path that duplicated `jsp/site` and broke search.
+44. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
+    now uses live DOM favorites (`window.jsFav` / `.tennisName`) with fallback
+    to legacy selectors, improving alignment with tennis.paris.fr.
 
 ---
 
