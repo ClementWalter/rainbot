@@ -265,6 +265,11 @@ testing remains incomplete.
     (id/email/credentials), which could make users appear eligible with missing
     credentials and trigger failed logins. Now treats `None` as empty strings so
     eligibility checks behave correctly.
+39. **BookingRequest Direct Init Time Normalization** - Fixed: Direct
+    `BookingRequest(...)` construction did not normalize/clamp `time_start` and
+    `time_end`, which could break time range comparisons (e.g., "9:00" vs
+    "20:00"). Added `__post_init__` to normalize/clamp and swap inverted times,
+    plus tests for direct initialization.
 
 ---
 

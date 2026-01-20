@@ -128,6 +128,13 @@ class BookingRequest:
     partner_email: Optional[str] = None
     active: bool = True
 
+    def __post_init__(self) -> None:
+        """Normalize and clamp time range values for direct instantiation."""
+        self.time_start = self._validate_time(self.time_start, MIN_BOOKING_TIME)
+        self.time_end = self._validate_time(self.time_end, MAX_BOOKING_TIME)
+        if self.time_start > self.time_end:
+            self.time_start, self.time_end = self.time_end, self.time_start
+
     def is_time_in_range(self, time_str: str) -> bool:
         """
         Check if a given time falls within the preferred range.

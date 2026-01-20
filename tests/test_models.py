@@ -306,6 +306,30 @@ class TestBookingRequest:
         assert request.is_time_in_range("17:59") is False
         assert request.is_time_in_range("20:01") is False
 
+    def test_booking_request_init_normalizes_and_swaps_times(self):
+        """Test direct BookingRequest init normalizes and swaps inverted times."""
+        request = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="20:00",
+            time_end="9:00",
+        )
+        assert request.time_start == "09:00"
+        assert request.time_end == "20:00"
+
+    def test_booking_request_init_clamps_out_of_range_times(self):
+        """Test direct BookingRequest init clamps times to booking boundaries."""
+        request = BookingRequest(
+            id="req1",
+            user_id="user1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="07:00",
+            time_end="23:00",
+        )
+        assert request.time_start == "08:00"
+        assert request.time_end == "22:00"
+
     def test_from_dict(self):
         """Test creating BookingRequest from dictionary."""
         data = {
