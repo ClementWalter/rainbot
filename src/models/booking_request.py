@@ -68,6 +68,17 @@ class DayOfWeek(Enum):
     SUNDAY = 6
 
 
+DAY_OF_WEEK_ALIASES = {
+    "lundi": DayOfWeek.MONDAY,
+    "mardi": DayOfWeek.TUESDAY,
+    "mercredi": DayOfWeek.WEDNESDAY,
+    "jeudi": DayOfWeek.THURSDAY,
+    "vendredi": DayOfWeek.FRIDAY,
+    "samedi": DayOfWeek.SATURDAY,
+    "dimanche": DayOfWeek.SUNDAY,
+}
+
+
 @dataclass
 class BookingRequest:
     """
@@ -154,14 +165,23 @@ class BookingRequest:
         """
         # Parse day of week
         day_value = data.get("day_of_week", 0)
-        if isinstance(day_value, str):
+        if isinstance(day_value, DayOfWeek):
+            day_of_week = day_value
+        elif isinstance(day_value, str):
+            day_str = day_value.strip().lower()
             # Try to parse as integer first (e.g., "0", "1", "2")
             try:
-                day_value = int(day_value)
+                day_value = int(day_str)
+                day_of_week = DayOfWeek(day_value)
             except ValueError:
-                # Fall back to enum name lookup (e.g., "monday", "MONDAY")
-                day_value = DayOfWeek[day_value.upper()].value
-        day_of_week = DayOfWeek(day_value)
+                # Fall back to alias or enum name lookup (e.g., "monday", "lundi")
+                alias = DAY_OF_WEEK_ALIASES.get(day_str)
+                if alias is not None:
+                    day_of_week = alias
+                else:
+                    day_of_week = DayOfWeek[day_str.upper()]
+        else:
+            day_of_week = DayOfWeek(day_value)
 
         # Parse court type (default to ANY for missing/invalid values)
         court_type_value = data.get("court_type", "any")

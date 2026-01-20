@@ -339,6 +339,30 @@ class TestBookingRequest:
         request = BookingRequest.from_dict(data)
         assert request.day_of_week == DayOfWeek.FRIDAY
 
+    def test_from_dict_with_french_day_name(self):
+        """Test creating BookingRequest with French day names."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "mardi",
+            "time_start": "10:00",
+            "time_end": "12:00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.day_of_week == DayOfWeek.TUESDAY
+
+    def test_from_dict_strips_day_of_week_whitespace(self):
+        """Test creating BookingRequest with whitespace around day_of_week."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "  monday  ",
+            "time_start": "10:00",
+            "time_end": "12:00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.day_of_week == DayOfWeek.MONDAY
+
     def test_from_dict_clamps_time_before_minimum(self):
         """Test that times before 08:00 are clamped to 08:00 (PRD section 5.1)."""
         data = {

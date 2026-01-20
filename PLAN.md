@@ -18,7 +18,7 @@ placeholders and deployment/integration testing remains incomplete.
 - [x] src/ - Core structure with data models, Google Sheets service, browser
       utility, Paris Tennis service, CAPTCHA solver, and notification service
 - [x] src/services/booking_history.py - Booking history CSV export helper
-- [x] tests/ - 240 unit tests covering models, services, browser, Paris Tennis,
+- [x] tests/ - 243 unit tests covering models, services, browser, Paris Tennis,
       CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots
       tracking, HTML escaping, cleanup job
 - [x] PLAN.md - This file
@@ -38,6 +38,8 @@ placeholders and deployment/integration testing remains incomplete.
 5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance (install it if
    unavailable).
+6. **Booking history access**: Expose booking history to users (email export,
+   simple UI, or API). Current CSV export helper exists but isn't user-facing.
 
 ### Known Issues
 
@@ -221,6 +223,10 @@ placeholders and deployment/integration testing remains incomplete.
     between requests and potentially book multiple courts.~~ **FIXED**: The
     booking job now groups requests by user, holds the lock across all of that
     user's requests, and stops after the first successful booking per user.
+26. ~~**Day-of-Week Parsing Too Strict** - `BookingRequest.from_dict()` only
+    accepted English day names and would fail on French inputs or extra
+    whitespace from Google Sheets, dropping valid requests.~~ **FIXED**: Parsing
+    now strips whitespace and accepts French day names (e.g., "mardi").
 
 ---
 
