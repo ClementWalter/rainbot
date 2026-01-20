@@ -1,10 +1,10 @@
 """Booking model representing a completed court reservation."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
-from src.utils.timezone import now_paris, today_paris
+from src.utils.timezone import PARIS_TZ, now_paris, today_paris
 
 
 @dataclass
@@ -66,6 +66,8 @@ class Booking:
                 date_value = datetime.fromisoformat(date_value)
             except ValueError:
                 date_value = now_paris()
+        elif isinstance(date_value, date) and not isinstance(date_value, datetime):
+            date_value = PARIS_TZ.localize(datetime.combine(date_value, datetime.min.time()))
         elif not isinstance(date_value, datetime):
             date_value = now_paris()
 

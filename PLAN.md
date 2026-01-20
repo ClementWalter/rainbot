@@ -60,31 +60,6 @@ incomplete.
    website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
-4. ~~**Priority Logic Slot Ordering** - Available slots were returned in DOM
-   order, which didn't guarantee the earliest time within each preferred
-   facility.~~ **FIXED**: Slots are now sorted by facility preference order and
-   earliest start time before booking.
-5. ~~**BookingRequest court_type defaults** - Blank or invalid `court_type`
-   values from Google Sheets caused `BookingRequest.from_dict()` to raise and
-   drop the request.~~ **FIXED**: Now defaults to `CourtType.ANY` for
-   missing/invalid values.
-6. ~~**Empty Date String in Booking.from_dict** - If the date field in Google
-   Sheets is empty, `datetime.fromisoformat("")` would raise a ValueError. Need
-   to handle empty string case.~~ **FIXED**: Now handles empty strings and
-   invalid date formats gracefully by defaulting to `now_paris()` for date and
-   letting `__post_init__` handle created_at.
-7. ~~**User Model Missing from_dict Method** - The `User` model lacked a
-   `from_dict()` class method, unlike `BookingRequest` and `Booking` models.
-   This caused inconsistency in how models were parsed from Google Sheets data,
-   with User parsing logic duplicated in `google_sheets.py`.~~ **FIXED**: Added
-   `User.from_dict()` class method for consistent model instantiation from
-   dictionary data.
-8. ~~**No-Slots Notifications Marked Sent on Failure** - The booking job
-   recorded a "no slots available" notification as sent even when the email
-   failed to deliver (e.g., SMTP not configured). This prevented future retries
-   and could leave users uninformed.~~ **FIXED**: Only mark a no-slots
-   notification as sent after a successful send; log failures and allow future
-   retries.
 
 ### Resolved Issues
 
@@ -257,6 +232,11 @@ incomplete.
     invisible v2 widgets.~~ **FIXED**: Invisible v2 now calls
     `solve_recaptcha_v2(..., invisible=True)` while v3 detection uses
     `data-action` and page hints.
+32. **Booking.from_dict Drops Date Objects** - `Booking.from_dict()` replaced
+    `date` values passed as `datetime.date` objects with `now_paris()`, which
+    could shift booking dates for records coming from Google Sheets. **FIXED**:
+    Date objects are now converted to Paris-midnight `datetime` values and
+    preserved.
 
 ---
 

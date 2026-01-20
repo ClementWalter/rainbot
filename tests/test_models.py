@@ -1,6 +1,6 @@
 """Tests for data models."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -536,6 +536,23 @@ class TestBooking:
         }
         booking = Booking.from_dict(data)
         assert booking.facility_address == "15 Rue du Tennis, 75001 Paris"
+
+    def test_from_dict_with_date_object(self):
+        """Test creating Booking with a date object preserves the date."""
+        data = {
+            "id": "book1",
+            "user_id": "user1",
+            "request_id": "req1",
+            "facility_name": "Tennis Club Paris",
+            "facility_code": "TCP001",
+            "court_number": "3",
+            "date": date(2025, 1, 15),
+            "time_start": "18:00",
+            "time_end": "19:00",
+        }
+        booking = Booking.from_dict(data)
+        assert booking.date.date() == date(2025, 1, 15)
+        assert booking.date.tzinfo is not None
 
     def test_booking_creation_with_facility_address(self):
         """Test booking creation with facility_address."""
