@@ -4,10 +4,11 @@
 
 ### Summary
 
-Core booking modules and unit-test coverage are in place, but the live
-integration is not production-ready because the Paris Tennis selectors/flow are
-placeholders, carnet selection needs assume-the-DOM validation, and
-deployment/integration testing remains incomplete.
+Core booking modules and unit-test coverage are in place, and booking history
+can now be exported via a CLI, but the live integration is not production-ready
+because the Paris Tennis selectors/flow are placeholders, carnet selection needs
+assume-the-DOM validation, and deployment/integration testing remains
+incomplete.
 
 ### What Exists
 
@@ -19,7 +20,8 @@ deployment/integration testing remains incomplete.
 - [x] src/ - Core structure with data models, Google Sheets service, browser
       utility, Paris Tennis service, CAPTCHA solver, and notification service
 - [x] src/services/booking_history.py - Booking history CSV export helper
-- [x] tests/ - 245 unit tests covering models, services, browser, Paris Tennis,
+- [x] src/cli.py - Booking history export CLI (CSV)
+- [x] tests/ - Unit tests covering models, services, browser, Paris Tennis,
       CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots
       tracking, HTML escaping, cleanup job
 - [x] PLAN.md - This file
@@ -41,8 +43,9 @@ deployment/integration testing remains incomplete.
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
    starting deployment work.
-6. **Booking history access**: Expose booking history to users (email export,
-   simple UI, or API). Current CSV export helper exists but isn't user-facing.
+6. **Booking history access**: CLI CSV export exists; still need a truly
+   user-facing delivery path (email export, simple UI, or API) if end-user
+   access is required.
 7. **User onboarding/request management**: Provide a user-facing interface
    (admin UI, simple API, or form) for managing users, subscriptions, and
    booking requests instead of editing Google Sheets directly.
