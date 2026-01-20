@@ -228,6 +228,8 @@ def _process_booking_request(
 
                     # Send confirmation notification
                     notification.send_booking_confirmation(user, booking)
+                    if booking.partner_email:
+                        notification.send_partner_booking_confirmation(user, booking)
                     return True
 
                 logger.warning(f"Booking failed for slot: {result.error_message}")

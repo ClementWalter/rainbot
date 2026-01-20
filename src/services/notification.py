@@ -266,6 +266,93 @@ class NotificationService:
         logger.info(f"Sending booking confirmation to {user.email}")
         return self._send_email(user.email, subject, body_html)
 
+    def send_partner_booking_confirmation(
+        self,
+        user: User,
+        booking: Booking,
+    ) -> NotificationResult:
+        """
+        Send a booking confirmation email to the partner.
+
+        Args:
+            user: The user who made the booking
+            booking: The completed booking details
+
+        Returns:
+            NotificationResult with success status
+        """
+        if not booking.partner_email:
+            return NotificationResult(
+                success=False,
+                error_message="Partner email not provided",
+            )
+
+        subject = f"🎾 RainBot - Réservation confirmée pour le {booking.date.strftime('%d/%m/%Y')}"
+
+        safe_partner_name = html.escape(booking.partner_name) if booking.partner_name else None
+        safe_player_name = html.escape(user.name) if user.name else None
+        facility_name = html.escape(booking.facility_name) if booking.facility_name else ""
+        facility_address = (
+            html.escape(booking.facility_address) if booking.facility_address else None
+        )
+        court_number = html.escape(booking.court_number) if booking.court_number else ""
+        confirmation_id = html.escape(booking.confirmation_id) if booking.confirmation_id else None
+        time_start = html.escape(booking.time_start) if booking.time_start else ""
+        time_end = html.escape(booking.time_end) if booking.time_end else ""
+
+        greeting = f"Bonjour {safe_partner_name}" if safe_partner_name else "Bonjour"
+        playing_with = safe_player_name or "votre partenaire"
+
+        body_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2e7d32;">✅ Réservation confirmée !</h2>
+
+            <p>{greeting},</p>
+
+            <p>Votre réservation de tennis avec {playing_with} a été effectuée avec succès.</p>
+
+            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0; color: #1976d2;">📋 Détails de la réservation</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Date :</strong></td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{format_french_date(booking.date)}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Horaire :</strong></td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{time_start} - {time_end}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Centre :</strong></td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{facility_name}</td>
+                    </tr>
+                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Adresse :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{facility_address}</td></tr>' if facility_address else ''}
+                    <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Court :</strong></td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{court_number}</td>
+                    </tr>
+                    {f'<tr><td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Partenaire :</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{safe_player_name}</td></tr>' if safe_player_name else ''}
+                    {f'<tr><td style="padding: 8px 0;"><strong>N° de confirmation :</strong></td><td style="padding: 8px 0;">{confirmation_id}</td></tr>' if confirmation_id else ''}
+                </table>
+            </div>
+
+            <p style="color: #666;">N'oubliez pas d'apporter votre raquette et de l'eau ! 🎾💧</p>
+
+            <p>À bientôt sur les courts,<br>
+            <strong>L'équipe RainBot</strong></p>
+
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px;">
+                Cet email a été envoyé automatiquement par RainBot.
+            </p>
+        </body>
+        </html>
+        """
+
+        logger.info(f"Sending booking confirmation to partner {booking.partner_email}")
+        return self._send_email(booking.partner_email, subject, body_html)
+
     def send_match_day_reminder(
         self,
         recipient_email: str,

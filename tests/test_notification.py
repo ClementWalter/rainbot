@@ -537,6 +537,97 @@ class TestSendBookingConfirmation:
         assert "Adresse :" not in body_html
 
 
+class TestSendPartnerBookingConfirmation:
+    """Tests for the send_partner_booking_confirmation method."""
+
+    @pytest.fixture
+    def configured_service(self):
+        """Create a fully configured notification service."""
+        return NotificationService(
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_user="user@example.com",
+            smtp_password="password",
+            from_email="noreply@example.com",
+        )
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user with name."""
+        return User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name="Pierre Martin",
+            subscription_active=True,
+        )
+
+    @pytest.fixture
+    def mock_booking(self):
+        """Create a test booking with partner details."""
+        return Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TC001",
+            court_number="3",
+            date=datetime(2025, 1, 20),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Jean Dupont",
+            partner_email="partner@example.com",
+            confirmation_id="CONF123456",
+        )
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_partner_booking_confirmation_calls_send_email(
+        self, mock_send_email, configured_service, mock_user, mock_booking
+    ):
+        """Test that send_partner_booking_confirmation calls _send_email with correct params."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_partner_booking_confirmation(mock_user, mock_booking)
+
+        assert result.success is True
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+
+        to_email = call_args[0][0]
+        body_html = call_args[0][2]
+
+        assert to_email == mock_booking.partner_email
+        assert mock_user.name in body_html
+        assert mock_booking.facility_name in body_html
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_partner_booking_confirmation_without_partner_email(
+        self, mock_send_email, configured_service, mock_user
+    ):
+        """Test that partner booking confirmation fails without partner email."""
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TC001",
+            court_number="3",
+            date=datetime(2025, 1, 20),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Jean Dupont",
+            partner_email=None,
+            confirmation_id="CONF123456",
+        )
+
+        result = configured_service.send_partner_booking_confirmation(mock_user, booking)
+
+        assert result.success is False
+        assert result.error_message == "Partner email not provided"
+        mock_send_email.assert_not_called()
+
+
 class TestSendMatchDayReminder:
     """Tests for the send_match_day_reminder method."""
 

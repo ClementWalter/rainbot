@@ -270,6 +270,10 @@ testing remains incomplete.
     `time_end`, which could break time range comparisons (e.g., "9:00" vs
     "20:00"). Added `__post_init__` to normalize/clamp and swap inverted times,
     plus tests for direct initialization.
+40. **Partner Booking Confirmation Missing** - Fixed: Successful bookings only
+    notified the user, even when a partner email was provided. Now a booking
+    confirmation email is also sent to the partner when `partner_email` is
+    available.
 
 ---
 

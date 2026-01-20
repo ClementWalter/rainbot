@@ -240,6 +240,7 @@ class TestProcessBookingRequest:
             time_end="20:00",
             facility_preferences=["FAC001"],
             partner_name="Partner Name",
+            partner_email="partner@example.com",
             active=True,
         )
 
@@ -403,6 +404,7 @@ class TestProcessBookingRequest:
         mock_sheets.add_booking.assert_called_once()
         mock_sheets.update_user_carnet_balance.assert_called_once_with(mock_user.id, 1)
         mock_notification.send_booking_confirmation.assert_called_once()
+        mock_notification.send_partner_booking_confirmation.assert_called_once()
         assert result is True
 
     @patch("src.schedulers.cron_jobs.create_paris_tennis_session")

@@ -5,12 +5,14 @@ booking website (tennis.paris.fr) using Selenium WebDriver.
 """
 
 import logging
+import re
 import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
+from bs4 import BeautifulSoup
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
@@ -38,6 +40,22 @@ COURT_TYPE_KEYWORDS = {
     CourtType.OUTDOOR: ("outdoor", "uncovered", "decouvert", "exterieur"),
 }
 
+LOGIN_BUTTON_SELECTORS = (
+    "#button_suivi_inscription",
+    "button#button_suivi_inscription",
+)
+
+COOKIE_ACCEPT_SELECTORS = (
+    "#tarteaucitronAllAllowed",
+    "#tarteaucitronPersonalize2",
+    "#tarteaucitronClosePanel",
+    "#tarteaucitronCloseAlert",
+)
+
+PARIS_TENNIS_LOGOUT_SELECTOR = "#banner-mon-compte_menu__logout"
+SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
+SEARCH_AJAX_PATH = "jsp/site/Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
+
 
 def _normalize_court_type_text(value: str) -> str:
     if not value:
@@ -59,6 +77,11 @@ class CourtSlot:
     court_type: CourtType
     price: Optional[float] = None
     facility_address: Optional[str] = None
+    equipment_id: Optional[str] = None
+    court_id: Optional[str] = None
+    reservation_start: Optional[datetime] = None
+    reservation_end: Optional[datetime] = None
+    captcha_request_id: Optional[str] = None
 
 
 @dataclass
@@ -133,7 +156,19 @@ class ParisTennisService:
 
             wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
 
-            # Wait for and fill email field
+            # Accept cookie banner if present
+            self._accept_cookie_banner()
+
+            # Click login entry point if we're on the public landing page
+            self._click_login_entrypoint(wait)
+
+            # If we are already logged in, short-circuit
+            if self._is_logged_in():
+                self._logged_in = True
+                logger.info(f"Login already active for {email}")
+                return True
+
+            # Wait for and fill email field on the Mon Paris SSO form
             email_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
             email_field.clear()
             email_field.send_keys(email)
@@ -142,6 +177,9 @@ class ParisTennisService:
             password_field = self.driver.find_element(By.ID, "password")
             password_field.clear()
             password_field.send_keys(password)
+
+            # Accept cookie banner if present on the SSO page
+            self._accept_cookie_banner()
 
             # Click login button
             login_button = self.driver.find_element(
@@ -179,6 +217,7 @@ class ParisTennisService:
             indicators = [
                 (By.CSS_SELECTOR, ".user-menu"),
                 (By.CSS_SELECTOR, ".logout"),
+                (By.CSS_SELECTOR, PARIS_TENNIS_LOGOUT_SELECTOR),
                 (By.LINK_TEXT, "Déconnexion"),
                 (By.PARTIAL_LINK_TEXT, "Mon compte"),
             ]
@@ -188,6 +227,46 @@ class ParisTennisService:
                     return True
                 except NoSuchElementException:
                     continue
+            return False
+        except WebDriverException:
+            return False
+
+    def _accept_cookie_banner(self) -> None:
+        """Dismiss cookie banners if present."""
+        for selector in COOKIE_ACCEPT_SELECTORS:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                element.click()
+                return
+            except NoSuchElementException:
+                continue
+            except WebDriverException:
+                continue
+            except Exception:
+                continue
+
+    def _click_login_entrypoint(self, wait: WebDriverWait) -> bool:
+        """Click the login entry point on the public landing page if present."""
+        for selector in LOGIN_BUTTON_SELECTORS:
+            try:
+                element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                element.click()
+                return True
+            except TimeoutException:
+                continue
+            except WebDriverException:
+                continue
+
+        # Fallback: match French login button text
+        try:
+            button = self.driver.find_element(
+                By.XPATH,
+                "//button[contains(normalize-space(.), 'Je me connecte') "
+                "or contains(normalize-space(.), 'Se connecter')]",
+            )
+            button.click()
+            return True
+        except NoSuchElementException:
             return False
         except WebDriverException:
             return False
@@ -216,39 +295,40 @@ class ParisTennisService:
         try:
             logger.info(f"Searching courts for {target_date.strftime('%Y-%m-%d')}")
 
-            # Navigate to search page
+            # Navigate to search page and load results context
             self.driver.get(self.search_url)
             wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
+            self._accept_cookie_banner()
+            captcha_request_id = self._ensure_search_results_page(wait)
 
-            # Set search date
-            date_field = wait.until(EC.presence_of_element_located((By.ID, "date")))
-            date_str = target_date.strftime("%d/%m/%Y")
-            date_field.clear()
-            date_field.send_keys(date_str)
+            facility_names = self._resolve_facility_preferences(request)
+            if not facility_names:
+                logger.warning("No facility preferences resolved; skipping search")
+                return []
 
-            # Set time range if fields exist
-            self._set_time_range(request.time_start, request.time_end)
+            when_value = target_date.strftime("%d/%m/%Y")
+            hour_range = self._format_hour_range(request.time_start, request.time_end)
+            sel_in_out = self._get_indoor_outdoor_values(request.court_type)
+            sel_coating = self._get_surface_values()
 
-            # Set court type preference
-            self._set_court_type(request.court_type)
-
-            # Submit search
-            search_button = self.driver.find_element(
-                By.CSS_SELECTOR, "button[type='submit'], input[type='submit']"
-            )
-            search_button.click()
-
-            # Wait for results
-            time.sleep(2)
-
-            # Parse results based on facility preferences
-            for facility_code in request.facility_preferences:
-                slots = self._parse_facility_results(facility_code, target_date, request)
+            for facility_name in facility_names:
+                html = self._fetch_availability_html(
+                    hour_range=hour_range,
+                    when_value=when_value,
+                    facility_name=facility_name,
+                    sel_in_out=sel_in_out,
+                    sel_coating=sel_coating,
+                )
+                if not html:
+                    continue
+                slots = self._parse_available_slots_html(
+                    html=html,
+                    facility_name=facility_name,
+                    target_date=target_date,
+                    request=request,
+                    captcha_request_id=captcha_request_id,
+                )
                 available_slots.extend(slots)
-
-            # If no specific facilities, get all available
-            if not request.facility_preferences:
-                available_slots = self._parse_all_results(target_date, request)
 
             available_slots = self._sort_available_slots(available_slots, request)
 
@@ -270,6 +350,335 @@ class ParisTennisService:
             days_ahead += 7
         return today + timedelta(days=days_ahead)
 
+    def _ensure_search_results_page(self, wait: WebDriverWait) -> Optional[str]:
+        """Ensure the search results page is loaded and return captcha request id if available."""
+        try:
+            if SEARCH_RESULTS_QUERY in (self.driver.current_url or ""):
+                return self._get_captcha_request_id()
+
+            # Click the search button to enter results context
+            search_button = wait.until(EC.element_to_be_clickable((By.ID, "rechercher")))
+            search_button.click()
+            wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
+            time.sleep(1)
+            return self._get_captcha_request_id()
+        except (TimeoutException, WebDriverException):
+            return None
+
+    def _get_captcha_request_id(self) -> Optional[str]:
+        """Extract captchaRequestId from the results page if present."""
+        try:
+            element = self.driver.find_element(By.ID, "captchaRequestId")
+            value = element.get_attribute("value")
+            return value if value else None
+        except NoSuchElementException:
+            return None
+        except WebDriverException:
+            return None
+
+    def _resolve_facility_preferences(self, request: BookingRequest) -> list[str]:
+        """Resolve requested facility preferences against visible tennis names."""
+        available = self._get_available_facility_names()
+        if not request.facility_preferences:
+            return available
+
+        if not available:
+            return [pref for pref in request.facility_preferences if pref]
+
+        normalized_available = {
+            self._normalize_facility_code(name): name for name in available if name
+        }
+        resolved: list[str] = []
+        for pref in request.facility_preferences:
+            if not pref:
+                continue
+            if pref in available:
+                resolved.append(pref)
+                continue
+            normalized_pref = self._normalize_facility_code(pref)
+            if normalized_pref in normalized_available:
+                resolved.append(normalized_available[normalized_pref])
+            else:
+                resolved.append(pref)
+        return resolved
+
+    def _get_available_facility_names(self) -> list[str]:
+        """Return tennis names visible in the results bookmark list."""
+        try:
+            elements = self.driver.find_elements(By.CSS_SELECTOR, "#bookmarkList .tennis-label")
+            names = [element.text.strip() for element in elements if element.text]
+            return [name for name in names if name]
+        except WebDriverException:
+            return []
+
+    def _normalize_facility_code(self, name: str) -> str:
+        """Normalize a facility name into a slug-like code."""
+        normalized = _normalize_court_type_text(name)
+        normalized = re.sub(r"[^a-z0-9]+", "", normalized)
+        return normalized
+
+    def _format_hour_range(self, time_start: str, time_end: str) -> str:
+        """Format hour range string for the Paris Tennis slider."""
+        start_norm = normalize_time(time_start) or "08:00"
+        end_norm = normalize_time(time_end) or "22:00"
+
+        def hour_value(value: str, round_up: bool) -> int:
+            try:
+                hours, minutes = value.split(":")[:2]
+                hour = int(hours)
+                minute = int(minutes)
+            except ValueError:
+                return 8 if not round_up else 22
+            if round_up and minute > 0:
+                return min(22, hour + 1)
+            return max(8, hour)
+
+        start_hour = hour_value(start_norm, round_up=False)
+        end_hour = hour_value(end_norm, round_up=True)
+        end_hour = max(start_hour + 1, end_hour)
+        end_hour = min(22, end_hour)
+        return f"{start_hour}-{end_hour}"
+
+    def _get_indoor_outdoor_values(self, court_type: CourtType) -> list[str]:
+        """Map court type to Paris Tennis indoor/outdoor checkbox values."""
+        if court_type == CourtType.INDOOR:
+            return ["V"]
+        if court_type == CourtType.OUTDOOR:
+            return ["F"]
+        return ["V", "F"]
+
+    def _get_surface_values(self) -> list[str]:
+        """Fetch available surface ids for search filtering."""
+        try:
+            elements = self.driver.find_elements(By.CSS_SELECTOR, "input[name='selCoating']")
+            values = [element.get_attribute("value") for element in elements if element]
+            return [value for value in values if value]
+        except WebDriverException:
+            return []
+
+    def _fetch_availability_html(
+        self,
+        hour_range: str,
+        when_value: str,
+        facility_name: str,
+        sel_in_out: list[str],
+        sel_coating: list[str],
+    ) -> Optional[str]:
+        """Fetch available slots HTML for a facility via AJAX."""
+        try:
+            response = self.driver.execute_async_script(
+                """
+                const callback = arguments[arguments.length - 1];
+                const hourRange = arguments[0];
+                const whenValue = arguments[1];
+                const facilityName = arguments[2];
+                const selInOut = arguments[3] || [];
+                const selCoating = arguments[4] || [];
+                const params = new URLSearchParams();
+                params.append("hourRange", hourRange);
+                params.append("when", whenValue);
+                params.append("selWhereTennisName", facilityName);
+                selInOut.forEach((value) => params.append("selInOut", value));
+                selCoating.forEach((value) => params.append("selCoating", value));
+
+                fetch(arguments[5], {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+                    body: params.toString(),
+                })
+                    .then((response) => response.text())
+                    .then((text) => callback({ ok: true, text }))
+                    .catch((error) => callback({ ok: false, error: String(error) }));
+                """,
+                hour_range,
+                when_value,
+                facility_name,
+                sel_in_out,
+                sel_coating,
+                SEARCH_AJAX_PATH,
+            )
+            if not response or not response.get("ok"):
+                logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
+                return None
+            return response.get("text")
+        except WebDriverException as e:
+            logger.debug("Availability fetch failed for %s: %s", facility_name, e)
+            return None
+
+    def _parse_available_slots_html(
+        self,
+        html: str,
+        facility_name: str,
+        target_date: datetime,
+        request: BookingRequest,
+        captcha_request_id: Optional[str],
+    ) -> list[CourtSlot]:
+        """Parse AJAX availability HTML into CourtSlot objects."""
+        if not html:
+            return []
+
+        soup = BeautifulSoup(html, "html.parser")
+        buttons = soup.select("button.buttonAllOk")
+        slots: list[CourtSlot] = []
+
+        for button in buttons:
+            slot = self._parse_slot_button(
+                button=button,
+                facility_name=facility_name,
+                target_date=target_date,
+                captcha_request_id=captcha_request_id,
+            )
+            if not slot:
+                continue
+            if request.is_time_in_range(slot.time_start) and self._slot_matches_request(
+                slot, request
+            ):
+                slots.append(slot)
+
+        return slots
+
+    def _parse_slot_button(
+        self,
+        button,
+        facility_name: str,
+        target_date: datetime,
+        captcha_request_id: Optional[str],
+    ) -> Optional[CourtSlot]:
+        """Parse a buttonAllOk element into a CourtSlot."""
+        equipment_id = button.get("equipmentid")
+        court_id = button.get("courtid")
+        date_deb = button.get("datedeb")
+        date_fin = button.get("datefin")
+        price_value = button.get("price")
+        type_price = button.get("typeprice", "")
+
+        if not equipment_id or not court_id or not date_deb or not date_fin:
+            return None
+
+        try:
+            reservation_start = datetime.strptime(date_deb, "%Y/%m/%d %H:%M:%S")
+            reservation_end = datetime.strptime(date_fin, "%Y/%m/%d %H:%M:%S")
+        except ValueError:
+            reservation_start = None
+            reservation_end = None
+
+        time_start = reservation_start.strftime("%H:%M") if reservation_start else ""
+        time_end = reservation_end.strftime("%H:%M") if reservation_end else ""
+
+        court_text = ""
+        court_info = button.find_parent("div", class_="tennis-court")
+        if court_info:
+            court_span = court_info.find("span", class_="court")
+            court_text = court_span.get_text(strip=True) if court_span else ""
+
+        court_number = self._parse_court_number(court_text)
+        court_type = self._parse_court_type_from_text(court_text, type_price)
+
+        price = None
+        if price_value:
+            try:
+                price = float(price_value)
+            except ValueError:
+                price = None
+
+        facility_code = self._normalize_facility_code(facility_name)
+
+        return CourtSlot(
+            facility_name=facility_name,
+            facility_code=facility_code,
+            court_number=court_number or "",
+            date=reservation_start or target_date,
+            time_start=time_start,
+            time_end=time_end,
+            court_type=court_type,
+            price=price,
+            equipment_id=equipment_id,
+            court_id=court_id,
+            reservation_start=reservation_start,
+            reservation_end=reservation_end,
+            captcha_request_id=captcha_request_id,
+        )
+
+    def _parse_court_number(self, text: str) -> str:
+        """Extract court number from the court description text."""
+        if not text:
+            return ""
+        match = re.search(r"court\\s*n[°o]?\\s*(\\d+)", text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return text.strip()
+
+    def _parse_court_type_from_text(self, court_text: str, price_text: str) -> CourtType:
+        """Infer court type from court/price labels."""
+        combined = " ".join([court_text or "", price_text or ""]).lower()
+        normalized = _normalize_court_type_text(combined)
+        if "couvert" in normalized:
+            return CourtType.INDOOR
+        if "decouvert" in normalized or "exterieur" in normalized:
+            return CourtType.OUTDOOR
+        return CourtType.ANY
+
+    def _submit_reservation_form(
+        self,
+        slot: CourtSlot,
+        captcha_request_id: Optional[str],
+    ) -> None:
+        """Submit the reservation form using slot identifiers."""
+        reservation_start = slot.reservation_start or slot.date
+        reservation_end = slot.reservation_end or slot.date
+
+        date_deb = reservation_start.strftime("%Y/%m/%d %H:%M:%S")
+        date_fin = reservation_end.strftime("%Y/%m/%d %H:%M:%S")
+
+        try:
+            self.driver.execute_script(
+                """
+                const equipmentId = arguments[0];
+                const courtId = arguments[1];
+                const dateDeb = arguments[2];
+                const dateFin = arguments[3];
+                const captchaRequestId = arguments[4];
+
+                let form = document.getElementById("formReservation");
+                if (!form) {
+                    form = document.createElement("form");
+                    form.id = "formReservation";
+                    form.method = "post";
+                    form.action = "jsp/site/Portal.jsp?page=reservation&view=reservation_captcha";
+                    document.body.appendChild(form);
+                }
+
+                const setInput = (name, value) => {
+                    let input = form.querySelector(`input[name='${name}']`);
+                    if (!input) {
+                        input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = name;
+                        form.appendChild(input);
+                    }
+                    input.value = value;
+                };
+
+                setInput("equipmentId", equipmentId);
+                setInput("courtId", courtId);
+                setInput("dateDeb", dateDeb);
+                setInput("dateFin", dateFin);
+                setInput("annulation", "false");
+                if (captchaRequestId) {
+                    setInput("captchaRequestId", captchaRequestId);
+                }
+
+                form.submit();
+                """,
+                slot.equipment_id,
+                slot.court_id,
+                date_deb,
+                date_fin,
+                captcha_request_id,
+            )
+        except WebDriverException as e:
+            logger.error("Failed to submit reservation form: %s", e)
+
     def _sort_available_slots(
         self,
         slots: list[CourtSlot],
@@ -285,11 +694,15 @@ class ParisTennisService:
             return slots
 
         facility_order = {
-            facility_code: index for index, facility_code in enumerate(request.facility_preferences)
+            self._normalize_facility_code(facility_code): index
+            for index, facility_code in enumerate(request.facility_preferences)
         }
 
         def sort_key(slot: CourtSlot) -> tuple[int, str]:
-            facility_index = facility_order.get(slot.facility_code, len(facility_order))
+            facility_index = facility_order.get(
+                self._normalize_facility_code(slot.facility_code),
+                len(facility_order),
+            )
             time_key = normalize_time(slot.time_start)
             if not time_key:
                 time_key = "99:99"
@@ -502,31 +915,22 @@ class ParisTennisService:
                 f"at {slot.time_start}"
             )
 
-            # Click on the slot to start booking
-            # This will need to be adapted to actual website structure
-            slot_selector = (
-                f"[data-facility='{slot.facility_code}']"
-                f"[data-court='{slot.court_number}']"
-                f"[data-start='{slot.time_start}']"
-            )
-            slot_element = self.driver.find_element(By.CSS_SELECTOR, slot_selector)
-            slot_element.click()
+            if not slot.equipment_id or not slot.court_id or not slot.reservation_start:
+                return BookingResult(
+                    success=False,
+                    error_message="Missing reservation identifiers for slot",
+                    slot=slot,
+                )
 
             wait = WebDriverWait(self.driver, BOOKING_WAIT_TIMEOUT)
+            captcha_request_id = slot.captcha_request_id or self._ensure_search_results_page(wait)
+            self._submit_reservation_form(slot, captcha_request_id)
 
-            # Wait for booking form/modal
-            time.sleep(1)
-
-            # Fill partner name if required
-            if partner_name:
-                try:
-                    partner_field = wait.until(
-                        EC.presence_of_element_located((By.ID, "partnerName"))
-                    )
-                    partner_field.clear()
-                    partner_field.send_keys(partner_name)
-                except TimeoutException:
-                    logger.debug("Partner name field not found")
+            # Wait for CAPTCHA page
+            try:
+                wait.until(EC.presence_of_element_located((By.ID, "formCaptcha")))
+            except TimeoutException:
+                logger.debug("CAPTCHA form not found; continuing")
 
             # Handle CAPTCHA if present
             captcha_present = self._check_for_captcha()
@@ -544,15 +948,30 @@ class ParisTennisService:
                     )
                 logger.info("CAPTCHA solved successfully")
 
+            if partner_name:
+                try:
+                    partner_field = self.driver.find_element(By.ID, "partnerName")
+                    partner_field.clear()
+                    partner_field.send_keys(partner_name)
+                except NoSuchElementException:
+                    logger.debug("Partner name field not found")
+                except WebDriverException:
+                    logger.debug("Unable to fill partner name")
+
             # Select carnet payment option if present on the page
             if self._select_carnet_payment_if_present():
                 logger.debug("Carnet payment option selected")
 
-            # Confirm booking
-            confirm_button = wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, ".confirm-booking, #confirmBooking"))
-            )
-            confirm_button.click()
+            # Confirm booking if confirmation button is present
+            try:
+                confirm_button = wait.until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, ".confirm-booking, #confirmBooking")
+                    )
+                )
+                confirm_button.click()
+            except TimeoutException:
+                logger.debug("Confirmation button not found after CAPTCHA")
 
             # Wait for confirmation
             time.sleep(2)
@@ -603,6 +1022,8 @@ class ParisTennisService:
             "iframe[src*='captcha']",
             ".g-recaptcha",
             "#captcha",
+            "#li-antibot",
+            "#formCaptcha",
         ]
         for selector in captcha_selectors:
             try:
@@ -706,7 +1127,13 @@ class ParisTennisService:
     def logout(self) -> bool:
         """Log out of the Paris Tennis website."""
         try:
-            logout_link = self.driver.find_element(By.PARTIAL_LINK_TEXT, "Déconnexion")
+            try:
+                logout_link = self.driver.find_element(
+                    By.CSS_SELECTOR, PARIS_TENNIS_LOGOUT_SELECTOR
+                )
+            except NoSuchElementException:
+                logout_link = self.driver.find_element(By.PARTIAL_LINK_TEXT, "Déconnexion")
+
             logout_link.click()
             self._logged_in = False
             logger.info("Logged out successfully")
