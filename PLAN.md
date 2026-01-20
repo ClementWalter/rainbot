@@ -83,10 +83,6 @@ deployment/integration testing remains incomplete.
    need adjustment based on actual website structure.
 6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
    scraping with AJAX-based slot parsing, which can drift as the site evolves.
-7. **Booking.is_today uses naive datetimes without Paris TZ** - Bookings created
-   from slot parsing carry naive datetimes and `Booking.is_today()` compares the
-   naive date to `today_paris()` without localizing, which can skip reminders or
-   fail tests when the host timezone differs from Paris.
 
 ### Resolved Issues
 
@@ -323,6 +319,9 @@ deployment/integration testing remains incomplete.
 47. **LiveIdentity invisible CAPTCHA fallback** - Fixed: Invisible LI_ANTIBOT
     responses no longer hard-fail the CAPTCHA solver; the flow now defers to
     reCAPTCHA detection so invisible challenges can still be solved.
+48. **Booking.is_today naive datetime handling** - Fixed: Naive `Booking.date`
+    values are normalized to Paris timezone when checking `is_today`, and the
+    tests now use `now_paris()` to align with the Paris-only time model.
 
 ---
 

@@ -126,10 +126,7 @@ class Booking:
     def is_today(self) -> bool:
         """Check if this booking is for today (in Paris timezone)."""
         if isinstance(self.date, datetime):
-            if self.date.tzinfo is not None:
-                booking_date = self.date.astimezone(PARIS_TZ).date()
-            else:
-                booking_date = self.date.date()
+            booking_date = _normalize_paris_datetime(self.date).date()
         elif isinstance(self.date, date):
             booking_date = self.date
         else:

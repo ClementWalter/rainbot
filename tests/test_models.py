@@ -12,7 +12,7 @@ from src.models import (
     User,
     normalize_time,
 )
-from src.utils.timezone import PARIS_TZ
+from src.utils.timezone import PARIS_TZ, now_paris
 
 
 class TestUser:
@@ -778,7 +778,7 @@ class TestBooking:
             facility_name="Tennis Club",
             facility_code="TC001",
             court_number="1",
-            date=datetime.now(),
+            date=now_paris(),
             time_start="18:00",
             time_end="19:00",
         )
