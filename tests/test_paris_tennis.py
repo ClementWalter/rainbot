@@ -166,10 +166,11 @@ class TestParisTennisService:
 
     def test_login_element_not_found(self, service, mock_driver):
         """Test login fails when elements not found."""
-        from selenium.common.exceptions import TimeoutException
+        from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
         with patch("src.services.paris_tennis.WebDriverWait") as mock_wait:
             mock_wait.return_value.until.side_effect = TimeoutException()
+            mock_driver.find_element.side_effect = NoSuchElementException()
 
             result = service.login("test@example.com", "password")
 

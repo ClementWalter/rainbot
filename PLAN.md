@@ -30,7 +30,9 @@ testing remains incomplete.
 
 1. **Paris Tennis selectors/flow**: Replace placeholder CSS selectors and
    booking flow assumptions with real tennis.paris.fr DOM mappings and validate
-   end-to-end.
+   end-to-end (Mon Paris SSO login button, AJAX search via
+   `action=ajax_rechercher_creneau`, and booking via `formReservation` with
+   equipmentId/courtId/dateDeb/dateFin).
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
    steps. A best-effort carnet selector exists but is not validated on the live
@@ -39,22 +41,29 @@ testing remains incomplete.
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
+5. **LiveIdentity anti-bot CAPTCHA**: The reservation flow uses
+   `captcha.liveidentity.com` (LI_ANTIBOT) instead of reCAPTCHA; integrate its
+   transaction/challenge/validation API and handle blacklisted/invalid tokens.
+6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
    starting deployment work.
-6. **Booking history access**: CLI CSV export and on-demand email delivery
+7. **Booking history access**: CLI CSV export and on-demand email delivery
    exist; still need a self-service UI/API if end-user access is required.
-7. **User onboarding/request management**: Provide a user-facing interface
+8. **User onboarding/request management**: Provide a user-facing interface
    (admin UI, simple API, or form) for managing users, subscriptions, and
    booking requests instead of editing Google Sheets directly.
-8. **Success metrics**: Instrument booking success rate, CAPTCHA solve rate, and
+9. **Success metrics**: Instrument booking success rate, CAPTCHA solve rate, and
    notification delivery (logs/metrics + dashboard) per PRD section 8.
-9. **Credential security**: Protect Paris Tennis credentials and SMTP secrets
-   with encryption and/or a secrets manager (aligns with PRD risk mitigation).
-10. **Anti-bot hardening**: Add human-like interaction patterns (randomized
+10. **Credential security**: Protect Paris Tennis credentials and SMTP secrets
+    with encryption and/or a secrets manager (aligns with PRD risk mitigation).
+11. **Anti-bot hardening**: Add human-like interaction patterns (randomized
     delays, throttling, jitter) beyond current webdriver flags to reduce the
     risk of automation blocks (PRD section 10).
+12. **Paris Tennis flow consolidation**: `paris_tennis.py` currently contains
+    overlapping booking flow helpers (AJAX parsing plus legacy DOM scraping).
+    Remove unused placeholders, keep a single validated flow, and align tests
+    accordingly.
 
 ### Known Issues
 
@@ -64,8 +73,16 @@ testing remains incomplete.
 2. **CSS Selectors are Placeholders** - The Paris Tennis service uses generic
    CSS selectors that need to be updated based on the actual tennis.paris.fr
    website structure.
-3. **Facility Address Extraction** - The `data-facility-address` attribute may
+3. **Login URL Outdated** - The default `PARIS_TENNIS_LOGIN_URL` points to a 404
+   (authentification); the live flow starts from the landing page and Mon Paris
+   SSO.
+4. **LiveIdentity CAPTCHA** - Reservation uses the LiveIdentity anti-bot iframe
+   (`LI_ANTIBOT`) instead of reCAPTCHA; current solver doesn't handle its
+   transaction/challenge/validation flow or blacklist errors.
+5. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
+6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
+   scraping with AJAX-based slot parsing, which can drift as the site evolves.
 
 ### Resolved Issues
 

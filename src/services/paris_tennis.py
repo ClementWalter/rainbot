@@ -356,6 +356,10 @@ class ParisTennisService:
             if SEARCH_RESULTS_QUERY in (self.driver.current_url or ""):
                 return self._get_captcha_request_id()
 
+            if "page=recherche" not in (self.driver.current_url or ""):
+                self.driver.get(self.search_url)
+                self._accept_cookie_banner()
+
             # Click the search button to enter results context
             search_button = wait.until(EC.element_to_be_clickable((By.ID, "rechercher")))
             search_button.click()

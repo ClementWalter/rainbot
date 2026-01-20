@@ -316,7 +316,7 @@ class CaptchaSolverService:
     def _parse_liveidentity_config(self, page_source: str) -> Optional[LiveIdentityConfig]:
         """Parse LiveIdentity config from page source."""
         match = re.search(
-            r"LI_ANTIBOT\\.loadAntibot\\((\\[[^\\)]*\\])\\)",
+            r"LI_ANTIBOT\.loadAntibot\((\[.*?\])\)",
             page_source,
             re.DOTALL,
         )
