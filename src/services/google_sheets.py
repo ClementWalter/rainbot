@@ -11,6 +11,9 @@ from src.config.settings import settings
 from src.models.booking import Booking
 from src.models.booking_request import BookingRequest
 from src.models.user import User
+from src.services.booking_history import (
+    export_booking_history_csv as build_booking_history_csv,
+)
 from src.utils.timezone import now_paris, today_paris
 
 logger = logging.getLogger(__name__)
@@ -207,6 +210,27 @@ class GoogleSheetsService:
             List of Booking objects for the user
         """
         return [b for b in self.get_all_bookings() if b.user_id == user_id]
+
+    def export_booking_history_csv(
+        self,
+        user_id: Optional[str] = None,
+        sort_desc: bool = True,
+    ) -> str:
+        """
+        Export booking history as CSV for a user or all users.
+
+        Args:
+            user_id: Optional user ID to filter bookings. When None, exports all bookings.
+            sort_desc: Sort by most recent date/time first when True.
+
+        Returns:
+            CSV string with headers and rows.
+        """
+        if user_id:
+            bookings = self.get_bookings_for_user(user_id)
+        else:
+            bookings = self.get_all_bookings()
+        return build_booking_history_csv(bookings, sort_desc=sort_desc)
 
     def get_todays_bookings(self) -> list[Booking]:
         """

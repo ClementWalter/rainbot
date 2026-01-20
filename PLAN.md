@@ -18,7 +18,7 @@ placeholders and deployment/integration testing remains incomplete.
 - [x] src/ - Core structure with data models, Google Sheets service, browser
       utility, Paris Tennis service, CAPTCHA solver, and notification service
 - [x] src/services/booking_history.py - Booking history CSV export helper
-- [x] tests/ - 231 unit tests covering models, services, browser, Paris Tennis,
+- [x] tests/ - 238 unit tests covering models, services, browser, Paris Tennis,
       CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots
       tracking, HTML escaping, cleanup job
 - [x] PLAN.md - This file
@@ -206,6 +206,9 @@ placeholders and deployment/integration testing remains incomplete.
 22. **Carnet Balance Eligibility** - Fixed: Users can now provide a
     `carnet_balance` value (remaining tickets) and the eligibility check blocks
     bookings when the balance is zero or negative.
+23. **Booking History CSV Export Not Exposed via Sheets Service** - Fixed: Added
+    `export_booking_history_csv()` on `GoogleSheetsService` to generate CSV
+    histories directly from stored bookings.
 
 ---
 

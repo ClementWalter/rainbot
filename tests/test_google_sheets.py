@@ -1,6 +1,8 @@
 """Tests for Google Sheets service."""
 
+import csv
 from datetime import datetime
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -287,6 +289,59 @@ class TestGoogleSheetsService:
 
         assert len(user1_bookings) == 1
         assert user1_bookings[0].id == "book1"
+
+    def test_export_booking_history_csv_for_user(self, mock_service):
+        """Test exporting booking history for a specific user."""
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club",
+            facility_code="TC001",
+            court_number="1",
+            date=datetime(2025, 1, 15, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Partner",
+            confirmation_id="CONF123",
+        )
+
+        with patch.object(
+            mock_service, "get_bookings_for_user", return_value=[booking]
+        ) as mock_get:
+            csv_text = mock_service.export_booking_history_csv(user_id="user1", sort_desc=False)
+
+        mock_get.assert_called_once_with("user1")
+        reader = csv.DictReader(StringIO(csv_text))
+        rows = list(reader)
+        assert len(rows) == 1
+        assert rows[0]["facility_name"] == "Tennis Club"
+        assert rows[0]["confirmation_id"] == "CONF123"
+
+    def test_export_booking_history_csv_all_users(self, mock_service):
+        """Test exporting booking history for all users."""
+        booking = Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club",
+            facility_code="TC001",
+            court_number="1",
+            date=datetime(2025, 1, 15, 18, 0),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Partner",
+            confirmation_id="CONF123",
+        )
+
+        with patch.object(mock_service, "get_all_bookings", return_value=[booking]) as mock_get:
+            csv_text = mock_service.export_booking_history_csv()
+
+        mock_get.assert_called_once()
+        reader = csv.DictReader(StringIO(csv_text))
+        rows = list(reader)
+        assert len(rows) == 1
+        assert rows[0]["date"] == "2025-01-15"
 
     def test_has_pending_booking(self, mock_service):
         """Test checking for pending bookings."""
