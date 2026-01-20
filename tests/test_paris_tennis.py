@@ -12,7 +12,7 @@ from src.services.paris_tennis import (
     ParisTennisService,
     create_paris_tennis_session,
 )
-from src.utils.timezone import now_paris, PARIS_TZ
+from src.utils.timezone import PARIS_TZ, now_paris
 
 
 @pytest.fixture
@@ -212,6 +212,116 @@ class TestParisTennisService:
             assert result.date() == datetime(2024, 3, 18).date()
             mock_now.assert_called_once()
 
+    def test_sort_available_slots_respects_facility_order_and_time(self, service):
+        """Test slot sorting respects facility preference order and earliest time."""
+        request = BookingRequest(
+            id="req-1",
+            user_id="user-1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="22:00",
+            facility_preferences=["FAC2", "FAC1"],
+            court_type=CourtType.ANY,
+        )
+
+        slots = [
+            CourtSlot(
+                facility_name="Facility 1",
+                facility_code="FAC1",
+                court_number="1",
+                date=now_paris(),
+                time_start="19:00",
+                time_end="20:00",
+                court_type=CourtType.ANY,
+            ),
+            CourtSlot(
+                facility_name="Facility 2",
+                facility_code="FAC2",
+                court_number="2",
+                date=now_paris(),
+                time_start="10:00",
+                time_end="11:00",
+                court_type=CourtType.ANY,
+            ),
+            CourtSlot(
+                facility_name="Facility 2",
+                facility_code="FAC2",
+                court_number="3",
+                date=now_paris(),
+                time_start="9:00",
+                time_end="10:00",
+                court_type=CourtType.ANY,
+            ),
+            CourtSlot(
+                facility_name="Facility 1",
+                facility_code="FAC1",
+                court_number="4",
+                date=now_paris(),
+                time_start="18:00",
+                time_end="19:00",
+                court_type=CourtType.ANY,
+            ),
+        ]
+
+        sorted_slots = service._sort_available_slots(slots, request)
+
+        assert [(slot.facility_code, slot.time_start) for slot in sorted_slots] == [
+            ("FAC2", "9:00"),
+            ("FAC2", "10:00"),
+            ("FAC1", "18:00"),
+            ("FAC1", "19:00"),
+        ]
+
+    def test_sort_available_slots_without_preferences_sorts_by_time(self, service):
+        """Test slot sorting falls back to earliest time when no preferences exist."""
+        request = BookingRequest(
+            id="req-1",
+            user_id="user-1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="22:00",
+            facility_preferences=[],
+            court_type=CourtType.ANY,
+        )
+
+        slots = [
+            CourtSlot(
+                facility_name="Facility 1",
+                facility_code="FAC1",
+                court_number="1",
+                date=now_paris(),
+                time_start="19:00",
+                time_end="20:00",
+                court_type=CourtType.ANY,
+            ),
+            CourtSlot(
+                facility_name="Facility 2",
+                facility_code="FAC2",
+                court_number="2",
+                date=now_paris(),
+                time_start="9:00",
+                time_end="10:00",
+                court_type=CourtType.ANY,
+            ),
+            CourtSlot(
+                facility_name="Facility 3",
+                facility_code="FAC3",
+                court_number="3",
+                date=now_paris(),
+                time_start="12:00",
+                time_end="13:00",
+                court_type=CourtType.ANY,
+            ),
+        ]
+
+        sorted_slots = service._sort_available_slots(slots, request)
+
+        assert [slot.time_start for slot in sorted_slots] == [
+            "9:00",
+            "12:00",
+            "19:00",
+        ]
+
     def test_is_logged_in_true(self, service, mock_driver):
         """Test _is_logged_in returns True when user menu found."""
         mock_driver.find_element.return_value = MagicMock()
@@ -253,9 +363,7 @@ class TestParisTennisService:
         assert result.success is False
         assert result.error_message == "Not logged in"
 
-    def test_search_available_courts_empty(
-        self, service, mock_driver, sample_booking_request
-    ):
+    def test_search_available_courts_empty(self, service, mock_driver, sample_booking_request):
         """Test search returns empty list when no results."""
         from selenium.common.exceptions import NoSuchElementException
 

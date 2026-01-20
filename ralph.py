@@ -10,7 +10,7 @@ Shell template:
 
   prompt="your prompt here"
   for i in $(seq 1 100); do
-    claude --dangerously-skip-permissions -p "$prompt"
+    agent --dangerously-skip-permissions -p "$prompt"
   done
 
 Usage:
@@ -204,7 +204,7 @@ def _git_state_fingerprint(repo_dir: Path) -> str:
 def cli(
     prompt: Optional[str] = typer.Argument(
         None,
-        help=f"Prompt to pass to Claude. If omitted, reads {DEFAULT_PROMPT_FILE}.",
+        help=f"Prompt to pass to agent. If omitted, reads {DEFAULT_PROMPT_FILE}.",
     ),
     prompt_file: Path = typer.Option(
         Path(DEFAULT_PROMPT_FILE),
@@ -228,17 +228,17 @@ def cli(
         help="Maximum number of iterations.",
         show_default=True,
     ),
-    claude_bin: str = typer.Option(
+    agent_bin: str = typer.Option(
         "claude",
-        "--claude-bin",
-        envvar="CLAUDE_BIN",
-        help='Claude executable (default: "claude", or $CLAUDE_BIN).',
+        "--agent-bin",
+        envvar="AGENT_BIN",
+        help='agent executable (default: "claude", or $AGENT_BIN).',
         show_default=True,
     ),
     continue_on_error: bool = typer.Option(
         True,
         "--continue-on-error/--stop-on-error",
-        help="Keep looping even if Claude exits non-zero.",
+        help="Keep looping even if agent exits non-zero.",
         show_default=True,
     ),
     no_change_exit_after: int = typer.Option(
@@ -253,7 +253,7 @@ def cli(
     ),
 ) -> None:
     """
-    Run Claude in a loop.
+    Run agent in a loop.
     """
 
     repo_dir = _repo_dir()
@@ -272,22 +272,35 @@ def cli(
     try:
         for i in range(1, iterations + 1):
             try:
-                completed = subprocess.run(
-                    [claude_bin, "--dangerously-skip-permissions", "-p", resolved_prompt],
-                    cwd=repo_dir,
-                    check=False,
+                completed = (
+                    subprocess.run(
+                        [agent_bin, "--dangerously-skip-permissions", "-p", resolved_prompt],
+                        cwd=repo_dir,
+                        check=False,
+                    )
+                    if agent_bin == "claude"
+                    else subprocess.run(
+                        [
+                            agent_bin,
+                            "exec",
+                            "--dangerously-bypass-approvals-and-sandbox",
+                            resolved_prompt,
+                        ],
+                        cwd=repo_dir,
+                        check=False,
+                    )
                 )
             except FileNotFoundError:
                 typer.echo(
-                    f'Could not find "{claude_bin}". Is the Claude CLI installed and on PATH? '
-                    "You can also set $CLAUDE_BIN.",
+                    f'Could not find "{agent_bin}". Is the agent CLI installed and on PATH? '
+                    "You can also set $AGENT_BIN.",
                     err=True,
                 )
                 raise typer.Exit(code=127) from None
 
             if completed.returncode != 0:
                 typer.echo(
-                    f"Claude exited with status {completed.returncode}.",
+                    f"agent exited with status {completed.returncode}.",
                     err=True,
                 )
                 if not continue_on_error:

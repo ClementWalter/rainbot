@@ -4,7 +4,14 @@ from datetime import datetime
 
 import pytest
 
-from src.models import Booking, BookingRequest, CourtType, DayOfWeek, User, normalize_time
+from src.models import (
+    Booking,
+    BookingRequest,
+    CourtType,
+    DayOfWeek,
+    User,
+    normalize_time,
+)
 
 
 class TestUser:
@@ -241,6 +248,20 @@ class TestBookingRequest:
         assert request.court_type == CourtType.INDOOR
         assert request.facility_preferences == ["FAC001", "FAC002"]
         assert request.partner_name == "John Doe"
+
+    @pytest.mark.parametrize("court_type_value", ["", None, "invalid"])
+    def test_from_dict_defaults_any_for_missing_or_invalid_court_type(self, court_type_value):
+        """Test that missing/invalid court_type defaults to ANY."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "monday",
+            "time_start": "18:00",
+            "time_end": "20:00",
+            "court_type": court_type_value,
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.court_type == CourtType.ANY
 
     def test_from_dict_with_integer_day(self):
         """Test creating BookingRequest with integer day_of_week."""

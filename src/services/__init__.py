@@ -1,8 +1,13 @@
 """Service modules for RainBot."""
 
+from src.services.booking_history import (
+    BOOKING_HISTORY_FIELDS,
+    booking_to_history_row,
+    export_booking_history_csv,
+)
 from src.services.captcha_solver import (
-    CaptchaSolverService,
     CaptchaSolveResult,
+    CaptchaSolverService,
     get_captcha_service,
 )
 from src.services.google_sheets import GoogleSheetsService, sheets_service
@@ -17,6 +22,9 @@ __all__ = [
     "CaptchaSolverService",
     "CaptchaSolveResult",
     "get_captcha_service",
+    "BOOKING_HISTORY_FIELDS",
+    "booking_to_history_row",
+    "export_booking_history_csv",
     "GoogleSheetsService",
     "sheets_service",
     "ParisTennisService",

@@ -465,7 +465,8 @@ class TestUserLocking:
         mock_worksheet = MagicMock()
         # Lock acquired 10 minutes ago (expired - timeout is 5 minutes)
         from datetime import timedelta
-        expired_time = (datetime.now() - timedelta(minutes=10)).isoformat()
+
+        expired_time = (now_paris() - timedelta(minutes=10)).isoformat()
         mock_worksheet.get_all_records.return_value = [
             {
                 "user_id": "user1",
@@ -669,9 +670,7 @@ class TestNoSlotsNotificationTracking:
                 mock_client.open_by_key.return_value = mock_spreadsheet
 
                 mock_new_worksheet = MagicMock()
-                mock_spreadsheet.worksheet.side_effect = WorksheetNotFound(
-                    "NoSlotsNotifications"
-                )
+                mock_spreadsheet.worksheet.side_effect = WorksheetNotFound("NoSlotsNotifications")
                 mock_spreadsheet.add_worksheet.return_value = mock_new_worksheet
 
                 result = service._ensure_no_slots_notifications_sheet()

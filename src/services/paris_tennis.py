@@ -21,7 +21,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from src.config.settings import settings
-from src.models.booking_request import BookingRequest, CourtType
+from src.models.booking_request import BookingRequest, CourtType, normalize_time
 from src.services.captcha_solver import CaptchaSolverService, get_captcha_service
 from src.utils.browser import browser_session
 from src.utils.timezone import now_paris
@@ -121,9 +121,7 @@ class ParisTennisService:
             wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
 
             # Wait for and fill email field
-            email_field = wait.until(
-                EC.presence_of_element_located((By.ID, "username"))
-            )
+            email_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
             email_field.clear()
             email_field.send_keys(email)
 
@@ -210,9 +208,7 @@ class ParisTennisService:
             wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
 
             # Set search date
-            date_field = wait.until(
-                EC.presence_of_element_located((By.ID, "date"))
-            )
+            date_field = wait.until(EC.presence_of_element_located((By.ID, "date")))
             date_str = target_date.strftime("%d/%m/%Y")
             date_field.clear()
             date_field.send_keys(date_str)
@@ -234,14 +230,14 @@ class ParisTennisService:
 
             # Parse results based on facility preferences
             for facility_code in request.facility_preferences:
-                slots = self._parse_facility_results(
-                    facility_code, target_date, request
-                )
+                slots = self._parse_facility_results(facility_code, target_date, request)
                 available_slots.extend(slots)
 
             # If no specific facilities, get all available
             if not request.facility_preferences:
                 available_slots = self._parse_all_results(target_date, request)
+
+            available_slots = self._sort_available_slots(available_slots, request)
 
             logger.info(f"Found {len(available_slots)} available slots")
             return available_slots
@@ -260,6 +256,33 @@ class ParisTennisService:
         if days_ahead <= 0:  # Target day already happened this week
             days_ahead += 7
         return today + timedelta(days=days_ahead)
+
+    def _sort_available_slots(
+        self,
+        slots: list[CourtSlot],
+        request: BookingRequest,
+    ) -> list[CourtSlot]:
+        """
+        Sort available slots by facility preference order, then by earliest time.
+
+        This ensures we respect PRD priority logic: preferred facilities first,
+        and the earliest available time within each facility.
+        """
+        if not slots:
+            return slots
+
+        facility_order = {
+            facility_code: index for index, facility_code in enumerate(request.facility_preferences)
+        }
+
+        def sort_key(slot: CourtSlot) -> tuple[int, str]:
+            facility_index = facility_order.get(slot.facility_code, len(facility_order))
+            time_key = normalize_time(slot.time_start)
+            if not time_key:
+                time_key = "99:99"
+            return (facility_index, time_key)
+
+        return sorted(slots, key=sort_key)
 
     def _set_time_range(self, time_start: str, time_end: str) -> None:
         """Set time range filters if available."""
@@ -304,14 +327,10 @@ class ParisTennisService:
             )
 
             # Find available time slots
-            time_slots = facility_section.find_elements(
-                By.CSS_SELECTOR, ".time-slot.available"
-            )
+            time_slots = facility_section.find_elements(By.CSS_SELECTOR, ".time-slot.available")
 
             for slot_elem in time_slots:
-                slot = self._parse_slot_element(
-                    slot_elem, facility_code, target_date, request
-                )
+                slot = self._parse_slot_element(slot_elem, facility_code, target_date, request)
                 if slot and request.is_time_in_range(slot.time_start):
                     slots.append(slot)
 
@@ -445,9 +464,7 @@ class ParisTennisService:
 
             # Confirm booking
             confirm_button = wait.until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, ".confirm-booking, #confirmBooking")
-                )
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".confirm-booking, #confirmBooking"))
             )
             confirm_button.click()
 

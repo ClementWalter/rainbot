@@ -161,9 +161,21 @@ class BookingRequest:
                 day_value = DayOfWeek[day_value.upper()].value
         day_of_week = DayOfWeek(day_value)
 
-        # Parse court type
-        court_type_str = data.get("court_type", "any").lower()
-        court_type = CourtType(court_type_str)
+        # Parse court type (default to ANY for missing/invalid values)
+        court_type_value = data.get("court_type", "any")
+        if isinstance(court_type_value, CourtType):
+            court_type = court_type_value
+        else:
+            if court_type_value is None:
+                court_type_str = "any"
+            else:
+                court_type_str = str(court_type_value).strip().lower()
+            if not court_type_str:
+                court_type_str = "any"
+            try:
+                court_type = CourtType(court_type_str)
+            except ValueError:
+                court_type = CourtType.ANY
 
         # Parse facility preferences (comma-separated string or list)
         facilities = data.get("facility_preferences", [])
@@ -171,12 +183,8 @@ class BookingRequest:
             facilities = [f.strip() for f in facilities.split(",") if f.strip()]
 
         # Parse and validate time boundaries (PRD section 5.1: 8:00-22:00)
-        time_start = cls._validate_time(
-            str(data.get("time_start", "")), MIN_BOOKING_TIME
-        )
-        time_end = cls._validate_time(
-            str(data.get("time_end", "")), MAX_BOOKING_TIME
-        )
+        time_start = cls._validate_time(str(data.get("time_start", "")), MIN_BOOKING_TIME)
+        time_end = cls._validate_time(str(data.get("time_end", "")), MAX_BOOKING_TIME)
 
         # Ensure time_start is before time_end
         if time_start > time_end:
