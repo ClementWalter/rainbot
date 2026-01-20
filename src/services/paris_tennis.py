@@ -575,6 +575,71 @@ class ParisTennisService:
 
         return slots
 
+    def _extract_facility_address(self, button) -> Optional[str]:
+        """Best-effort extraction of a facility address from an availability button."""
+        if button is None:
+            return None
+
+        address_attrs = (
+            "data-facility-address",
+            "data-address",
+            "data-adresse",
+            "data-facility-adresse",
+        )
+
+        for element in [button, *list(button.parents)]:
+            try:
+                attrs = element.attrs
+            except AttributeError:
+                continue
+            for attr in address_attrs:
+                value = attrs.get(attr)
+                if value:
+                    return str(value).strip()
+
+        container = button.find_parent(
+            lambda tag: tag.name in ("div", "section", "article")
+            and (
+                tag.has_attr("data-facility")
+                or tag.has_attr("data-facility-name")
+                or any(
+                    key in cls.lower()
+                    for cls in tag.get("class", [])
+                    for key in ("facility", "tennis", "centre", "center")
+                )
+            )
+        )
+        if not container:
+            return None
+
+        address_node = container.find(
+            lambda tag: tag.name in ("div", "span", "p", "li")
+            and any(
+                key in cls.lower() for cls in tag.get("class", []) for key in ("address", "adresse")
+            )
+        )
+        if address_node:
+            text_value = address_node.get_text(" ", strip=True)
+            if text_value:
+                return text_value
+
+        label_node = container.find(string=re.compile(r"adresse", re.IGNORECASE))
+        if label_node:
+            label_text = str(label_node).strip()
+            cleaned = re.sub(r"adresse\s*[:\-]?\s*", "", label_text, flags=re.IGNORECASE)
+            cleaned = cleaned.strip()
+            if cleaned and cleaned.lower() != "adresse":
+                return cleaned
+
+            parent_text = label_node.parent.get_text(" ", strip=True)
+            cleaned_parent = re.sub(
+                r"adresse\s*[:\-]?\s*", "", parent_text, flags=re.IGNORECASE
+            ).strip()
+            if cleaned_parent and cleaned_parent.lower() != "adresse":
+                return cleaned_parent
+
+        return None
+
     def _parse_slot_button(
         self,
         button,
@@ -611,6 +676,7 @@ class ParisTennisService:
 
         court_number = self._parse_court_number(court_text)
         court_type = self._parse_court_type_from_text(court_text, type_price)
+        facility_address = self._extract_facility_address(button)
 
         price = None
         if price_value:
@@ -630,6 +696,7 @@ class ParisTennisService:
             time_end=time_end,
             court_type=court_type,
             price=price,
+            facility_address=facility_address,
             equipment_id=equipment_id,
             court_id=court_id,
             reservation_start=reservation_start,

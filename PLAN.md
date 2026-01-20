@@ -79,9 +79,7 @@ deployment/integration testing remains incomplete.
 4. **LiveIdentity CAPTCHA edge cases** - Invisible challenge handling now defers
    to reCAPTCHA detection, but live-site validation on tennis.paris.fr is still
    pending.
-5. **Facility Address Extraction** - The `data-facility-address` attribute may
-   need adjustment based on actual website structure.
-6. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
+5. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
    scraping with AJAX-based slot parsing, which can drift as the site evolves.
 
 ### Resolved Issues
@@ -322,6 +320,10 @@ deployment/integration testing remains incomplete.
 48. **Booking.is_today naive datetime handling** - Fixed: Naive `Booking.date`
     values are normalized to Paris timezone when checking `is_today`, and the
     tests now use `now_paris()` to align with the Paris-only time model.
+49. **Facility Address Extraction in AJAX flow** - Fixed:
+    `_parse_available_slots_html()` now extracts facility addresses from AJAX
+    HTML (data attributes or address labels) so booking confirmations and
+    reminders include the facility address.
 
 ---
 

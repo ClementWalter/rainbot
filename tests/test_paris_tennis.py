@@ -363,6 +363,38 @@ class TestParisTennisService:
         assert slot is not None
         assert slot.court_type == CourtType.OUTDOOR
 
+    def test_parse_available_slots_html_extracts_facility_address(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing captures facility address from AJAX HTML."""
+        html = """
+        <div class="facility-card" data-facility-address="15 Rue du Tennis, 75001 Paris">
+            <div class="tennis-court">
+                <span class="court">Court n° 3</span>
+                <button class="buttonAllOk"
+                    equipmentid="E1"
+                    courtid="C1"
+                    datedeb="2025/01/15 18:00:00"
+                    datefin="2025/01/15 19:00:00"
+                    price="10"
+                    typeprice="Couvert"></button>
+            </div>
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Tennis Club Paris",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id=None,
+        )
+
+        assert slots
+        assert slots[0].facility_address == "15 Rue du Tennis, 75001 Paris"
+
     def test_parse_facility_results_filters_mismatched_court_type(
         self,
         service,
