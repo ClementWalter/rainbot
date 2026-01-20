@@ -323,6 +323,81 @@ class TestParisTennisService:
             "19:00",
         ]
 
+    def test_parse_slot_element_detects_court_type_from_attributes(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test slot parsing detects court type from element attributes."""
+        element = MagicMock()
+
+        def get_attribute_side_effect(name):
+            return {
+                "data-start": "18:00",
+                "data-end": "19:00",
+                "data-court": "3",
+                "data-facility-name": "Tennis Club Paris",
+                "data-facility-address": "123 Rue de Tennis",
+                "data-facility": "facility-1",
+                "data-court-type": "outdoor",
+            }.get(name, "")
+
+        element.get_attribute.side_effect = get_attribute_side_effect
+        element.text = ""
+
+        slot = service._parse_slot_element(
+            element,
+            "facility-1",
+            now_paris(),
+            sample_booking_request,
+        )
+
+        assert slot is not None
+        assert slot.court_type == CourtType.OUTDOOR
+
+    def test_parse_facility_results_filters_mismatched_court_type(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test facility parsing skips slots with mismatched court type."""
+        mock_section = MagicMock()
+        mock_section.find_elements.return_value = [MagicMock()]
+        service.driver.find_element.return_value = mock_section
+
+        slot = CourtSlot(
+            facility_name="Facility 1",
+            facility_code="facility-1",
+            court_number="1",
+            date=now_paris(),
+            time_start="18:00",
+            time_end="19:00",
+            court_type=CourtType.OUTDOOR,
+        )
+
+        with patch.object(service, "_parse_slot_element", return_value=slot):
+            results = service._parse_facility_results(
+                "facility-1",
+                now_paris(),
+                sample_booking_request,
+            )
+
+        assert results == []
+
+    def test_slot_matches_request_allows_unknown_type(self, service, sample_booking_request):
+        """Test that unknown slot types are allowed when preference is set."""
+        slot = CourtSlot(
+            facility_name="Facility 1",
+            facility_code="FAC1",
+            court_number="1",
+            date=now_paris(),
+            time_start="18:00",
+            time_end="19:00",
+            court_type=CourtType.ANY,
+        )
+
+        assert service._slot_matches_request(slot, sample_booking_request) is True
+
     def test_is_logged_in_true(self, service, mock_driver):
         """Test _is_logged_in returns True when user menu found."""
         mock_driver.find_element.return_value = MagicMock()

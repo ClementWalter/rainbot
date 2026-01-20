@@ -39,18 +39,16 @@ testing remains incomplete.
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-5. **Court type validation**: Parse/confirm court type from the DOM to ensure
-   indoor/outdoor filtering stays correct even if the UI filter fails.
-6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
+5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
    starting deployment work.
-7. **Booking history access**: CLI CSV export and on-demand email delivery
+6. **Booking history access**: CLI CSV export and on-demand email delivery
    exist; still need a self-service UI/API if end-user access is required.
-8. **User onboarding/request management**: Provide a user-facing interface
+7. **User onboarding/request management**: Provide a user-facing interface
    (admin UI, simple API, or form) for managing users, subscriptions, and
    booking requests instead of editing Google Sheets directly.
-9. **Success metrics**: Instrument booking success rate, CAPTCHA solve rate, and
+8. **Success metrics**: Instrument booking success rate, CAPTCHA solve rate, and
    notification delivery (logs/metrics + dashboard) per PRD section 8.
 
 ### Known Issues
@@ -243,6 +241,9 @@ testing remains incomplete.
 33. **Notification Locale** - Email templates relied on system locale for
     day/month names, so French templates could display English dates. **FIXED**:
     Booking confirmation dates now use explicit French day/month mappings.
+34. **Court Type Validation in Slot Parsing** - Fixed: Court slots now attempt
+    to detect indoor/outdoor from DOM attributes/classes and filter mismatched
+    results even if the UI filter fails, while allowing unknown types through.
 
 ---
 

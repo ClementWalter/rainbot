@@ -6,6 +6,7 @@ booking website (tennis.paris.fr) using Selenium WebDriver.
 
 import logging
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -31,6 +32,18 @@ logger = logging.getLogger(__name__)
 # Default timeouts
 DEFAULT_WAIT_TIMEOUT = 10
 BOOKING_WAIT_TIMEOUT = 30
+
+COURT_TYPE_KEYWORDS = {
+    CourtType.INDOOR: ("indoor", "covered", "couvert", "interieur"),
+    CourtType.OUTDOOR: ("outdoor", "uncovered", "decouvert", "exterieur"),
+}
+
+
+def _normalize_court_type_text(value: str) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(value).strip().lower())
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
 @dataclass
@@ -331,7 +344,11 @@ class ParisTennisService:
 
             for slot_elem in time_slots:
                 slot = self._parse_slot_element(slot_elem, facility_code, target_date, request)
-                if slot and request.is_time_in_range(slot.time_start):
+                if (
+                    slot
+                    and request.is_time_in_range(slot.time_start)
+                    and self._slot_matches_request(slot, request)
+                ):
                     slots.append(slot)
 
         except NoSuchElementException:
@@ -353,13 +370,58 @@ class ParisTennisService:
 
             for elem in available_elements:
                 slot = self._parse_slot_element(elem, "", target_date, request)
-                if slot and request.is_time_in_range(slot.time_start):
+                if (
+                    slot
+                    and request.is_time_in_range(slot.time_start)
+                    and self._slot_matches_request(slot, request)
+                ):
                     slots.append(slot)
 
         except NoSuchElementException:
             logger.debug("No available slots found")
 
         return slots
+
+    def _detect_court_type_from_element(self, element) -> Optional[CourtType]:
+        """Best-effort court type detection from DOM attributes or text."""
+        attributes = [
+            "data-court-type",
+            "data-court_type",
+            "data-type",
+            "data-surface",
+            "data-cover",
+            "data-covered",
+            "data-court-cover",
+            "class",
+            "aria-label",
+            "title",
+        ]
+
+        candidates: list[str] = []
+        for attr in attributes:
+            try:
+                value = element.get_attribute(attr)
+            except WebDriverException:
+                value = None
+            if value:
+                candidates.append(value)
+
+        try:
+            text_value = element.text
+        except WebDriverException:
+            text_value = ""
+        if text_value:
+            candidates.append(text_value)
+
+        for candidate in candidates:
+            normalized = _normalize_court_type_text(candidate)
+            if not normalized:
+                continue
+            for court_type, keywords in COURT_TYPE_KEYWORDS.items():
+                if any(keyword in normalized for keyword in keywords):
+                    return court_type
+
+        return None
 
     def _parse_slot_element(
         self,
@@ -379,6 +441,9 @@ class ParisTennisService:
             if not facility_code:
                 facility_code = element.get_attribute("data-facility") or ""
 
+            detected_type = self._detect_court_type_from_element(element)
+            court_type = detected_type or CourtType.ANY
+
             return CourtSlot(
                 facility_name=facility_name,
                 facility_code=facility_code,
@@ -386,12 +451,29 @@ class ParisTennisService:
                 date=target_date,
                 time_start=time_start,
                 time_end=time_end,
-                court_type=request.court_type,
+                court_type=court_type,
                 facility_address=facility_address if facility_address else None,
             )
         except Exception as e:
             logger.debug(f"Failed to parse slot element: {e}")
             return None
+
+    def _slot_matches_request(self, slot: CourtSlot, request: BookingRequest) -> bool:
+        """Validate slot against request court type preference."""
+        if request.court_type == CourtType.ANY:
+            return True
+        if slot.court_type == CourtType.ANY:
+            return True
+        if slot.court_type != request.court_type:
+            logger.debug(
+                "Skipping slot %s/%s due to court type mismatch (%s != %s)",
+                slot.facility_code,
+                slot.court_number,
+                slot.court_type.value,
+                request.court_type.value,
+            )
+            return False
+        return True
 
     def book_court(
         self,
