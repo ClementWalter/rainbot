@@ -30,9 +30,9 @@ deployment/integration testing remains incomplete.
 
 1. **Paris Tennis selectors/flow**: Validate the remaining live DOM selectors
    (login entrypoint, confirmation page, partner fields) and complete an
-   end-to-end run on tennis.paris.fr. AJAX availability fetch
-   (`action=ajax_disponibilite`) now uses the `search_url` base for its
-   endpoint, but still needs full booking validation on the live site.
+   end-to-end run on tennis.paris.fr. Slot scraping now uses
+   `action=ajax_rechercher_creneau` (the live slot listing endpoint), but the
+   full booking flow still needs validation on the live site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
    steps. A best-effort carnet selector exists but is not validated on the live
@@ -294,11 +294,10 @@ deployment/integration testing remains incomplete.
     HTTP(S) URLs are now downloaded and base64-encoded before sending to the
     2Captcha solver, preventing failures when the CAPTCHA image is not a local
     file path.
-43. **AJAX Availability Endpoint Path** - Fixed: the availability fetch now
+43. **AJAX Availability Endpoint Path** - Fixed: the day-availability fetch now
     builds the AJAX URL from `search_url` so it resolves to
-    `/tennis/jsp/site/Portal.jsp?page=recherche&action=ajax_disponibilite` (the
-    current live endpoint) instead of a relative path that duplicated `jsp/site`
-    or the outdated `ajax_rechercher_creneau` path.
+    `/tennis/jsp/site/Portal.jsp?page=recherche&action=ajax_disponibilite`
+    instead of a relative path that duplicated `jsp/site`.
 44. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
     now uses live DOM favorites (`window.jsFav` / `.tennisName`) with fallback
     to legacy selectors, improving alignment with tennis.paris.fr.
@@ -350,7 +349,12 @@ deployment/integration testing remains incomplete.
     ran every minute during the 8 AM hour because the minute field was omitted.
     The schedule now pins `minute=0` so the burst only runs at
     08:00:00-08:00:08, and tests cover the cron configuration.
-57. **Facility Preferences Substring Matching** - Fixed: Facility preferences
+57. **AJAX Slot Endpoint Mismatch** - Fixed: Slot scraping previously called
+    `action=ajax_disponibilite`, which only returns day-level availability and
+    no `buttonAllOk` booking payloads. The scraper now uses
+    `action=ajax_rechercher_creneau` with `selInOut[]`/`selCoating[]` parameters
+    to fetch actual slot HTML from the live site.
+58. **Facility Preferences Substring Matching** - Fixed: Facility preferences
     now match facility names when a unique substring match exists (useful for
     codes embedded in facility names), reducing failed searches when request
     preferences are stored as codes.

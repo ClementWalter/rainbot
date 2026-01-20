@@ -336,6 +336,46 @@ class TestParisTennisService:
             "19:00",
         ]
 
+    def test_sort_available_slots_respects_preference_codes_as_substrings(self, service):
+        """Test slot sorting respects preference codes embedded in facility names."""
+        request = BookingRequest(
+            id="req-1",
+            user_id="user-1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="22:00",
+            facility_preferences=["FAC001", "FAC002"],
+            court_type=CourtType.ANY,
+        )
+
+        slots = [
+            CourtSlot(
+                facility_name="Tennis Center FAC002",
+                facility_code="tenniscenterfac002",
+                court_number="1",
+                date=now_paris(),
+                time_start="09:00",
+                time_end="10:00",
+                court_type=CourtType.ANY,
+            ),
+            CourtSlot(
+                facility_name="Tennis Center FAC001",
+                facility_code="tenniscenterfac001",
+                court_number="2",
+                date=now_paris(),
+                time_start="18:00",
+                time_end="19:00",
+                court_type=CourtType.ANY,
+            ),
+        ]
+
+        sorted_slots = service._sort_available_slots(slots, request)
+
+        assert [slot.facility_code for slot in sorted_slots] == [
+            "tenniscenterfac001",
+            "tenniscenterfac002",
+        ]
+
     def test_parse_court_number_extracts_numeric(self, service):
         """Test court number parsing extracts digits from common labels."""
         assert service._parse_court_number("Court n° 3") == "3"
@@ -645,9 +685,12 @@ class TestParisTennisService:
 
         assert html == "<html></html>"
         args = mock_driver.execute_async_script.call_args[0]
+        script = args[0]
+        assert "selInOut[]" in script
+        assert "selCoating[]" in script
         assert args[-1] == (
             "https://example.com/tennis/jsp/site/Portal.jsp?"
-            "page=recherche&action=ajax_disponibilite"
+            "page=recherche&action=ajax_rechercher_creneau"
         )
 
     def test_get_available_facility_names_from_js_favorites(self, service, mock_driver):

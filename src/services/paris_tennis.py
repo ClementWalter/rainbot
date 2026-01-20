@@ -90,7 +90,7 @@ CAPTCHA_SUBMIT_XPATHS = (
     "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'valider')]",
 )
 SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
-SEARCH_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_disponibilite"
+SEARCH_SLOTS_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
 MIN_FACILITY_MATCH_LENGTH = 4
 
 
@@ -647,7 +647,7 @@ class ParisTennisService:
     ) -> Optional[str]:
         """Fetch available slots HTML for a facility via AJAX."""
         try:
-            ajax_url = urljoin(self.search_url, SEARCH_AJAX_PATH)
+            ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
             response = self.driver.execute_async_script(
                 """
                 const callback = arguments[arguments.length - 1];
@@ -660,8 +660,8 @@ class ParisTennisService:
                 params.append("hourRange", hourRange);
                 params.append("when", whenValue);
                 params.append("selWhereTennisName", facilityName);
-                selInOut.forEach((value) => params.append("selInOut", value));
-                selCoating.forEach((value) => params.append("selCoating", value));
+                selInOut.forEach((value) => params.append("selInOut[]", value));
+                selCoating.forEach((value) => params.append("selCoating[]", value));
 
                 fetch(arguments[5], {
                     method: "POST",
@@ -1013,16 +1013,27 @@ class ParisTennisService:
         if not slots:
             return slots
 
-        facility_order = {
-            self._normalize_facility_code(facility_code): index
-            for index, facility_code in enumerate(request.facility_preferences)
-        }
+        normalized_prefs = [
+            self._normalize_facility_code(pref) for pref in request.facility_preferences if pref
+        ]
+        facility_order = {pref: index for index, pref in enumerate(normalized_prefs) if pref}
+
+        def facility_rank(slot: CourtSlot) -> int:
+            slot_key_source = slot.facility_code or slot.facility_name or ""
+            normalized_slot = self._normalize_facility_code(slot_key_source)
+            if normalized_slot in facility_order:
+                return facility_order[normalized_slot]
+
+            for index, pref in enumerate(normalized_prefs):
+                if not pref or len(pref) < MIN_FACILITY_MATCH_LENGTH:
+                    continue
+                if pref in normalized_slot or normalized_slot in pref:
+                    return index
+
+            return len(normalized_prefs)
 
         def sort_key(slot: CourtSlot) -> tuple[int, str]:
-            facility_index = facility_order.get(
-                self._normalize_facility_code(slot.facility_code),
-                len(facility_order),
-            )
+            facility_index = facility_rank(slot)
             time_key = normalize_time(slot.time_start)
             if not time_key:
                 time_key = "99:99"
