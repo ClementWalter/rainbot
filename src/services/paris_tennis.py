@@ -91,6 +91,7 @@ CAPTCHA_SUBMIT_XPATHS = (
 )
 SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
 SEARCH_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_disponibilite"
+MIN_FACILITY_MATCH_LENGTH = 4
 
 
 def _normalize_court_type_text(value: str) -> str:
@@ -512,9 +513,10 @@ class ParisTennisService:
         if not available:
             return [pref for pref in request.facility_preferences if pref]
 
-        normalized_available = {
-            self._normalize_facility_code(name): name for name in available if name
-        }
+        normalized_available = [
+            (self._normalize_facility_code(name), name) for name in available if name
+        ]
+        normalized_lookup = {normalized: name for normalized, name in normalized_available}
         resolved: list[str] = []
         for pref in request.facility_preferences:
             if not pref:
@@ -523,8 +525,13 @@ class ParisTennisService:
                 resolved.append(pref)
                 continue
             normalized_pref = self._normalize_facility_code(pref)
-            if normalized_pref in normalized_available:
-                resolved.append(normalized_available[normalized_pref])
+            if normalized_pref in normalized_lookup:
+                resolved.append(normalized_lookup[normalized_pref])
+                continue
+
+            matched = self._match_facility_preference(normalized_pref, normalized_available)
+            if matched:
+                resolved.append(matched)
             else:
                 resolved.append(pref)
         return resolved
@@ -570,6 +577,26 @@ class ParisTennisService:
         normalized = _normalize_court_type_text(name)
         normalized = re.sub(r"[^a-z0-9]+", "", normalized)
         return normalized
+
+    def _match_facility_preference(
+        self,
+        normalized_pref: str,
+        normalized_available: list[tuple[str, str]],
+    ) -> Optional[str]:
+        """Find a unique substring match for a facility preference."""
+        if not normalized_pref or len(normalized_pref) < MIN_FACILITY_MATCH_LENGTH:
+            return None
+
+        matches = []
+        for normalized_name, name in normalized_available:
+            if not normalized_name:
+                continue
+            if normalized_pref in normalized_name or normalized_name in normalized_pref:
+                matches.append(name)
+
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def _format_hour_range(self, time_start: str, time_end: str) -> str:
         """Format hour range string for the Paris Tennis slider."""

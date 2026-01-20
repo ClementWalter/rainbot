@@ -679,6 +679,48 @@ class TestParisTennisService:
 
         assert names == ["Jesse Owens", "Max Rousié", "Bertrand Dauvin"]
 
+    def test_resolve_facility_preferences_matches_substring_code(self, service):
+        """Test preference matching resolves codes embedded in facility names."""
+        request = BookingRequest(
+            id="req-1",
+            user_id="user-1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="22:00",
+            facility_preferences=["FAC001"],
+            court_type=CourtType.ANY,
+        )
+
+        with patch.object(
+            service,
+            "_get_available_facility_names",
+            return_value=["Tennis Center FAC001", "Other Center"],
+        ):
+            resolved = service._resolve_facility_preferences(request)
+
+        assert resolved == ["Tennis Center FAC001"]
+
+    def test_resolve_facility_preferences_ambiguous_substring_keeps_pref(self, service):
+        """Test preference matching avoids ambiguous substring matches."""
+        request = BookingRequest(
+            id="req-1",
+            user_id="user-1",
+            day_of_week=DayOfWeek.MONDAY,
+            time_start="08:00",
+            time_end="22:00",
+            facility_preferences=["CENTER"],
+            court_type=CourtType.ANY,
+        )
+
+        with patch.object(
+            service,
+            "_get_available_facility_names",
+            return_value=["Center One", "Center Two"],
+        ):
+            resolved = service._resolve_facility_preferences(request)
+
+        assert resolved == ["CENTER"]
+
     def test_logout_success(self, service, mock_driver):
         """Test successful logout."""
         service._logged_in = True

@@ -70,16 +70,13 @@ deployment/integration testing remains incomplete.
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest,
    but PRD says both user AND partner should receive reminders. The code handles
    this gracefully by skipping partners without email.
-2. **Facility preference mapping gaps** - Booking requests store facility codes,
-   but the live search API expects facility names. Mapping is best-effort
-   (favorites/tokens), so non-favorite codes may not resolve correctly.
-3. **Login entrypoint selectors unvalidated** - The login flow uses the landing
+2. **Login entrypoint selectors unvalidated** - The login flow uses the landing
    page and Mon Paris SSO selectors, but the selectors still need live-site
    validation for logged-out sessions.
-4. **LiveIdentity CAPTCHA edge cases** - Invisible challenge handling now defers
+3. **LiveIdentity CAPTCHA edge cases** - Invisible challenge handling now defers
    to reCAPTCHA detection, but live-site validation on tennis.paris.fr is still
    pending.
-5. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
+4. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
    scraping with AJAX-based slot parsing, which can drift as the site evolves.
 
 ### Resolved Issues
@@ -353,6 +350,10 @@ deployment/integration testing remains incomplete.
     ran every minute during the 8 AM hour because the minute field was omitted.
     The schedule now pins `minute=0` so the burst only runs at
     08:00:00-08:00:08, and tests cover the cron configuration.
+57. **Facility Preferences Substring Matching** - Fixed: Facility preferences
+    now match facility names when a unique substring match exists (useful for
+    codes embedded in facility names), reducing failed searches when request
+    preferences are stored as codes.
 
 ---
 
