@@ -177,6 +177,17 @@ class TestParisTennisService:
             assert result is False
             assert service._logged_in is False
 
+    def test_navigate_to_mon_paris_uses_href(self, service, mock_driver):
+        """Test Mon Paris navigation uses link href when available."""
+        element = MagicMock()
+        element.get_attribute.return_value = "https://moncompte.paris.fr/moncompte/"
+        mock_driver.find_element.return_value = element
+
+        result = service._navigate_to_mon_paris(MagicMock())
+
+        assert result is True
+        mock_driver.get.assert_called_once_with("https://moncompte.paris.fr/moncompte/")
+
     def test_get_next_booking_date_future(self, service):
         """Test getting next booking date when day is in future this week."""
         today = now_paris()

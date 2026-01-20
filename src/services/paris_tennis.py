@@ -46,6 +46,20 @@ LOGIN_BUTTON_SELECTORS = (
     "button#button_suivi_inscription",
 )
 
+MON_PARIS_LINK_SELECTORS = (
+    "a.parisian-account",
+    "#mobileMonCompte",
+    "a[href*='moncompte.paris.fr/moncompte']",
+    "a[href*='moncompte.paris.fr']",
+)
+
+MON_PARIS_LOGIN_MENU_SELECTORS = ("#dropdownMenuMonParisUser",)
+
+MON_PARIS_LOGIN_LINK_XPATHS = (
+    "//a[contains(normalize-space(.), 'Se connecter à Mon Paris')]",
+    "//a[contains(normalize-space(.), 'Se connecter') and contains(normalize-space(.), 'Mon Paris')]",
+)
+
 COOKIE_ACCEPT_SELECTORS = (
     "#tarteaucitronAllAllowed",
     "#tarteaucitronPersonalize2",
@@ -173,7 +187,7 @@ class ParisTennisService:
                 return True
 
             # Wait for and fill email field on the Mon Paris SSO form
-            email_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
+            email_field = self._ensure_login_form(wait)
             email_field.clear()
             email_field.send_keys(email)
 
@@ -273,9 +287,94 @@ class ParisTennisService:
             button.click()
             return True
         except NoSuchElementException:
-            return False
+            pass
         except WebDriverException:
+            pass
+
+        if self._navigate_to_mon_paris(wait):
+            return True
+
+        return False
+
+    def _navigate_to_mon_paris(self, wait: WebDriverWait) -> bool:
+        """Navigate to the Mon Paris login entrypoint if visible on the page."""
+        for selector in MON_PARIS_LINK_SELECTORS:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+            except NoSuchElementException:
+                continue
+            except WebDriverException:
+                continue
+
+            href = element.get_attribute("href") or ""
+            if href:
+                try:
+                    self.driver.get(href)
+                    return True
+                except WebDriverException:
+                    continue
+
+            # Fallback to clicking (may open a new tab)
+            previous_handles = set(self.driver.window_handles)
+            try:
+                element.click()
+            except WebDriverException:
+                continue
+
+            try:
+                wait.until(lambda driver: len(driver.window_handles) > len(previous_handles))
+            except TimeoutException:
+                return True
+
+            new_handles = [
+                handle for handle in self.driver.window_handles if handle not in previous_handles
+            ]
+            if new_handles:
+                try:
+                    self.driver.switch_to.window(new_handles[-1])
+                except WebDriverException:
+                    return False
+            return True
+        return False
+
+    def _open_mon_paris_login(self, wait: WebDriverWait) -> bool:
+        """Click through the Mon Paris login dropdown to reach the SSO form."""
+        current_url = self.driver.current_url or ""
+        if "moncompte.paris.fr" not in current_url:
             return False
+
+        self._accept_cookie_banner()
+
+        for selector in MON_PARIS_LOGIN_MENU_SELECTORS:
+            try:
+                menu_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                menu_button.click()
+                break
+            except TimeoutException:
+                continue
+            except WebDriverException:
+                continue
+
+        for xpath in MON_PARIS_LOGIN_LINK_XPATHS:
+            try:
+                login_link = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                login_link.click()
+                return True
+            except TimeoutException:
+                continue
+            except WebDriverException:
+                continue
+
+        return False
+
+    def _ensure_login_form(self, wait: WebDriverWait):
+        """Ensure the Mon Paris login form is visible and return the email field."""
+        try:
+            return wait.until(EC.presence_of_element_located((By.ID, "username")))
+        except TimeoutException:
+            if self._open_mon_paris_login(wait):
+                return wait.until(EC.presence_of_element_located((By.ID, "username")))
+            raise
 
     def search_available_courts(
         self,

@@ -317,10 +317,14 @@ deployment/integration testing remains incomplete.
 47. **LiveIdentity invisible CAPTCHA fallback** - Fixed: Invisible LI_ANTIBOT
     responses no longer hard-fail the CAPTCHA solver; the flow now defers to
     reCAPTCHA detection so invisible challenges can still be solved.
-48. **Booking.is_today naive datetime handling** - Fixed: Naive `Booking.date`
+48. **Mon Paris Login Entrypoint** - Fixed: The login flow now detects Mon Paris
+    links (parisian-account/mobileMonCompte) and clicks the Mon Paris
+    "Connexion" dropdown to reach the SSO login form, aligning with the current
+    moncompte.paris.fr flow.
+49. **Booking.is_today naive datetime handling** - Fixed: Naive `Booking.date`
     values are normalized to Paris timezone when checking `is_today`, and the
     tests now use `now_paris()` to align with the Paris-only time model.
-49. **Facility Address Extraction in AJAX flow** - Fixed:
+50. **Facility Address Extraction in AJAX flow** - Fixed:
     `_parse_available_slots_html()` now extracts facility addresses from AJAX
     HTML (data attributes or address labels) so booking confirmations and
     reminders include the facility address.
