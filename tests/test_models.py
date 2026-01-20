@@ -29,6 +29,7 @@ class TestUser:
         assert user.email == "test@example.com"
         assert user.name is None  # default
         assert user.subscription_active is True  # default
+        assert user.carnet_balance is None
 
     def test_user_creation_with_name(self):
         """Test user creation with name field."""
@@ -65,6 +66,30 @@ class TestUser:
         )
         assert user.is_eligible() is False
 
+    def test_user_not_eligible_without_carnet_balance(self):
+        """Test user not eligible when carnet balance is zero."""
+        user = User(
+            id="user1",
+            email="test@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="secret123",
+            subscription_active=True,
+            carnet_balance=0,
+        )
+        assert user.is_eligible() is False
+
+    def test_user_eligible_with_carnet_balance(self):
+        """Test user eligible when carnet balance is positive."""
+        user = User(
+            id="user1",
+            email="test@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="secret123",
+            subscription_active=True,
+            carnet_balance=2,
+        )
+        assert user.is_eligible() is True
+
     def test_user_not_eligible_without_credentials(self):
         """Test user not eligible without Paris Tennis credentials."""
         user = User(
@@ -85,6 +110,7 @@ class TestUser:
             "paris_tennis_password": "secret123",
             "name": "Jean Dupont",
             "subscription_active": True,
+            "carnet_balance": "3",
             "phone": "0612345678",
         }
         user = User.from_dict(data)
@@ -94,6 +120,7 @@ class TestUser:
         assert user.paris_tennis_password == "secret123"
         assert user.name == "Jean Dupont"
         assert user.subscription_active is True
+        assert user.carnet_balance == 3
         assert user.phone == "0612345678"
 
     def test_from_dict_with_string_subscription_true(self):

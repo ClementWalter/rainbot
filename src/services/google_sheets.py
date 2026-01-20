@@ -37,7 +37,8 @@ class GoogleSheetsService:
     Service for interacting with Google Sheets data store.
 
     Expected spreadsheet structure:
-    - Users sheet: id, name, email, paris_tennis_email, paris_tennis_password, subscription_active, phone
+    - Users sheet: id, name, email, paris_tennis_email, paris_tennis_password, subscription_active,
+                   carnet_balance, phone
     - BookingRequests sheet: id, user_id, day_of_week, time_start, time_end,
                              facility_preferences, court_type, partner_name, partner_email, active
     - Bookings sheet: id, user_id, request_id, facility_name, facility_code, court_number,
@@ -242,9 +243,11 @@ class GoogleSheetsService:
                 booking.partner_email or "",
                 booking.confirmation_id or "",
                 booking.facility_address or "",
-                booking.created_at.isoformat()
-                if isinstance(booking.created_at, datetime)
-                else str(booking.created_at),
+                (
+                    booking.created_at.isoformat()
+                    if isinstance(booking.created_at, datetime)
+                    else str(booking.created_at)
+                ),
             ]
             worksheet.append_row(row)
             logger.info(f"Added booking {booking.id} to spreadsheet")

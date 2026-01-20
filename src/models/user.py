@@ -16,6 +16,7 @@ class User:
         paris_tennis_email: Email used for Paris Tennis account login
         paris_tennis_password: Password for Paris Tennis account
         subscription_active: Whether the user has an active RainBot subscription
+        carnet_balance: Remaining tickets in the user's Paris Tennis carnet
         phone: Optional phone number for SMS notifications
     """
 
@@ -25,15 +26,22 @@ class User:
     paris_tennis_password: str
     name: Optional[str] = None
     subscription_active: bool = True
+    carnet_balance: Optional[int] = None
     phone: Optional[str] = None
 
     def is_eligible(self) -> bool:
         """Check if user is eligible for automated booking."""
-        return (
+        if not (
             self.subscription_active
             and bool(self.paris_tennis_email)
             and bool(self.paris_tennis_password)
-        )
+        ):
+            return False
+
+        if self.carnet_balance is not None and self.carnet_balance <= 0:
+            return False
+
+        return True
 
     @classmethod
     def from_dict(cls, data: dict) -> "User":
@@ -50,6 +58,17 @@ class User:
         subscription_value = data.get("subscription_active", True)
         subscription_active = subscription_value in (True, "true", "True", "1", 1)
 
+        carnet_balance_value = data.get("carnet_balance")
+        carnet_balance: Optional[int] = None
+        if carnet_balance_value is not None and str(carnet_balance_value).strip() != "":
+            try:
+                if isinstance(carnet_balance_value, (int, float)):
+                    carnet_balance = int(carnet_balance_value)
+                else:
+                    carnet_balance = int(float(str(carnet_balance_value).strip()))
+            except (TypeError, ValueError):
+                carnet_balance = None
+
         return cls(
             id=str(data.get("id", "")),
             email=str(data.get("email", "")),
@@ -57,5 +76,6 @@ class User:
             paris_tennis_password=str(data.get("paris_tennis_password", "")),
             name=data.get("name") or None,
             subscription_active=subscription_active,
+            carnet_balance=carnet_balance,
             phone=data.get("phone") or None,
         )

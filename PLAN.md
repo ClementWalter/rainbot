@@ -28,13 +28,11 @@ placeholders and deployment/integration testing remains incomplete.
 1. **Paris Tennis selectors/flow**: Replace placeholder CSS selectors and
    booking flow assumptions with real tennis.paris.fr DOM mappings and validate
    end-to-end.
-2. **Eligibility rules**: Verify carnet/ticket balance during the booking flow
-   (PRD section 5.2).
-3. **Subscription/payment**: Add paid subscription handling beyond manual
+2. **Subscription/payment**: Add paid subscription handling beyond manual
    `subscription_active` flags.
-4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
+3. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
+4. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance (install it if
    unavailable).
 
@@ -205,6 +203,9 @@ placeholders and deployment/integration testing remains incomplete.
     restricts processing to requests whose day_of_week matches today. It now
     processes requests daily and always searches for the next occurrence of the
     requested day, improving continuous monitoring and booking success chances.
+22. **Carnet Balance Eligibility** - Fixed: Users can now provide a
+    `carnet_balance` value (remaining tickets) and the eligibility check blocks
+    bookings when the balance is zero or negative.
 
 ---
 
@@ -368,6 +369,7 @@ The spreadsheet should have four worksheets:
 | paris_tennis_email    | Paris Tennis login email                      |
 | paris_tennis_password | Paris Tennis password                         |
 | subscription_active   | true/false for subscription status            |
+| carnet_balance        | Remaining tickets in the user's carnet        |
 | phone                 | Optional phone number                         |
 
 ### BookingRequests Sheet
