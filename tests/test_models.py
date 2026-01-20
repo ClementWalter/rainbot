@@ -258,6 +258,21 @@ class TestUser:
         assert user.name is None
         assert user.phone is None
 
+    def test_from_dict_with_none_required_fields(self):
+        """Test User.from_dict treats None required fields as empty strings."""
+        data = {
+            "id": None,
+            "email": None,
+            "paris_tennis_email": None,
+            "paris_tennis_password": None,
+        }
+        user = User.from_dict(data)
+        assert user.id == ""
+        assert user.email == ""
+        assert user.paris_tennis_email == ""
+        assert user.paris_tennis_password == ""
+        assert user.is_eligible() is False
+
 
 class TestBookingRequest:
     """Tests for BookingRequest model."""

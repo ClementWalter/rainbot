@@ -260,6 +260,11 @@ testing remains incomplete.
 37. **French Time Format Parsing** - Fixed: `normalize_time()` now accepts
     French-style formats like "18h00" or "18 h 00" so booking requests and slot
     parsing don't silently drop valid times entered in common French notation.
+38. **User.from_dict None Handling** - Fixed: `User.from_dict()` previously
+    converted `None` values into the literal string `"None"` for required fields
+    (id/email/credentials), which could make users appear eligible with missing
+    credentials and trigger failed logins. Now treats `None` as empty strings so
+    eligibility checks behave correctly.
 
 ---
 

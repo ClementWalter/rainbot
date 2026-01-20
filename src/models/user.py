@@ -6,6 +6,13 @@ from typing import Optional
 from src.utils.parsing import is_truthy
 
 
+def _string_or_empty(value: object) -> str:
+    """Return a stripped string or empty string for None."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 @dataclass
 class User:
     """
@@ -76,10 +83,10 @@ class User:
                 carnet_balance = None
 
         return cls(
-            id=str(data.get("id", "")),
-            email=str(data.get("email", "")),
-            paris_tennis_email=str(data.get("paris_tennis_email", "")),
-            paris_tennis_password=str(data.get("paris_tennis_password", "")),
+            id=_string_or_empty(data.get("id", "")),
+            email=_string_or_empty(data.get("email", "")),
+            paris_tennis_email=_string_or_empty(data.get("paris_tennis_email", "")),
+            paris_tennis_password=_string_or_empty(data.get("paris_tennis_password", "")),
             name=data.get("name") or None,
             subscription_active=subscription_active,
             carnet_balance=carnet_balance,
