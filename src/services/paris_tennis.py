@@ -90,7 +90,7 @@ CAPTCHA_SUBMIT_XPATHS = (
     "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'valider')]",
 )
 SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
-SEARCH_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
+SEARCH_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_disponibilite"
 
 
 def _normalize_court_type_text(value: str) -> str:

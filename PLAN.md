@@ -30,8 +30,8 @@ deployment/integration testing remains incomplete.
 
 1. **Paris Tennis selectors/flow**: Validate the remaining live DOM selectors
    (login entrypoint, confirmation page, partner fields) and complete an
-   end-to-end run on tennis.paris.fr. AJAX search
-   (`action=ajax_rechercher_creneau`) now uses the `search_url` base for its
+   end-to-end run on tennis.paris.fr. AJAX availability fetch
+   (`action=ajax_disponibilite`) now uses the `search_url` base for its
    endpoint, but still needs full booking validation on the live site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
@@ -299,8 +299,9 @@ deployment/integration testing remains incomplete.
     file path.
 43. **AJAX Availability Endpoint Path** - Fixed: the availability fetch now
     builds the AJAX URL from `search_url` so it resolves to
-    `/tennis/jsp/site/Portal.jsp?page=recherche&action=ajax_rechercher_creneau`
-    instead of a relative path that duplicated `jsp/site` and broke search.
+    `/tennis/jsp/site/Portal.jsp?page=recherche&action=ajax_disponibilite` (the
+    current live endpoint) instead of a relative path that duplicated `jsp/site`
+    or the outdated `ajax_rechercher_creneau` path.
 44. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
     now uses live DOM favorites (`window.jsFav` / `.tennisName`) with fallback
     to legacy selectors, improving alignment with tennis.paris.fr.
@@ -348,6 +349,10 @@ deployment/integration testing remains incomplete.
     handled `YYYY/MM/DD HH:MM:SS` date strings, so slots with dashes or missing
     seconds were dropped. Parsing now accepts both slash/dash formats and
     optional seconds to avoid missing valid slots.
+56. **8:00 AM Booking Burst Minute Scope** - Fixed: The burst booking cron jobs
+    ran every minute during the 8 AM hour because the minute field was omitted.
+    The schedule now pins `minute=0` so the burst only runs at
+    08:00:00-08:00:08, and tests cover the cron configuration.
 
 ---
 

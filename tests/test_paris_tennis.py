@@ -647,7 +647,7 @@ class TestParisTennisService:
         args = mock_driver.execute_async_script.call_args[0]
         assert args[-1] == (
             "https://example.com/tennis/jsp/site/Portal.jsp?"
-            "page=recherche&action=ajax_rechercher_creneau"
+            "page=recherche&action=ajax_disponibilite"
         )
 
     def test_get_available_facility_names_from_js_favorites(self, service, mock_driver):

@@ -23,6 +23,20 @@ def _reload_main(monkeypatch, env: dict[str, str]):
     return importlib.reload(main)
 
 
+class FakeScheduler:
+    """Simple scheduler stub for capturing job configuration."""
+
+    def __init__(self, timezone=None):
+        self.timezone = timezone
+        self.jobs: list[dict[str, object]] = []
+
+    def add_job(self, func, trigger, **kwargs):
+        self.jobs.append({"func": func, "trigger": trigger, "kwargs": kwargs})
+
+    def start(self):
+        return None
+
+
 def test_reminder_schedule_defaults(monkeypatch):
     """Defaults should align with morning reminders."""
     module = _reload_main(monkeypatch, {})
@@ -46,3 +60,20 @@ def test_reminder_schedule_env_override(monkeypatch):
     assert module.REMINDER_HOUR == 9
     assert module.REMINDER_MINUTE == 30
     assert module.REMINDER_SECOND == 15
+
+
+def test_booking_job_morning_cron_minute_zero(monkeypatch):
+    """8:00 booking burst should only run at minute 0."""
+    module = _reload_main(monkeypatch, {})
+
+    scheduler = module.build_scheduler(scheduler_factory=FakeScheduler)
+    booking_cron_jobs = [
+        job
+        for job in scheduler.jobs
+        if job["func"] is module.booking_job and job["trigger"] == "cron"
+    ]
+
+    assert len(booking_cron_jobs) == 5
+    assert {job["kwargs"].get("second") for job in booking_cron_jobs} == {0, 2, 4, 6, 8}
+    assert all(job["kwargs"].get("hour") == 8 for job in booking_cron_jobs)
+    assert all(job["kwargs"].get("minute") == 0 for job in booking_cron_jobs)
