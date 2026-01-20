@@ -18,7 +18,7 @@ placeholders and deployment/integration testing remains incomplete.
 - [x] src/ - Core structure with data models, Google Sheets service, browser
       utility, Paris Tennis service, CAPTCHA solver, and notification service
 - [x] src/services/booking_history.py - Booking history CSV export helper
-- [x] tests/ - 238 unit tests covering models, services, browser, Paris Tennis,
+- [x] tests/ - 240 unit tests covering models, services, browser, Paris Tennis,
       CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots
       tracking, HTML escaping, cleanup job
 - [x] PLAN.md - This file
@@ -209,6 +209,10 @@ placeholders and deployment/integration testing remains incomplete.
 23. **Booking History CSV Export Not Exposed via Sheets Service** - Fixed: Added
     `export_booking_history_csv()` on `GoogleSheetsService` to generate CSV
     histories directly from stored bookings.
+24. **Case-Sensitive Boolean Parsing from Google Sheets** - Fixed: Uppercase
+    "TRUE" values for `subscription_active` and `active` were treated as false,
+    unintentionally disabling eligible users/requests. Parsing is now
+    case-insensitive for these flags.
 
 ---
 

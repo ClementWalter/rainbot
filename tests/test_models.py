@@ -147,6 +147,18 @@ class TestUser:
         user = User.from_dict(data)
         assert user.subscription_active is True
 
+    def test_from_dict_with_uppercase_subscription_true(self):
+        """Test User.from_dict handles string 'TRUE' for subscription_active."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": "TRUE",
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
     def test_from_dict_with_numeric_subscription(self):
         """Test User.from_dict handles numeric 1 for subscription_active."""
         data = {
@@ -275,6 +287,19 @@ class TestBookingRequest:
         assert request.court_type == CourtType.INDOOR
         assert request.facility_preferences == ["FAC001", "FAC002"]
         assert request.partner_name == "John Doe"
+
+    def test_from_dict_with_uppercase_active_true(self):
+        """Test BookingRequest.from_dict handles string 'TRUE' for active flag."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "monday",
+            "time_start": "18:00",
+            "time_end": "20:00",
+            "active": "TRUE",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.active is True
 
     @pytest.mark.parametrize("court_type_value", ["", None, "invalid"])
     def test_from_dict_defaults_any_for_missing_or_invalid_court_type(self, court_type_value):

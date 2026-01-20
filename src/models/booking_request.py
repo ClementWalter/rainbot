@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+from src.utils.parsing import is_truthy
+
 # Time boundaries per PRD section 5.1: Courts available from 8:00 to 22:00
 MIN_BOOKING_TIME = "08:00"
 MAX_BOOKING_TIME = "22:00"
@@ -200,5 +202,5 @@ class BookingRequest:
             court_type=court_type,
             partner_name=data.get("partner_name"),
             partner_email=data.get("partner_email"),
-            active=data.get("active", True) in (True, "true", "True", "1", 1),
+            active=is_truthy(data.get("active", True)),
         )

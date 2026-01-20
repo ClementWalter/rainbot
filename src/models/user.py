@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from src.utils.parsing import is_truthy
+
 
 @dataclass
 class User:
@@ -54,9 +56,9 @@ class User:
         Returns:
             User instance
         """
-        # Parse subscription_active - handle various truthy representations
+        # Parse subscription_active - handle common truthy representations (case-insensitive)
         subscription_value = data.get("subscription_active", True)
-        subscription_active = subscription_value in (True, "true", "True", "1", 1)
+        subscription_active = is_truthy(subscription_value)
 
         carnet_balance_value = data.get("carnet_balance")
         carnet_balance: Optional[int] = None
