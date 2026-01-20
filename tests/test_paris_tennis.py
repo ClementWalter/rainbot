@@ -473,6 +473,27 @@ class TestParisTennisService:
         mock_driver.find_element.side_effect = NoSuchElementException()
         assert service._check_for_captcha() is False
 
+    def test_submit_captcha_form_clicks_submit_button(self, service, mock_driver):
+        """Test captcha form submission clicks a submit button when present."""
+        mock_form = MagicMock()
+        mock_button = MagicMock()
+        mock_form.find_element.return_value = mock_button
+        mock_driver.find_element.return_value = mock_form
+
+        assert service._submit_captcha_form_if_present() is True
+        mock_button.click.assert_called_once()
+
+    def test_submit_captcha_form_falls_back_to_js_submit(self, service, mock_driver):
+        """Test captcha form submission falls back to JS submit when no button found."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_form = MagicMock()
+        mock_form.find_element.side_effect = NoSuchElementException()
+        mock_driver.find_element.return_value = mock_form
+
+        assert service._submit_captcha_form_if_present() is True
+        mock_driver.execute_script.assert_called_once()
+
     def test_check_booking_success_true(self, service, mock_driver):
         """Test booking success detection when confirmed."""
         mock_driver.page_source = "Votre réservation confirmée avec succès"

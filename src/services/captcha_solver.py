@@ -12,6 +12,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
@@ -728,6 +729,9 @@ class CaptchaSolverService:
             img_src = captcha_image.get_attribute("src")
             if not img_src:
                 return None
+            parsed_src = urlparse(img_src)
+            if not parsed_src.scheme and driver.current_url:
+                img_src = urljoin(driver.current_url, img_src)
 
             # Solve the image CAPTCHA
             result = self.solve_image_captcha(img_src)

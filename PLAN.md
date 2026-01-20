@@ -328,6 +328,14 @@ deployment/integration testing remains incomplete.
     `_parse_available_slots_html()` now extracts facility addresses from AJAX
     HTML (data attributes or address labels) so booking confirmations and
     reminders include the facility address.
+51. **CAPTCHA Form Submission After Solve** - Fixed: The booking flow solved
+    CAPTCHA challenges but did not explicitly submit the CAPTCHA form, which
+    could leave the reservation stuck on the CAPTCHA page. The flow now submits
+    the CAPTCHA form when present to advance to payment/confirmation.
+52. **Relative Image CAPTCHA URLs** - Fixed: Image CAPTCHA sources that are
+    relative URLs (for example, `/captcha/image`) are now resolved against the
+    current page URL before being sent to the solver, preventing failures when
+    the site returns non-absolute image sources.
 
 ---
 

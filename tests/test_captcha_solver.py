@@ -313,6 +313,32 @@ class TestSolveCaptchaFromPage:
             assert result.success is True
             assert result.token == "solved-token"
 
+    def test_image_captcha_relative_url_resolved(self, service, mock_driver):
+        """Test image CAPTCHA resolves relative URLs before solving."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_image = MagicMock()
+        mock_image.get_attribute.return_value = "/captcha/image"
+
+        def find_element_side_effect(by, value):
+            if value == "#captcha img":
+                return mock_image
+            raise NoSuchElementException()
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+        mock_driver.current_url = "https://tennis.paris.fr/booking"
+
+        with patch.object(
+            service,
+            "solve_image_captcha",
+            return_value=CaptchaSolveResult(success=True, token="img-token"),
+        ) as mock_solve, patch.object(service, "_fill_captcha_input") as mock_fill:
+            result = service._detect_and_solve_image_captcha(mock_driver)
+
+        assert result.success is True
+        mock_solve.assert_called_once_with("https://tennis.paris.fr/captcha/image")
+        mock_fill.assert_called_once_with(mock_driver, "img-token")
+
     def test_liveidentity_invisible_falls_back_to_recaptcha(self, service, mock_driver):
         """Test LiveIdentity invisible flow defers to reCAPTCHA detection."""
         from selenium.common.exceptions import NoSuchElementException

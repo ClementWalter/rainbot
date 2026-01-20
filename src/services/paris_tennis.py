@@ -71,6 +71,24 @@ PARIS_TENNIS_LOGOUT_SELECTORS = (
     "#banner-mon-compte__logout",
     "#banner-mon-compte_menu__logout",
 )
+CAPTCHA_SUBMIT_SELECTORS = (
+    "button[type='submit']",
+    "input[type='submit']",
+    "button[name='submit']",
+    "button[id*='captcha']",
+    "input[id*='captcha']",
+    ".captcha-submit",
+)
+CAPTCHA_SUBMIT_XPATHS = (
+    ".//button[contains(translate(normalize-space(.), "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'valider')]",
+    ".//button[contains(translate(normalize-space(.), "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'confirmer')]",
+    ".//button[contains(translate(normalize-space(.), "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'reserver')]",
+    ".//input[@type='button' and contains(translate(@value, "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'valider')]",
+)
 SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
 SEARCH_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
 
@@ -1151,6 +1169,7 @@ class ParisTennisService:
                         slot=slot,
                     )
                 logger.info("CAPTCHA solved successfully")
+                self._submit_captcha_form_if_present(wait)
 
             if partner_name:
                 try:
@@ -1236,6 +1255,54 @@ class ParisTennisService:
             except NoSuchElementException:
                 continue
         return False
+
+    def _submit_captcha_form_if_present(self, wait: Optional[WebDriverWait] = None) -> bool:
+        """Submit the CAPTCHA form if it is present."""
+        try:
+            form = self.driver.find_element(By.ID, "formCaptcha")
+        except NoSuchElementException:
+            return False
+        except WebDriverException:
+            return False
+
+        submitted = False
+        for selector in CAPTCHA_SUBMIT_SELECTORS:
+            try:
+                button = form.find_element(By.CSS_SELECTOR, selector)
+                button.click()
+                submitted = True
+                break
+            except NoSuchElementException:
+                continue
+            except WebDriverException:
+                continue
+
+        if not submitted:
+            for xpath in CAPTCHA_SUBMIT_XPATHS:
+                try:
+                    button = form.find_element(By.XPATH, xpath)
+                    button.click()
+                    submitted = True
+                    break
+                except NoSuchElementException:
+                    continue
+                except WebDriverException:
+                    continue
+
+        if not submitted:
+            try:
+                self.driver.execute_script("arguments[0].submit();", form)
+                submitted = True
+            except WebDriverException:
+                submitted = False
+
+        if submitted and wait is not None:
+            try:
+                wait.until_not(EC.presence_of_element_located((By.ID, "formCaptcha")))
+            except TimeoutException:
+                pass
+
+        return submitted
 
     def _select_carnet_payment_if_present(self) -> bool:
         """
