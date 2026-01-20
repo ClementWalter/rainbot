@@ -1,7 +1,7 @@
 """Tests for the notification service."""
 
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -557,9 +557,7 @@ class TestSendMatchDayReminder:
         )
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_reminder_to_user(
-        self, mock_send_email, configured_service, mock_booking
-    ):
+    def test_send_reminder_to_user(self, mock_send_email, configured_service, mock_booking):
         """Test sending reminder to user (not partner)."""
         mock_send_email.return_value = NotificationResult(success=True)
 
@@ -585,9 +583,7 @@ class TestSendMatchDayReminder:
         assert mock_booking.facility_name in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_reminder_to_partner(
-        self, mock_send_email, configured_service, mock_booking
-    ):
+    def test_send_reminder_to_partner(self, mock_send_email, configured_service, mock_booking):
         """Test sending reminder to partner."""
         mock_send_email.return_value = NotificationResult(success=True)
 
@@ -627,9 +623,7 @@ class TestSendMatchDayReminder:
         assert "Bonjour," in body_html or "Bonjour</p>" in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_reminder_with_facility_address(
-        self, mock_send_email, configured_service
-    ):
+    def test_send_reminder_with_facility_address(self, mock_send_email, configured_service):
         """Test that reminder includes facility address when available."""
         booking_with_address = Booking(
             id="book1",
@@ -755,9 +749,7 @@ class TestSendBookingFailureNotification:
         )
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_failure_notification_basic(
-        self, mock_send_email, configured_service, mock_user
-    ):
+    def test_send_failure_notification_basic(self, mock_send_email, configured_service, mock_user):
         """Test sending basic failure notification."""
         mock_send_email.return_value = NotificationResult(success=True)
 
@@ -833,9 +825,7 @@ class TestSendBookingFailureNotification:
         assert "2025-01-20" in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_failure_notification_with_user_name(
-        self, mock_send_email, configured_service
-    ):
+    def test_send_failure_notification_with_user_name(self, mock_send_email, configured_service):
         """Test that failure notification uses personalized greeting with user name."""
         user_with_name = User(
             id="user1",
@@ -903,9 +893,7 @@ class TestSendNoSlotsNotification:
         )
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_no_slots_notification_basic(
-        self, mock_send_email, configured_service, mock_user
-    ):
+    def test_send_no_slots_notification_basic(self, mock_send_email, configured_service, mock_user):
         """Test sending basic no slots notification."""
         mock_send_email.return_value = NotificationResult(success=True)
 
@@ -967,9 +955,7 @@ class TestSendNoSlotsNotification:
         assert "Centres recherchés" not in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_send_no_slots_notification_with_user_name(
-        self, mock_send_email, configured_service
-    ):
+    def test_send_no_slots_notification_with_user_name(self, mock_send_email, configured_service):
         """Test that no slots notification uses personalized greeting."""
         user_with_name = User(
             id="user1",
@@ -1010,6 +996,83 @@ class TestSendNoSlotsNotification:
         assert "continuera à chercher" in body_html or "automatiquement" in body_html
 
 
+class TestSendBookingHistory:
+    """Tests for the send_booking_history method."""
+
+    @pytest.fixture
+    def configured_service(self):
+        """Create a fully configured notification service."""
+        return NotificationService(
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_user="user@example.com",
+            smtp_password="password",
+            from_email="noreply@example.com",
+        )
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user."""
+        return User(
+            id="user1",
+            email="user@example.com",
+            paris_tennis_email="tennis@example.com",
+            paris_tennis_password="password123",
+            name="Jean Dupont",
+            subscription_active=True,
+        )
+
+    @pytest.fixture
+    def mock_booking(self):
+        """Create a test booking."""
+        return Booking(
+            id="book1",
+            user_id="user1",
+            request_id="req1",
+            facility_name="Tennis Club Paris",
+            facility_code="TC001",
+            court_number="3",
+            date=datetime(2025, 1, 20),
+            time_start="18:00",
+            time_end="19:00",
+            partner_name="Jean Dupont",
+            confirmation_id="CONF123456",
+        )
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_booking_history_includes_csv(
+        self, mock_send_email, configured_service, mock_user, mock_booking
+    ):
+        """Test sending booking history includes CSV details."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_history(
+            user=mock_user,
+            bookings=[mock_booking],
+        )
+
+        assert result.success is True
+        call_args = mock_send_email.call_args
+        assert call_args.args[0] == mock_user.email
+        assert "Historique" in call_args.args[1]
+        assert "Tennis Club Paris" in call_args.args[2]
+        assert "Tennis Club Paris" in call_args.kwargs["body_text"]
+
+    @patch.object(NotificationService, "_send_email")
+    def test_send_booking_history_empty_list(self, mock_send_email, configured_service, mock_user):
+        """Test sending booking history with no bookings."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        result = configured_service.send_booking_history(
+            user=mock_user,
+            bookings=[],
+        )
+
+        assert result.success is True
+        body_html = mock_send_email.call_args[0][2]
+        assert "aucune reservation" in body_html.lower()
+
+
 class TestHtmlEscaping:
     """Tests for HTML injection prevention in notification emails."""
 
@@ -1025,9 +1088,7 @@ class TestHtmlEscaping:
         )
 
     @patch.object(NotificationService, "_send_email")
-    def test_booking_confirmation_escapes_user_name(
-        self, mock_send_email, configured_service
-    ):
+    def test_booking_confirmation_escapes_user_name(self, mock_send_email, configured_service):
         """Test that user name is escaped in booking confirmation."""
         malicious_user = User(
             id="user1",
@@ -1058,9 +1119,7 @@ class TestHtmlEscaping:
         assert "&lt;script&gt;" in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_booking_confirmation_escapes_facility_name(
-        self, mock_send_email, configured_service
-    ):
+    def test_booking_confirmation_escapes_facility_name(self, mock_send_email, configured_service):
         """Test that facility name is escaped in booking confirmation."""
         user = User(
             id="user1",
@@ -1090,9 +1149,7 @@ class TestHtmlEscaping:
         assert "&lt;img" in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_match_day_reminder_escapes_partner_name(
-        self, mock_send_email, configured_service
-    ):
+    def test_match_day_reminder_escapes_partner_name(self, mock_send_email, configured_service):
         """Test that partner name is escaped in match day reminder."""
         booking = Booking(
             id="booking1",
@@ -1122,9 +1179,7 @@ class TestHtmlEscaping:
         assert "&lt;b" in body_html
 
     @patch.object(NotificationService, "_send_email")
-    def test_failure_notification_escapes_error_message(
-        self, mock_send_email, configured_service
-    ):
+    def test_failure_notification_escapes_error_message(self, mock_send_email, configured_service):
         """Test that error message is escaped in failure notification."""
         user = User(
             id="user1",
@@ -1185,6 +1240,7 @@ class TestGetNotificationService:
 
             # Reset the global instance
             import src.services.notification as notification_module
+
             notification_module._notification_service = None
 
             service1 = get_notification_service()
@@ -1203,6 +1259,7 @@ class TestGetNotificationService:
 
             # Reset the global instance
             import src.services.notification as notification_module
+
             notification_module._notification_service = None
 
             service = get_notification_service()

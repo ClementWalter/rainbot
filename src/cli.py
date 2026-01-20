@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from src.services.google_sheets import GoogleSheetsService
+from src.services.notification import get_notification_service
 
 
 def export_booking_history(args: argparse.Namespace) -> int:
@@ -25,6 +26,34 @@ def export_booking_history(args: argparse.Namespace) -> int:
         sys.stdout.write(csv_text)
 
     return 0
+
+
+def email_booking_history(args: argparse.Namespace) -> int:
+    """Email booking history to a user."""
+    service = GoogleSheetsService()
+    notification = get_notification_service()
+
+    if not notification.is_configured():
+        sys.stderr.write("Notification service not configured.\n")
+        return 1
+
+    user = service.get_user_by_id(args.user_id)
+    if not user:
+        sys.stderr.write(f"User not found: {args.user_id}\n")
+        return 1
+
+    bookings = service.get_bookings_for_user(args.user_id)
+    result = notification.send_booking_history(
+        user,
+        bookings,
+        sort_desc=not args.ascending,
+    )
+
+    if result.success:
+        return 0
+
+    sys.stderr.write(f"Failed to send booking history: {result.error_message or 'unknown error'}\n")
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,6 +83,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sort bookings oldest first (default: newest first).",
     )
     export_parser.set_defaults(func=export_booking_history)
+
+    email_parser = subparsers.add_parser(
+        "email-booking-history",
+        help="Email booking history to a user.",
+    )
+    email_parser.add_argument(
+        "--user-id",
+        required=True,
+        help="User ID to email booking history for.",
+    )
+    email_parser.add_argument(
+        "--ascending",
+        action="store_true",
+        help="Sort bookings oldest first (default: newest first).",
+    )
+    email_parser.set_defaults(func=email_booking_history)
 
     return parser
 

@@ -15,6 +15,7 @@ from typing import Optional
 from src.config.settings import settings
 from src.models.booking import Booking
 from src.models.user import User
+from src.services.booking_history import export_booking_history_csv
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +63,15 @@ class NotificationService:
 
     def is_configured(self) -> bool:
         """Check if the notification service is properly configured."""
-        return all([
-            self.smtp_host,
-            self.smtp_port,
-            self.smtp_user,
-            self.smtp_password,
-            self.from_email,
-        ])
+        return all(
+            [
+                self.smtp_host,
+                self.smtp_port,
+                self.smtp_user,
+                self.smtp_password,
+                self.from_email,
+            ]
+        )
 
     def _create_smtp_connection(self) -> smtplib.SMTP:
         """Create and authenticate SMTP connection."""
@@ -113,6 +116,7 @@ class NotificationService:
             if body_text is None:
                 # Strip HTML tags for plain text version
                 import re
+
                 body_text = re.sub(r"<[^>]+>", "", body_html)
                 body_text = re.sub(r"\s+", " ", body_text).strip()
 
@@ -164,7 +168,9 @@ class NotificationService:
         # Escape user-provided data to prevent HTML injection
         user_name = html.escape(user.name) if user.name else None
         facility_name = html.escape(booking.facility_name) if booking.facility_name else ""
-        facility_address = html.escape(booking.facility_address) if booking.facility_address else None
+        facility_address = (
+            html.escape(booking.facility_address) if booking.facility_address else None
+        )
         court_number = html.escape(booking.court_number) if booking.court_number else ""
         partner_name = html.escape(booking.partner_name) if booking.partner_name else None
         confirmation_id = html.escape(booking.confirmation_id) if booking.confirmation_id else None
@@ -249,7 +255,9 @@ class NotificationService:
         safe_player_name = html.escape(player_name) if player_name else None
         safe_partner_name = html.escape(booking.partner_name) if booking.partner_name else None
         facility_name = html.escape(booking.facility_name) if booking.facility_name else ""
-        facility_address = html.escape(booking.facility_address) if booking.facility_address else None
+        facility_address = (
+            html.escape(booking.facility_address) if booking.facility_address else None
+        )
         court_number = html.escape(booking.court_number) if booking.court_number else ""
         time_start = html.escape(booking.time_start) if booking.time_start else ""
         time_end = html.escape(booking.time_end) if booking.time_end else ""
@@ -465,6 +473,68 @@ class NotificationService:
 
         logger.info(f"Sending no slots notification to {user.email}")
         return self._send_email(user.email, subject, body_html)
+
+    def send_booking_history(
+        self,
+        user: User,
+        bookings: list[Booking],
+        sort_desc: bool = True,
+    ) -> NotificationResult:
+        """
+        Send booking history to a user.
+
+        Args:
+            user: The user who will receive the booking history
+            bookings: Booking records to include
+            sort_desc: Sort by most recent date/time first when True
+
+        Returns:
+            NotificationResult with success status
+        """
+        subject = "🎾 RainBot - Historique des reservations"
+
+        # Escape user-provided data to prevent HTML injection
+        user_name = html.escape(user.name) if user.name else None
+        greeting = f"Bonjour {user_name}" if user_name else "Bonjour"
+
+        csv_text = export_booking_history_csv(bookings, sort_desc=sort_desc)
+        csv_html = html.escape(csv_text)
+
+        if bookings:
+            intro_text = "Voici votre historique de reservations."
+        else:
+            intro_text = "Vous n'avez aucune reservation enregistree pour le moment."
+
+        body_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1976d2;">📚 Historique des reservations</h2>
+
+            <p>{greeting},</p>
+
+            <p>{intro_text}</p>
+
+            <div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 12px;">
+{csv_html}
+                </pre>
+            </div>
+
+            <p>Sportivement,<br>
+            <strong>L'equipe RainBot</strong></p>
+
+            <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px;">
+                Cet email a ete envoye automatiquement par RainBot.
+            </p>
+        </body>
+        </html>
+        """
+
+        body_text = f"{greeting},\n\n{intro_text}\n\n{csv_text}"
+
+        logger.info(f"Sending booking history to {user.email}")
+        return self._send_email(user.email, subject, body_html, body_text=body_text)
 
 
 # Global service instance (lazy initialization)

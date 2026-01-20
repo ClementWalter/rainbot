@@ -4,11 +4,11 @@
 
 ### Summary
 
-Core booking modules and unit-test coverage are in place, and booking history
-can now be exported via a CLI, but the live integration is not production-ready
-because the Paris Tennis selectors/flow are placeholders, carnet selection needs
-assume-the-DOM validation, and deployment/integration testing remains
-incomplete.
+Core booking modules and unit-test coverage are in place, booking history can be
+exported via the CLI and emailed on demand, but the live integration is not
+production-ready because the Paris Tennis selectors/flow are placeholders,
+carnet selection needs assume-the-DOM validation, and deployment/integration
+testing remains incomplete.
 
 ### What Exists
 
@@ -20,7 +20,7 @@ incomplete.
 - [x] src/ - Core structure with data models, Google Sheets service, browser
       utility, Paris Tennis service, CAPTCHA solver, and notification service
 - [x] src/services/booking_history.py - Booking history CSV export helper
-- [x] src/cli.py - Booking history export CLI (CSV)
+- [x] src/cli.py - Booking history export CLI (CSV) + email delivery
 - [x] tests/ - Unit tests covering models, services, browser, Paris Tennis,
       CAPTCHA solver, notifications, cron jobs, locking, timezone, no-slots
       tracking, HTML escaping, cleanup job
@@ -39,16 +39,19 @@ incomplete.
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
-5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
+5. **Court type validation**: Parse/confirm court type from the DOM to ensure
+   indoor/outdoor filtering stays correct even if the UI filter fails.
+6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
    starting deployment work.
-6. **Booking history access**: CLI CSV export exists; still need a truly
-   user-facing delivery path (email export, simple UI, or API) if end-user
-   access is required.
-7. **User onboarding/request management**: Provide a user-facing interface
+7. **Booking history access**: CLI CSV export and on-demand email delivery
+   exist; still need a self-service UI/API if end-user access is required.
+8. **User onboarding/request management**: Provide a user-facing interface
    (admin UI, simple API, or form) for managing users, subscriptions, and
    booking requests instead of editing Google Sheets directly.
+9. **Success metrics**: Instrument booking success rate, CAPTCHA solve rate, and
+   notification delivery (logs/metrics + dashboard) per PRD section 8.
 
 ### Known Issues
 
@@ -60,6 +63,8 @@ incomplete.
    website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
+4. **Notification Locale** - Email templates rely on system locale for day/month
+   names, so French templates can display English dates.
 
 ### Resolved Issues
 

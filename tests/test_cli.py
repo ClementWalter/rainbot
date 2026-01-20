@@ -55,3 +55,37 @@ def test_cli_no_command_returns_help(capsys):
 
     assert exit_code == 2
     assert "export-booking-history" in capsys.readouterr().out
+
+
+def test_cli_email_booking_history_success():
+    """Test emailing booking history to a user."""
+    with patch("src.cli.GoogleSheetsService") as mock_service_cls:
+        with patch("src.cli.get_notification_service") as mock_notification_cls:
+            mock_service = MagicMock()
+            mock_user = MagicMock()
+            mock_service.get_user_by_id.return_value = mock_user
+            mock_service.get_bookings_for_user.return_value = ["booking"]
+            mock_service_cls.return_value = mock_service
+
+            mock_notification = MagicMock()
+            mock_notification.is_configured.return_value = True
+            mock_notification.send_booking_history.return_value = MagicMock(success=True)
+            mock_notification_cls.return_value = mock_notification
+
+            exit_code = cli.main(
+                [
+                    "email-booking-history",
+                    "--user-id",
+                    "user-123",
+                    "--ascending",
+                ]
+            )
+
+    assert exit_code == 0
+    mock_service.get_user_by_id.assert_called_once_with("user-123")
+    mock_service.get_bookings_for_user.assert_called_once_with("user-123")
+    mock_notification.send_booking_history.assert_called_once_with(
+        mock_user,
+        ["booking"],
+        sort_desc=False,
+    )
