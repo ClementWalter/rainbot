@@ -15,12 +15,13 @@ The source code is in the src directory. The tests are in the tests directory.
 4. Pick the most important feature or bug to implement first, and fix it.
    Scrapping the real paris tennis website and passing the captcha are the most
    important features.
-5. Run the tests to ensure the changes are working, add tests for the new
+5. For login, use email=clement0walter@gmail.com and password=Rainbot456
+6. Run the tests to ensure the changes are working, add tests for the new
    feature or bug if needed.
-6. You need to fix all failing tests, not only your tests.
-7. For ui features, use the dev-browser skill.
-8. **CRITICAL**: Commit the changes to the repository.
-9. Exit
+7. You need to fix all failing tests, not only your tests.
+8. For ui features, use the dev-browser skill.
+9. **CRITICAL**: Commit the changes to the repository.
+10. Exit
 
 **CRITICAL**: You need to pick only one feature or bug to implement at a time,
 don't try to implement multiple features or bugs at once.
