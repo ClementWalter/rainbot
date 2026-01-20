@@ -382,6 +382,18 @@ class TestSendBookingConfirmation:
         assert mock_booking.confirmation_id in body_html
 
     @patch.object(NotificationService, "_send_email")
+    def test_send_booking_confirmation_uses_french_date_format(
+        self, mock_send_email, configured_service, mock_user, mock_booking
+    ):
+        """Test that booking confirmation renders French day/month names."""
+        mock_send_email.return_value = NotificationResult(success=True)
+
+        configured_service.send_booking_confirmation(mock_user, mock_booking)
+
+        body_html = mock_send_email.call_args[0][2]
+        assert "lundi 20 janvier 2025" in body_html
+
+    @patch.object(NotificationService, "_send_email")
     def test_send_booking_confirmation_without_partner(
         self, mock_send_email, configured_service, mock_user
     ):

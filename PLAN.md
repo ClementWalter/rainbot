@@ -63,8 +63,6 @@ testing remains incomplete.
    website structure.
 3. **Facility Address Extraction** - The `data-facility-address` attribute may
    need adjustment based on actual website structure.
-4. **Notification Locale** - Email templates rely on system locale for day/month
-   names, so French templates can display English dates.
 
 ### Resolved Issues
 
@@ -242,6 +240,9 @@ testing remains incomplete.
     could shift booking dates for records coming from Google Sheets. **FIXED**:
     Date objects are now converted to Paris-midnight `datetime` values and
     preserved.
+33. **Notification Locale** - Email templates relied on system locale for
+    day/month names, so French templates could display English dates. **FIXED**:
+    Booking confirmation dates now use explicit French day/month mappings.
 
 ---
 

@@ -8,6 +8,7 @@ import html
 import logging
 import smtplib
 from dataclasses import dataclass
+from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -18,6 +19,42 @@ from src.models.user import User
 from src.services.booking_history import export_booking_history_csv
 
 logger = logging.getLogger(__name__)
+
+FRENCH_WEEKDAYS = [
+    "lundi",
+    "mardi",
+    "mercredi",
+    "jeudi",
+    "vendredi",
+    "samedi",
+    "dimanche",
+]
+
+FRENCH_MONTHS = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+]
+
+
+def format_french_date(date_value: datetime | date) -> str:
+    """Format a date in French regardless of system locale."""
+    if isinstance(date_value, datetime):
+        date_value = date_value.date()
+    if isinstance(date_value, date):
+        weekday = FRENCH_WEEKDAYS[date_value.weekday()]
+        month = FRENCH_MONTHS[date_value.month - 1]
+        return f"{weekday} {date_value.day:02d} {month} {date_value.year}"
+    return str(date_value)
 
 
 @dataclass
@@ -193,7 +230,7 @@ class NotificationService:
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Date :</strong></td>
-                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{booking.date.strftime('%A %d %B %Y')}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #ddd;">{format_french_date(booking.date)}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #ddd;"><strong>Horaire :</strong></td>
