@@ -38,8 +38,9 @@ deployment/integration testing remains incomplete.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
 5. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
-   monitoring/logging. Use the Scaleway skill for guidance (install it if
-   unavailable).
+   monitoring/logging. Use the Scaleway skill for guidance; it is not currently
+   installed in this environment, so install it via `skill-installer` before
+   starting deployment work.
 6. **Booking history access**: Expose booking history to users (email export,
    simple UI, or API). Current CSV export helper exists but isn't user-facing.
 7. **User onboarding/request management**: Provide a user-facing interface
@@ -239,6 +240,10 @@ deployment/integration testing remains incomplete.
 28. **Carnet Balance Not Decremented After Booking** - Fixed: Successful
     bookings now decrement and persist the user's carnet balance in the Users
     sheet when a balance is tracked, preventing overbooking on stale balances.
+29. **Blank Subscription/Active Flags Disable Users/Requests** - Fixed:
+    `subscription_active` and `active` values that are empty or `None` now
+    default to `True` to avoid unintentionally disabling eligible users or
+    active requests when Sheets cells are blank.
 
 ---
 

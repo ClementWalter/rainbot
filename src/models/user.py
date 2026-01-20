@@ -58,6 +58,10 @@ class User:
         """
         # Parse subscription_active - handle common truthy representations (case-insensitive)
         subscription_value = data.get("subscription_active", True)
+        if subscription_value is None:
+            subscription_value = True
+        elif isinstance(subscription_value, str) and not subscription_value.strip():
+            subscription_value = True
         subscription_active = is_truthy(subscription_value)
 
         carnet_balance_value = data.get("carnet_balance")

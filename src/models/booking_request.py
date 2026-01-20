@@ -216,6 +216,12 @@ class BookingRequest:
         if time_start > time_end:
             time_start, time_end = time_end, time_start
 
+        active_value = data.get("active", True)
+        if active_value is None:
+            active_value = True
+        elif isinstance(active_value, str) and not active_value.strip():
+            active_value = True
+
         return cls(
             id=str(data.get("id", "")),
             user_id=str(data.get("user_id", "")),
@@ -226,5 +232,5 @@ class BookingRequest:
             court_type=court_type,
             partner_name=data.get("partner_name"),
             partner_email=data.get("partner_email"),
-            active=is_truthy(data.get("active", True)),
+            active=is_truthy(active_value),
         )

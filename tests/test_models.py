@@ -159,6 +159,30 @@ class TestUser:
         user = User.from_dict(data)
         assert user.subscription_active is True
 
+    def test_from_dict_with_blank_subscription_defaults_true(self):
+        """Test User.from_dict treats blank subscription_active as True."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": "",
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
+    def test_from_dict_with_none_subscription_defaults_true(self):
+        """Test User.from_dict treats None subscription_active as True."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": None,
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
     def test_from_dict_with_numeric_subscription(self):
         """Test User.from_dict handles numeric 1 for subscription_active."""
         data = {
@@ -297,6 +321,32 @@ class TestBookingRequest:
             "time_start": "18:00",
             "time_end": "20:00",
             "active": "TRUE",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.active is True
+
+    def test_from_dict_with_blank_active_defaults_true(self):
+        """Test BookingRequest.from_dict treats blank active as True."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "monday",
+            "time_start": "18:00",
+            "time_end": "20:00",
+            "active": "",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.active is True
+
+    def test_from_dict_with_none_active_defaults_true(self):
+        """Test BookingRequest.from_dict treats None active as True."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": "monday",
+            "time_start": "18:00",
+            "time_end": "20:00",
+            "active": None,
         }
         request = BookingRequest.from_dict(data)
         assert request.active is True
