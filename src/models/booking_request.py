@@ -17,7 +17,8 @@ def normalize_time(time_str: str) -> str:
 
     This ensures consistent string comparison by padding single-digit hours
     with a leading zero. For example, "9:00" becomes "09:00".
-    Accepts "H:MM", "HH:MM", or "HH:MM:SS" formats (seconds are ignored).
+    Accepts "H:MM", "HH:MM", "HH:MM:SS", or French-style "HhMM" formats
+    (seconds are ignored).
 
     Args:
         time_str: Time string in H:MM or HH:MM format
@@ -30,7 +31,15 @@ def normalize_time(time_str: str) -> str:
 
     time_str = str(time_str).strip()
     if not time_str or ":" not in time_str:
-        return ""
+        # Support French-style "9h00" or "9 h 00" formats.
+        lower = time_str.lower()
+        if "h" in lower:
+            time_str = lower.replace("h", ":").replace(" ", "")
+        else:
+            return ""
+    else:
+        # Also normalize any embedded "h" to ":" to handle mixed formats.
+        time_str = time_str.replace("H", "h").replace("h", ":").replace(" ", "")
     parts = time_str.split(":")
 
     if len(parts) not in (2, 3):

@@ -257,6 +257,9 @@ testing remains incomplete.
     now defaults `facility_preferences` to an empty list when the source value
     is `None` or an unexpected type, preventing `TypeError` when iterating
     facility preferences during court searches.
+37. **French Time Format Parsing** - Fixed: `normalize_time()` now accepts
+    French-style formats like "18h00" or "18 h 00" so booking requests and slot
+    parsing don't silently drop valid times entered in common French notation.
 
 ---
 

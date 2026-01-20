@@ -782,6 +782,13 @@ class TestNormalizeTime:
         assert normalize_time(" 09:00 ") == "09:00"
         assert normalize_time("9:00 ") == "09:00"
 
+    def test_normalize_time_french_format(self):
+        """Test normalization of French-style time formats."""
+        assert normalize_time("9h00") == "09:00"
+        assert normalize_time("9 h 00") == "09:00"
+        assert normalize_time("09H30") == "09:30"
+        assert normalize_time("18h00:00") == "18:00"
+
     def test_normalize_time_invalid_returns_empty(self):
         """Test that invalid times return empty string."""
         assert normalize_time("") == ""
@@ -889,4 +896,17 @@ class TestTimeValidationInFromDict:
         }
         request = BookingRequest.from_dict(data)
         assert request.time_start == "09:00"
+        assert request.time_end == "20:00"
+
+    def test_from_dict_normalizes_french_time_format(self):
+        """Test that French-style time formats are normalized."""
+        data = {
+            "id": "req1",
+            "user_id": "user1",
+            "day_of_week": 0,
+            "time_start": "18h00",
+            "time_end": "20 h 00",
+        }
+        request = BookingRequest.from_dict(data)
+        assert request.time_start == "18:00"
         assert request.time_end == "20:00"
