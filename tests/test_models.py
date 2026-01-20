@@ -779,6 +779,14 @@ class TestNormalizeTime:
         assert normalize_time("abc:def") == ""
         assert normalize_time(None) == ""
 
+    def test_normalize_time_out_of_range_returns_empty(self):
+        """Test that out-of-range time values return empty string."""
+        assert normalize_time("24:00") == ""
+        assert normalize_time("23:60") == ""
+        assert normalize_time("99:00") == ""
+        assert normalize_time("12:99") == ""
+        assert normalize_time("12:30:99") == ""
+
     def test_normalize_time_edge_cases(self):
         """Test edge cases for time normalization."""
         assert normalize_time("00:00") == "00:00"

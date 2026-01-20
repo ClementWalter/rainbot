@@ -25,31 +25,38 @@ def normalize_time(time_str: str) -> str:
     Returns:
         Time string in HH:MM format, or empty string if invalid
     """
-    if not time_str or ":" not in time_str:
+    if time_str is None:
         return ""
 
     time_str = str(time_str).strip()
+    if not time_str or ":" not in time_str:
+        return ""
     parts = time_str.split(":")
 
     if len(parts) not in (2, 3):
         return ""
 
-    hour, minute = parts[0].strip(), parts[1].strip()
-    second = parts[2].strip() if len(parts) == 3 else None
+    hour_str, minute_str = parts[0].strip(), parts[1].strip()
+    second_str = parts[2].strip() if len(parts) == 3 else None
 
     # Validate hour and minute are numeric
-    if not hour.isdigit() or not minute.isdigit():
+    if not hour_str.isdigit() or not minute_str.isdigit():
         return ""
-    if second is not None and not second.isdigit():
+    if second_str is not None and not second_str.isdigit():
         return ""
 
-    # Pad single-digit hour with leading zero
-    hour = hour.zfill(2)
+    hour = int(hour_str)
+    minute = int(minute_str)
 
-    # Ensure minute is two digits
-    minute = minute.zfill(2)
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return ""
 
-    return f"{hour}:{minute}"
+    if second_str is not None:
+        second = int(second_str)
+        if second < 0 or second > 59:
+            return ""
+
+    return f"{hour:02d}:{minute:02d}"
 
 
 class CourtType(Enum):

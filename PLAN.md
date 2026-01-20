@@ -50,6 +50,11 @@ testing remains incomplete.
    booking requests instead of editing Google Sheets directly.
 8. **Success metrics**: Instrument booking success rate, CAPTCHA solve rate, and
    notification delivery (logs/metrics + dashboard) per PRD section 8.
+9. **Credential security**: Protect Paris Tennis credentials and SMTP secrets
+   with encryption and/or a secrets manager (aligns with PRD risk mitigation).
+10. **Anti-bot hardening**: Add human-like interaction patterns (randomized
+    delays, throttling, jitter) beyond current webdriver flags to reduce the
+    risk of automation blocks (PRD section 10).
 
 ### Known Issues
 
@@ -244,6 +249,10 @@ testing remains incomplete.
 34. **Court Type Validation in Slot Parsing** - Fixed: Court slots now attempt
     to detect indoor/outdoor from DOM attributes/classes and filter mismatched
     results even if the UI filter fails, while allowing unknown types through.
+35. **Invalid Time Component Handling** - Fixed: `normalize_time()` now
+    validates hour/minute/second ranges (rejecting values like "24:00" or
+    "12:99") to prevent invalid times from slipping into request validation and
+    slot filtering.
 
 ---
 
