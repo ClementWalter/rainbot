@@ -96,16 +96,7 @@ class GoogleSheetsService:
             users = []
             for record in records:
                 try:
-                    user = User(
-                        id=str(record.get("id", "")),
-                        email=str(record.get("email", "")),
-                        paris_tennis_email=str(record.get("paris_tennis_email", "")),
-                        paris_tennis_password=str(record.get("paris_tennis_password", "")),
-                        name=record.get("name") or None,
-                        subscription_active=record.get("subscription_active", True)
-                        in (True, "true", "True", "1", 1),
-                        phone=record.get("phone") or None,
-                    )
+                    user = User.from_dict(record)
                     users.append(user)
                 except Exception as e:
                     logger.warning(f"Failed to parse user record: {record}, error: {e}")

@@ -69,6 +69,125 @@ class TestUser:
         )
         assert user.is_eligible() is False
 
+    def test_from_dict(self):
+        """Test User.from_dict with complete data."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "name": "Jean Dupont",
+            "subscription_active": True,
+            "phone": "0612345678",
+        }
+        user = User.from_dict(data)
+        assert user.id == "user1"
+        assert user.email == "test@example.com"
+        assert user.paris_tennis_email == "tennis@example.com"
+        assert user.paris_tennis_password == "secret123"
+        assert user.name == "Jean Dupont"
+        assert user.subscription_active is True
+        assert user.phone == "0612345678"
+
+    def test_from_dict_with_string_subscription_true(self):
+        """Test User.from_dict handles string 'true' for subscription_active."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": "true",
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
+    def test_from_dict_with_string_subscription_True(self):
+        """Test User.from_dict handles string 'True' for subscription_active."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": "True",
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
+    def test_from_dict_with_numeric_subscription(self):
+        """Test User.from_dict handles numeric 1 for subscription_active."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": 1,
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
+    def test_from_dict_with_string_numeric_subscription(self):
+        """Test User.from_dict handles string '1' for subscription_active."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": "1",
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is True
+
+    def test_from_dict_with_false_subscription(self):
+        """Test User.from_dict handles false subscription_active values."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": False,
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is False
+
+    def test_from_dict_with_string_false_subscription(self):
+        """Test User.from_dict handles string 'false' for subscription_active."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "subscription_active": "false",
+        }
+        user = User.from_dict(data)
+        assert user.subscription_active is False
+
+    def test_from_dict_with_missing_optional_fields(self):
+        """Test User.from_dict with missing optional fields."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+        }
+        user = User.from_dict(data)
+        assert user.name is None
+        assert user.phone is None
+        assert user.subscription_active is True  # default
+
+    def test_from_dict_with_empty_optional_fields(self):
+        """Test User.from_dict converts empty strings to None for optional fields."""
+        data = {
+            "id": "user1",
+            "email": "test@example.com",
+            "paris_tennis_email": "tennis@example.com",
+            "paris_tennis_password": "secret123",
+            "name": "",
+            "phone": "",
+        }
+        user = User.from_dict(data)
+        assert user.name is None
+        assert user.phone is None
+
 
 class TestBookingRequest:
     """Tests for BookingRequest model."""

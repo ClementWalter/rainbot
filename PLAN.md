@@ -23,6 +23,7 @@ Phase 6 (Full Integration) is complete. All core booking functionality is implem
 3. **Facility Address Extraction** - The `data-facility-address` attribute may need adjustment based on actual website structure.
 4. **Missing Integration Tests** - Phase 6 integration tests are incomplete.
 5. ~~**Empty Date String in Booking.from_dict** - If the date field in Google Sheets is empty, `datetime.fromisoformat("")` would raise a ValueError. Need to handle empty string case.~~ **FIXED**: Now handles empty strings and invalid date formats gracefully by defaulting to `now_paris()` for date and letting `__post_init__` handle created_at.
+6. ~~**User Model Missing from_dict Method** - The `User` model lacked a `from_dict()` class method, unlike `BookingRequest` and `Booking` models. This caused inconsistency in how models were parsed from Google Sheets data, with User parsing logic duplicated in `google_sheets.py`.~~ **FIXED**: Added `User.from_dict()` class method for consistent model instantiation from dictionary data.
 
 ### Resolved Issues
 1. **facility_address not saved to Google Sheets** - Fixed: `add_booking()` now saves `facility_address` to the spreadsheet so that match day reminders include the facility address.
