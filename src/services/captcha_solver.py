@@ -215,7 +215,23 @@ class CaptchaSolverService:
             image_payload = image_path
             if isinstance(image_path, str):
                 trimmed = image_path.strip()
-                if trimmed.startswith(("http://", "https://")):
+                lower_trimmed = trimmed.lower()
+                if lower_trimmed.startswith("data:"):
+                    marker = "base64,"
+                    marker_index = lower_trimmed.find(marker)
+                    if marker_index == -1:
+                        return CaptchaSolveResult(
+                            success=False,
+                            error_message="Unsupported data URI CAPTCHA format",
+                        )
+                    image_payload = trimmed[marker_index + len(marker) :].strip()
+                    image_payload = "".join(image_payload.split())
+                    if not image_payload:
+                        return CaptchaSolveResult(
+                            success=False,
+                            error_message="Empty data URI CAPTCHA payload",
+                        )
+                elif trimmed.startswith(("http://", "https://")):
                     try:
                         response = requests.get(trimmed, timeout=30)
                         response.raise_for_status()

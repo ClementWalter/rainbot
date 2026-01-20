@@ -336,6 +336,9 @@ deployment/integration testing remains incomplete.
     relative URLs (for example, `/captcha/image`) are now resolved against the
     current page URL before being sent to the solver, preventing failures when
     the site returns non-absolute image sources.
+53. **Image CAPTCHA Data URI Handling** - Fixed: Image CAPTCHA sources embedded
+    as `data:` URIs now have their base64 payload extracted before sending to
+    the solver, preventing failures when CAPTCHAs are inlined in HTML.
 
 ---
 

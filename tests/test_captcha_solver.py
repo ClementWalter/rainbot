@@ -239,6 +239,20 @@ class TestCaptchaSolverService:
         expected_payload = base64.b64encode(b"captcha-bytes").decode("ascii")
         service._solver.normal.assert_called_once_with(expected_payload)
 
+    def test_solve_image_captcha_data_uri(self, service):
+        """Test solving image CAPTCHA from a data URI."""
+        service._solver = MagicMock()
+        service._solver.normal.return_value = {"code": "DATA123"}
+
+        payload = base64.b64encode(b"captcha-bytes").decode("ascii")
+        data_uri = f"data:image/png;base64,{payload}"
+
+        result = service.solve_image_captcha(data_uri)
+
+        assert result.success is True
+        assert result.token == "DATA123"
+        service._solver.normal.assert_called_once_with(payload)
+
     def test_solve_image_captcha_network_error(self, service):
         """Test image CAPTCHA network error handling."""
         from twocaptcha.api import NetworkException
