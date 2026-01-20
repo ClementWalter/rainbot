@@ -395,7 +395,10 @@ but the fallback still needs live-site validation.
     `action=rechercher_creneau` results context and `captchaRequestId`. The flow
     now submits `#search_form` directly and only falls back to clicking the
     button when needed.
-65. **LiveIdentity Single-Quoted Config Parsing** - Fixed: The LiveIdentity
+65. **French Boolean Parsing** - Fixed: `is_truthy()` now accepts French boolean
+    strings (for example, "vrai" or "oui") and common English "yes" values so
+    active/subscription flags are not misread in French-localized Google Sheets.
+66. **LiveIdentity Single-Quoted Config Parsing** - Fixed: The LiveIdentity
     parser expected JSON arrays and failed when `LI_ANTIBOT.loadAntibot(...)`
     used single-quoted JavaScript arrays, preventing anti-bot CAPTCHA detection.
     The parser now normalizes JS literals and accepts single-quoted arrays so
