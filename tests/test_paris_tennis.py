@@ -166,6 +166,38 @@ class TestParisTennisService:
             assert service._logged_in is True
             assert result is True
 
+    def test_login_solves_captcha_and_resubmits(self, service, mock_driver):
+        """Test login flow re-submits after solving CAPTCHA."""
+        mock_email = MagicMock()
+        mock_password = MagicMock()
+        mock_button = MagicMock()
+
+        def find_element_side_effect(by, value):
+            if value == "username":
+                return mock_email
+            if value == "password":
+                return mock_password
+            if "submit" in value:
+                return mock_button
+            raise Exception(f"Unexpected element: {value}")
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+
+        with patch("src.services.paris_tennis.WebDriverWait") as mock_wait, patch.object(
+            service, "_solve_captcha_if_present", return_value=True
+        ) as mock_solve, patch.object(
+            service, "_submit_login_form_if_present", return_value=True
+        ) as mock_submit, patch.object(
+            service, "_is_logged_in", side_effect=[False, True]
+        ):
+            mock_wait.return_value.until.return_value = mock_email
+
+            result = service.login("test@example.com", "password123")
+
+        assert result is True
+        mock_solve.assert_called_once()
+        mock_submit.assert_called_once()
+
     def test_login_element_not_found(self, service, mock_driver):
         """Test login fails when elements not found."""
         from selenium.common.exceptions import NoSuchElementException, TimeoutException

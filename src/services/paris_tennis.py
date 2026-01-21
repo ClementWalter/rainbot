@@ -251,6 +251,11 @@ class ParisTennisService:
             # Wait for successful login (check for user menu or redirect)
             time.sleep(2)  # Brief wait for page transition
 
+            # Solve CAPTCHA on the login flow if present, then resubmit.
+            if self._solve_captcha_if_present(wait):
+                self._submit_login_form_if_present()
+                time.sleep(1)
+
             # Check if login was successful by looking for logout link or user info
             if self._is_logged_in():
                 self._logged_in = True
@@ -418,6 +423,29 @@ class ParisTennisService:
             if self._open_mon_paris_login(wait):
                 return wait.until(EC.presence_of_element_located((By.ID, "username")))
             raise
+
+    def _submit_login_form_if_present(self) -> bool:
+        """Submit the login form if it's still present after CAPTCHA solving."""
+        try:
+            password_field = self.driver.find_element(By.ID, "password")
+            try:
+                form = password_field.find_element(By.XPATH, "ancestor::form[1]")
+            except NoSuchElementException:
+                form = None
+            if form is not None:
+                self.driver.execute_script("arguments[0].submit();", form)
+                return True
+        except (NoSuchElementException, WebDriverException):
+            pass
+
+        try:
+            submit_button = self.driver.find_element(
+                By.CSS_SELECTOR, "button[type='submit'], input[type='submit']"
+            )
+            submit_button.click()
+            return True
+        except (NoSuchElementException, WebDriverException):
+            return False
 
     def search_available_courts(
         self,

@@ -33,10 +33,11 @@ real-site verification.
 ### Remaining Work
 
 1. **Paris Tennis selectors/flow**: Validate the remaining live DOM selectors
-   (login entrypoint, confirmation page, partner fields, search form facility
-   selection) and complete an end-to-end run on tennis.paris.fr. Slot scraping
-   now uses `action=ajax_rechercher_creneau` (the live slot listing endpoint),
-   but the full booking flow still needs validation on the live site.
+   and CAPTCHA handling (login entrypoint, confirmation page, partner fields,
+   search form facility selection) and complete an end-to-end run on
+   tennis.paris.fr. Slot scraping now uses `action=ajax_rechercher_creneau` (the
+   live slot listing endpoint), but the full booking flow still needs validation
+   on the live site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
    steps. A best-effort carnet selector exists but is not validated on the live
@@ -468,6 +469,9 @@ real-site verification.
     now dispatches input/change events and invokes `data-callback` handlers
     (plus known `___grecaptcha_cfg` callbacks) so the live site recognizes
     solved CAPTCHA responses.
+80. **Login CAPTCHA Resubmission** - Fixed: the Mon Paris login flow now solves
+    CAPTCHA challenges when present and re-submits the login form so
+    authentication does not stall on CAPTCHA gates.
 
 ---
 
