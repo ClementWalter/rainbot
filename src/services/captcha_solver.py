@@ -351,16 +351,12 @@ class CaptchaSolverService:
 
     def _parse_liveidentity_config(self, page_source: str) -> Optional[LiveIdentityConfig]:
         """Parse LiveIdentity config from page source."""
-        match = re.search(
-            r"LI_ANTIBOT\.loadAntibot\((\[.*?\])\)",
-            page_source,
-            re.DOTALL,
-        )
-        if not match:
+        raw_values = self._extract_liveidentity_config_array(page_source)
+        if not raw_values:
             return None
 
         try:
-            config_values = self._parse_liveidentity_config_values(match.group(1))
+            config_values = self._parse_liveidentity_config_values(raw_values)
         except (ValueError, TypeError):
             return None
         if not isinstance(config_values, list):
@@ -386,6 +382,58 @@ class CaptchaSolverService:
             antibot_id=get_value(7),
             request_id=get_value(8),
         )
+
+    def _extract_liveidentity_config_array(self, page_source: str) -> Optional[str]:
+        """Extract the LiveIdentity config array from a loadAntibot call."""
+        if not page_source:
+            return None
+
+        pattern = r"(?:window\.)?LI_ANTIBOT\.loadAntibot\s*\("
+        for match in re.finditer(pattern, page_source):
+            start = page_source.find("[", match.end())
+            if start == -1:
+                continue
+            array_literal = self._extract_bracketed_array(page_source, start)
+            if array_literal:
+                return array_literal
+        return None
+
+    def _extract_bracketed_array(self, value: str, start: int) -> Optional[str]:
+        """Return the bracketed array literal starting at a given index."""
+        depth = 0
+        in_single = False
+        in_double = False
+        escape = False
+
+        for index in range(start, len(value)):
+            ch = value[index]
+            if escape:
+                escape = False
+                continue
+
+            if ch == "\\":
+                escape = True
+                continue
+
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                continue
+
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                continue
+
+            if in_single or in_double:
+                continue
+
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    return value[start : index + 1]
+
+        return None
 
     def _parse_liveidentity_config_values(self, raw_values: str) -> Optional[list]:
         """Parse LiveIdentity config values from a JavaScript array literal."""

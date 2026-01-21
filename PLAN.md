@@ -422,6 +422,11 @@ but the fallback still needs live-site validation.
     empty facility lists and mismatched `captchaRequestId` values. The flow now
     updates the search form with the target date/facilities and triggers the
     hidden button click to keep parameters aligned with the live site.
+71. **LiveIdentity Config Extraction With Extra Args** - Fixed: The LiveIdentity
+    parser only matched `LI_ANTIBOT.loadAntibot([...])` and failed when the live
+    site used `window.LI_ANTIBOT.loadAntibot([...], ...)` or added extra
+    arguments. Config extraction now scans for the bracketed array literal
+    regardless of extra arguments, ensuring CAPTCHA parsing works on live pages.
 
 ---
 
