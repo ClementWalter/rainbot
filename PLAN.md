@@ -459,6 +459,11 @@ real-site verification.
     attempts to fetch the CAPTCHA image through the browser context first,
     preserving session cookies so protected CAPTCHA images can be solved
     reliably on tennis.paris.fr.
+78. **captchaRequestId Extraction Too Narrow** - Fixed: booking previously only
+    read a hidden input with `id="captchaRequestId"`, missing cases where the
+    value is stored under input `name` attributes, `data-*` attributes, window
+    variables, or inline scripts. `_get_captcha_request_id()` now checks these
+    sources to keep reservation submissions aligned with the live site.
 
 ---
 

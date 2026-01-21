@@ -733,14 +733,67 @@ class ParisTennisService:
 
     def _get_captcha_request_id(self) -> Optional[str]:
         """Extract captchaRequestId from the results page if present."""
+        selectors = (
+            "#captchaRequestId",
+            "input[name='captchaRequestId']",
+            "input[name='captcha_request_id']",
+            "[data-captcha-request-id]",
+            "[data-captcharequestid]",
+        )
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+            except NoSuchElementException:
+                continue
+            except WebDriverException:
+                continue
+            value = self._get_dom_element_attr(
+                element,
+                "value",
+                "data-captcha-request-id",
+                "data-captcharequestid",
+            )
+            if value:
+                return value
+
         try:
-            element = self.driver.find_element(By.ID, "captchaRequestId")
-            value = element.get_attribute("value")
-            return value if value else None
-        except NoSuchElementException:
-            return None
+            value = self.driver.execute_script("""
+                const keys = ['captchaRequestId', 'captcha_request_id', 'captchaRequestID'];
+                for (const key of keys) {
+                    const candidate = window[key];
+                    if (typeof candidate === 'string' && candidate.trim()) {
+                        return candidate;
+                    }
+                }
+                return null;
+                """)
         except WebDriverException:
-            return None
+            value = None
+
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned:
+                return cleaned
+
+        page_source = self.driver.page_source or ""
+        if page_source:
+            patterns = [
+                r"captchaRequestId\s*[:=]\s*['\"]([^'\"]+)['\"]",
+                r"captcha_request_id\s*[:=]\s*['\"]([^'\"]+)['\"]",
+                r"data-captcha-request-id=['\"]([^'\"]+)['\"]",
+                r"data-captcharequestid=['\"]([^'\"]+)['\"]",
+                r"name=['\"]captchaRequestId['\"][^>]*value=['\"]([^'\"]+)['\"]",
+                r"name=['\"]captcha_request_id['\"][^>]*value=['\"]([^'\"]+)['\"]",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, page_source, re.IGNORECASE)
+                if not match:
+                    continue
+                candidate = match.group(1).strip()
+                if candidate:
+                    return candidate
+
+        return None
 
     def _resolve_facility_preferences(self, request: BookingRequest) -> list[str]:
         """Resolve requested facility preferences against visible tennis names."""

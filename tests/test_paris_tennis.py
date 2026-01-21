@@ -803,6 +803,41 @@ class TestParisTennisService:
 
         assert service._submit_search_form_if_present() is False
 
+    def test_get_captcha_request_id_from_named_input(self, service, mock_driver):
+        """Test captchaRequestId extraction from named input."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_input = MagicMock()
+        mock_input.get_attribute.return_value = "CAP-789"
+
+        def find_element_side_effect(by, value):
+            if by == By.CSS_SELECTOR and value == "input[name='captchaRequestId']":
+                return mock_input
+            raise NoSuchElementException()
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+
+        assert service._get_captcha_request_id() == "CAP-789"
+
+    def test_get_captcha_request_id_from_window_variable(self, service, mock_driver):
+        """Test captchaRequestId extraction from window variables."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_driver.find_element.side_effect = NoSuchElementException()
+        mock_driver.execute_script.return_value = "CAP-456"
+
+        assert service._get_captcha_request_id() == "CAP-456"
+
+    def test_get_captcha_request_id_from_page_source(self, service, mock_driver):
+        """Test captchaRequestId extraction from page source."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_driver.find_element.side_effect = NoSuchElementException()
+        mock_driver.execute_script.return_value = None
+        mock_driver.page_source = "<script>var captchaRequestId = 'CAP-321';</script>"
+
+        assert service._get_captcha_request_id() == "CAP-321"
+
     def test_ensure_search_results_page_submits_form(self, service, mock_driver):
         """Test search results page uses form submission when available."""
         mock_driver.current_url = (
