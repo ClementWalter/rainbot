@@ -1141,6 +1141,12 @@ class ParisTennisService:
                     const selInOut = arguments[3] || [];
                     const selCoating = arguments[4] || [];
                     const captchaRequestId = arguments[5];
+                    const liTokenInput = document.getElementById('li-antibot-token')
+                        || document.querySelector("input[name='li-antibot-token']");
+                    const liTokenCodeInput = document.getElementById('li-antibot-token-code')
+                        || document.querySelector("input[name='li-antibot-token-code']");
+                    const liToken = liTokenInput ? liTokenInput.value : "";
+                    const liTokenCode = liTokenCodeInput ? liTokenCodeInput.value : "";
                     const params = new URLSearchParams();
                     params.append("hourRange", hourRange);
                     params.append("when", whenValue);
@@ -1149,6 +1155,12 @@ class ParisTennisService:
                     selCoating.forEach((value) => params.append("selCoating", value));
                     if (captchaRequestId) {
                         params.append("captchaRequestId", captchaRequestId);
+                    }
+                    if (liToken) {
+                        params.append("li-antibot-token", liToken);
+                    }
+                    if (liTokenCode) {
+                        params.append("li-antibot-token-code", liTokenCode);
                     }
 
                     fetch(arguments[6], {

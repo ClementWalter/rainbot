@@ -525,6 +525,10 @@ availability, but still needs real-site verification.
     `g-recaptcha-response` field, token injection had no effect. The injector
     now creates hidden response fields in available forms (or falls back to the
     document body) before setting the token and dispatching events.
+92. **AJAX Availability Missing LiveIdentity Tokens** - Fixed: the availability
+    fetch now forwards `li-antibot-token` and `li-antibot-token-code` values
+    from the results page when present so the live AJAX search stays aligned
+    with the anti-bot session state.
 
 ---
 

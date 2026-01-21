@@ -1176,6 +1176,8 @@ class TestParisTennisService:
         assert "selInOut" in script
         assert "selCoating" in script
         assert "captchaRequestId" in script
+        assert "li-antibot-token" in script
+        assert "li-antibot-token-code" in script
         assert args[-2] == "CAPTCHA-123"
         assert args[-1] == (
             "https://example.com/tennis/jsp/site/Portal.jsp?"
