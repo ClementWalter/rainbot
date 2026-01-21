@@ -1222,6 +1222,7 @@ class TestParisTennisService:
         def execute_script_side_effect(script):
             if "mapMarkers" in script:
                 assert "collectValueKeys" in script
+                assert "facilityName" in script
                 return ["Jesse Owens", " ", "Bertrand Dauvin"]
             if "jsFav" in script:
                 return []

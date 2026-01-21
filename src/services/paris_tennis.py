@@ -888,6 +888,17 @@ class ParisTennisService:
                     return [];
                 }
 
+                const nameKeys = [
+                    'name',
+                    'nom',
+                    'label',
+                    'title',
+                    'libelle',
+                    'tennisName',
+                    'facilityName',
+                    'siteName',
+                ];
+
                 const collectKeys = (value) => {
                     if (!value) {
                         return [];
@@ -897,6 +908,46 @@ class ParisTennisService:
                     }
                     if (typeof value === 'object') {
                         return Object.keys(value);
+                    }
+                    return [];
+                };
+
+                const collectNameValues = (value) => {
+                    if (!value) {
+                        return [];
+                    }
+                    if (typeof value === 'string') {
+                        return [value];
+                    }
+                    if (Array.isArray(value)) {
+                        const results = [];
+                        value.forEach((item) => results.push(...collectNameValues(item)));
+                        return results;
+                    }
+                    if (value instanceof Map) {
+                        const results = [];
+                        for (const item of value.values()) {
+                            results.push(...collectNameValues(item));
+                        }
+                        return results;
+                    }
+                    if (typeof value === 'object') {
+                        const results = [];
+                        nameKeys.forEach((key) => {
+                            const candidate = value[key];
+                            if (typeof candidate === 'string') {
+                                results.push(candidate);
+                            }
+                        });
+                        const mapSelect = value.mapSelectTennis || value['mapSelectTennis'];
+                        if (mapSelect) {
+                            results.push(...collectNameValues(mapSelect));
+                        }
+                        const mapList = value.map || value['map'];
+                        if (mapList) {
+                            results.push(...collectNameValues(mapList));
+                        }
+                        return results;
                     }
                     return [];
                 };
@@ -933,8 +984,12 @@ class ParisTennisService:
                         keys = collectKeys(mapList);
                     }
                     const valueKeys = collectValueKeys(markers);
+                    const valueNames = collectNameValues(markers);
                     if (!keys.length) {
                         keys = collectKeys(markers);
+                    }
+                    if (valueNames.length) {
+                        return valueNames.concat(valueKeys, keys);
                     }
                     if (valueKeys.length) {
                         return valueKeys.concat(keys);
@@ -942,7 +997,11 @@ class ParisTennisService:
                     return keys;
                 }
 
+                const objectNames = collectNameValues(markers);
                 const objectKeys = extractFromObject(markers);
+                if (objectNames.length) {
+                    return objectNames.concat(objectKeys);
+                }
                 if (objectKeys.length) {
                     return objectKeys;
                 }
