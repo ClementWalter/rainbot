@@ -10,10 +10,13 @@ production-ready because Paris Tennis login/booking steps still need live-site
 validation, CAPTCHA edge cases and carnet selection remain unverified, and
 deployment/integration testing remains incomplete. AJAX slot scraping now falls
 back to DOM parsing to reduce false "no slots" results when the endpoint fails,
-but the fallback still needs live-site validation. The AJAX slot fetch now uses
-live-site parameter names (`selInOut`, `selCoating`) to avoid empty results from
-misnamed filters. Search result scraping now attempts to solve CAPTCHA gates
-before parsing availability, but still needs real-site verification.
+but the fallback still needs live-site validation. Reservation submission now
+includes LiveIdentity anti-bot token fields observed on tennis.paris.fr to align
+with the real booking flow, but the full captcha-to-confirmation path still
+needs live-site verification. The AJAX slot fetch now uses live-site parameter
+names (`selInOut`, `selCoating`) to avoid empty results from misnamed filters.
+Search result scraping now attempts to solve CAPTCHA gates before parsing
+availability, but still needs real-site verification.
 
 ### What Exists
 
@@ -37,8 +40,9 @@ before parsing availability, but still needs real-site verification.
    and CAPTCHA handling (login entrypoint, confirmation page, partner fields,
    search form facility selection) and complete an end-to-end run on
    tennis.paris.fr. Slot scraping now uses `action=ajax_rechercher_creneau` (the
-   live slot listing endpoint), but the full booking flow still needs validation
-   on the live site.
+   live slot listing endpoint), and reservation posts now include LiveIdentity
+   token fields, but the full booking flow still needs validation on the live
+   site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
    steps. A best-effort carnet selector exists but is not validated on the live
@@ -509,6 +513,10 @@ before parsing availability, but still needs real-site verification.
     `selInOut` and `selCoating` parameter names (matching the live search AJAX
     request) instead of `selInOut[]`/`selCoating[]`, preventing empty results
     from misnamed filters.
+89. **Reservation POST Missing LiveIdentity Tokens** - Fixed: the booking
+    submission now includes `li-antibot-token` and `li-antibot-token-code`
+    fields (captured from the live search results page) so the reservation
+    request matches the tennis.paris.fr flow.
 
 ---
 

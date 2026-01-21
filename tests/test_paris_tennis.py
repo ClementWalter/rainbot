@@ -439,10 +439,13 @@ class TestParisTennisService:
         service._submit_reservation_form(slot, captcha_request_id="captcha-1")
 
         args, _ = mock_driver.execute_script.call_args
+        script = args[0]
         assert args[-1] == urljoin(
             service.search_url,
             "Portal.jsp?page=reservation&view=reservation_captcha",
         )
+        assert "li-antibot-token" in script
+        assert "li-antibot-token-code" in script
 
     def test_parse_slot_element_detects_court_type_from_attributes(
         self,

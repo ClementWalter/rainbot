@@ -1526,6 +1526,12 @@ class ParisTennisService:
                 const dateFin = arguments[3];
                 const captchaRequestId = arguments[4];
                 const actionUrl = arguments[5];
+                const liTokenInput = document.getElementById('li-antibot-token')
+                    || document.querySelector("input[name='li-antibot-token']");
+                const liTokenCodeInput = document.getElementById('li-antibot-token-code')
+                    || document.querySelector("input[name='li-antibot-token-code']");
+                const liToken = liTokenInput ? liTokenInput.value : "";
+                const liTokenCode = liTokenCodeInput ? liTokenCodeInput.value : "";
 
                 let form = document.getElementById("formReservation");
                 if (!form) {
@@ -1552,6 +1558,8 @@ class ParisTennisService:
                 setInput("dateDeb", dateDeb);
                 setInput("dateFin", dateFin);
                 setInput("annulation", "false");
+                setInput("li-antibot-token", liToken);
+                setInput("li-antibot-token-code", liTokenCode);
                 if (captchaRequestId) {
                     setInput("captchaRequestId", captchaRequestId);
                 }
