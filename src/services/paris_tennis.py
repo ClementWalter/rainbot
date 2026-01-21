@@ -2344,6 +2344,7 @@ class ParisTennisService:
                     sel_in_out=sel_in_out,
                 )
             self._submit_reservation_form(slot, captcha_request_id)
+            self._wait_for_booking_state(wait)
             self._solve_captcha_if_present(wait)
 
             self._handle_reservation_details(
@@ -2437,6 +2438,20 @@ class ParisTennisService:
         ):
             return True
         return False
+
+    def _wait_for_booking_state(self, wait: Optional[WebDriverWait]) -> None:
+        """Wait for the reservation flow to reach a CAPTCHA or booking step."""
+        if wait is None:
+            return
+
+        try:
+            wait.until(
+                lambda driver: self._check_for_captcha()
+                or self._is_reservation_details_page()
+                or self._is_payment_page()
+            )
+        except TimeoutException:
+            pass
 
     def _submit_captcha_form_if_present(self, wait: Optional[WebDriverWait] = None) -> bool:
         """Submit the CAPTCHA form if it is present."""

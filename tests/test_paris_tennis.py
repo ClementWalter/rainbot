@@ -1169,6 +1169,52 @@ class TestParisTennisService:
         mock_ensure.assert_not_called()
         mock_get.assert_called_once()
 
+    def test_book_court_waits_for_booking_state_after_submit(
+        self,
+        service,
+        mock_driver,
+    ):
+        """Test booking waits for a reservation state after submitting."""
+        from selenium.common.exceptions import TimeoutException
+
+        service._logged_in = True
+        start_time = now_paris()
+        slot = CourtSlot(
+            facility_name="Facility",
+            facility_code="FAC1",
+            court_number="1",
+            date=start_time,
+            time_start="08:00",
+            time_end="09:00",
+            court_type=CourtType.ANY,
+            equipment_id="equip-1",
+            court_id="court-1",
+            reservation_start=start_time,
+            reservation_end=start_time + timedelta(hours=1),
+            captcha_request_id="CAP-123",
+        )
+
+        with patch("src.services.paris_tennis.WebDriverWait") as mock_wait, patch.object(
+            service, "_wait_for_booking_state"
+        ) as mock_state, patch.object(
+            service, "_submit_reservation_form"
+        ) as mock_submit, patch.object(
+            service, "_solve_captcha_if_present", return_value=False
+        ), patch.object(
+            service, "_handle_reservation_details", return_value=False
+        ), patch.object(
+            service, "_handle_payment_step", return_value=False
+        ), patch.object(
+            service, "_extract_confirmation_id", return_value="CONF-123"
+        ):
+            mock_wait.return_value.until.side_effect = TimeoutException()
+
+            result = service.book_court(slot)
+
+        assert result.success is True
+        mock_submit.assert_called_once_with(slot, "CAP-123")
+        mock_state.assert_called_once_with(mock_wait.return_value)
+
     def test_search_available_courts_empty(self, service, mock_driver, sample_booking_request):
         """Test search returns empty list when no results."""
         with patch.object(service, "_ensure_search_results_page"), patch.object(

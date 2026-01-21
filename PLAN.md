@@ -558,6 +558,10 @@ attributes are missing, but still needs live-site verification.
     reCAPTCHA/image fallbacks when LiveIdentity detection fails and returns the
     last error instead of reporting "No CAPTCHA detected", improving success
     rates when LiveIdentity config markup is missing.
+99. **Booking Flow Race Condition After Reservation Submit** - Fixed: The
+    booking flow now waits for a CAPTCHA or reservation/payment step after
+    submitting the reservation form, preventing fast follow-up actions from
+    running before the live page transition completes.
 
 ---
 
