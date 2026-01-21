@@ -569,6 +569,10 @@ mid-loop.
      availability scraping now reuses refreshed `captchaRequestId` values across
      facility iterations so subsequent slot fetches stay aligned with the latest
      CAPTCHA session token.
+101. **AJAX captchaRequestId Hidden in Availability HTML** - Fixed: availability
+     parsing now extracts `captchaRequestId` from AJAX HTML (hidden inputs or
+     scripts) and assigns it to slots when button attributes are missing, so
+     booking submissions reuse the correct CAPTCHA token.
 
 ---
 

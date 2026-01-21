@@ -636,6 +636,35 @@ class TestParisTennisService:
         assert slot.price == 12.0
         assert slot.court_type == CourtType.OUTDOOR
 
+    def test_parse_available_slots_html_uses_hidden_captcha_request_id(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing falls back to hidden captchaRequestId values."""
+        html = """
+        <input type="hidden" name="captchaRequestId" value="CAP-999" />
+        <div class="tennis-court">
+            <button class="buttonAllOk"
+                equipmentid="E9"
+                courtid="C9"
+                datedeb="2025/01/15 18:00:00"
+                datefin="2025/01/15 19:00:00"
+                typeprice="Couvert"></button>
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Facility",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id=None,
+        )
+
+        assert slots
+        assert slots[0].captcha_request_id == "CAP-999"
+
     def test_parse_available_slots_html_accepts_anchor_elements(
         self,
         service,

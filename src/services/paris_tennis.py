@@ -845,6 +845,49 @@ class ParisTennisService:
 
         return None
 
+    def _extract_captcha_request_id_from_soup(self, soup: BeautifulSoup) -> Optional[str]:
+        """Extract captchaRequestId from a parsed HTML fragment."""
+        if soup is None:
+            return None
+
+        selectors = (
+            "#captchaRequestId",
+            "input[name='captchaRequestId']",
+            "input[name='captcha_request_id']",
+            "[data-captcha-request-id]",
+            "[data-captcharequestid]",
+        )
+        for selector in selectors:
+            element = soup.select_one(selector)
+            if not element:
+                continue
+            for attr in ("value", "data-captcha-request-id", "data-captcharequestid"):
+                value = element.get(attr)
+                if value:
+                    return str(value).strip()
+
+        html = str(soup)
+        if not html:
+            return None
+
+        patterns = [
+            r"captchaRequestId\s*[:=]\s*['\"]([^'\"]+)['\"]",
+            r"captcha_request_id\s*[:=]\s*['\"]([^'\"]+)['\"]",
+            r"data-captcha-request-id=['\"]([^'\"]+)['\"]",
+            r"data-captcharequestid=['\"]([^'\"]+)['\"]",
+            r"name=['\"]captchaRequestId['\"][^>]*value=['\"]([^'\"]+)['\"]",
+            r"name=['\"]captcha_request_id['\"][^>]*value=['\"]([^'\"]+)['\"]",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if not match:
+                continue
+            candidate = match.group(1).strip()
+            if candidate:
+                return candidate
+
+        return None
+
     def _read_li_antibot_tokens(self) -> tuple[Optional[str], Optional[str]]:
         """Read LiveIdentity token values from page inputs."""
         try:
@@ -1289,6 +1332,9 @@ class ParisTennisService:
             return []
 
         soup = BeautifulSoup(html, "html.parser")
+        fallback_captcha_request_id = (
+            self._extract_captcha_request_id_from_soup(soup) or captcha_request_id
+        )
         slot_elements = self._find_slot_elements(soup)
         slots: list[CourtSlot] = []
 
@@ -1297,7 +1343,7 @@ class ParisTennisService:
                 button=element,
                 facility_name=facility_name,
                 target_date=target_date,
-                captcha_request_id=captcha_request_id,
+                captcha_request_id=fallback_captcha_request_id,
             )
             if not slot:
                 continue
