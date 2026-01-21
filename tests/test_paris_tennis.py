@@ -23,6 +23,7 @@ def mock_driver():
     """Create a mock WebDriver."""
     driver = MagicMock()
     driver.page_source = ""
+    driver.find_elements.return_value = []
     return driver
 
 
@@ -140,6 +141,7 @@ class TestParisTennisService:
         mock_password = MagicMock()
         mock_button = MagicMock()
         mock_user_menu = MagicMock()
+        mock_user_menu.is_displayed.return_value = True
 
         # Configure find_element to return appropriate mocks
         def find_element_side_effect(by, value):
@@ -147,13 +149,14 @@ class TestParisTennisService:
                 return mock_email
             elif value == "password":
                 return mock_password
-            elif ".user-menu" in value:
-                return mock_user_menu
             elif "submit" in value:
                 return mock_button
             raise Exception(f"Unexpected element: {value}")
 
         mock_driver.find_element.side_effect = find_element_side_effect
+        mock_driver.find_elements.side_effect = lambda by, value: (
+            [mock_user_menu] if value == ".navbar-collapse.connected" else []
+        )
 
         # Mock WebDriverWait
         with patch("src.services.paris_tennis.WebDriverWait") as mock_wait:
@@ -766,14 +769,20 @@ class TestParisTennisService:
 
     def test_is_logged_in_true(self, service, mock_driver):
         """Test _is_logged_in returns True when user menu found."""
-        mock_driver.find_element.return_value = MagicMock()
+        mock_element = MagicMock()
+        mock_element.is_displayed.return_value = True
+        mock_driver.find_elements.side_effect = lambda by, value: (
+            [mock_element] if value == ".navbar-collapse.connected" else []
+        )
         assert service._is_logged_in() is True
 
     def test_is_logged_in_false(self, service, mock_driver):
         """Test _is_logged_in returns False when no indicators found."""
-        from selenium.common.exceptions import NoSuchElementException
-
-        mock_driver.find_element.side_effect = NoSuchElementException()
+        mock_element = MagicMock()
+        mock_element.is_displayed.return_value = True
+        mock_driver.find_elements.side_effect = lambda by, value: (
+            [mock_element] if value == ".navbar-collapse.disconnected" else []
+        )
         assert service._is_logged_in() is False
 
     def test_check_for_captcha_found(self, service, mock_driver):

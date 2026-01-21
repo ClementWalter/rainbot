@@ -278,8 +278,35 @@ class ParisTennisService:
     def _is_logged_in(self) -> bool:
         """Check if currently logged in."""
         try:
-            # Look for common indicators of being logged in
-            # This may need adjustment based on actual website structure
+
+            def is_element_visible(element) -> bool:
+                try:
+                    return element.is_displayed()
+                except WebDriverException:
+                    return False
+
+            def has_visible_element(selector_list: list[tuple[By, str]]) -> bool:
+                for by, value in selector_list:
+                    try:
+                        elements = self.driver.find_elements(by, value)
+                    except WebDriverException:
+                        continue
+                    for element in elements:
+                        if is_element_visible(element):
+                            return True
+                return False
+
+            # Prefer explicit connected/disconnected nav state when available.
+            if has_visible_element([(By.CSS_SELECTOR, ".navbar-collapse.connected")]):
+                return True
+            if has_visible_element([(By.CSS_SELECTOR, ".navbar-collapse.disconnected")]):
+                return False
+
+            # Visible login button indicates logged-out state on landing pages.
+            if has_visible_element([(By.CSS_SELECTOR, "#button_suivi_inscription")]):
+                return False
+
+            # Fallback to other indicators when nav state is unavailable.
             indicators = [
                 (By.CSS_SELECTOR, ".user-menu"),
                 (By.CSS_SELECTOR, ".logout"),
@@ -289,13 +316,7 @@ class ParisTennisService:
                 (By.LINK_TEXT, "Déconnexion"),
                 (By.PARTIAL_LINK_TEXT, "Mon compte"),
             ]
-            for by, value in indicators:
-                try:
-                    self.driver.find_element(by, value)
-                    return True
-                except NoSuchElementException:
-                    continue
-            return False
+            return has_visible_element(indicators)
         except WebDriverException:
             return False
 

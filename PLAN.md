@@ -77,9 +77,10 @@ real-site verification.
 1. **Partner Email Optional** - `partner_email` is optional in BookingRequest,
    but PRD says both user AND partner should receive reminders. The code handles
    this gracefully by skipping partners without email.
-2. **Login entrypoint selectors unvalidated** - The login flow uses the landing
-   page and Mon Paris SSO selectors, but the selectors still need live-site
-   validation for logged-out sessions.
+2. **Login state selectors still need broader validation** - The landing page
+   and Mon Paris SSO selectors have been validated on tennis.paris.fr, but the
+   post-login booking flow still needs live-site verification for partner,
+   carnet, and confirmation selectors.
 3. **LiveIdentity CAPTCHA edge cases** - Invisible challenge handling now defers
    to reCAPTCHA detection, but live-site validation on tennis.paris.fr is still
    pending.
@@ -480,6 +481,11 @@ real-site verification.
     challenges now attempt a browser-context fetch first so session-protected
     CAPTCHA images can be solved even when direct HTTP requests are blocked,
     falling back to a direct request when browser fetch fails.
+83. **Login State False Positive** - Fixed: The site renders a hidden
+    `#banner-mon-compte_menu__logout` element even when logged out, which caused
+    `_is_logged_in()` to return true and skip authentication. Login detection
+    now checks for visible `.navbar-collapse.connected/.disconnected` nav state
+    and the login button before falling back to other indicators.
 
 ---
 
