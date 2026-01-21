@@ -134,6 +134,12 @@ class TestParisTennisService:
         with pytest.raises(RuntimeError, match="No WebDriver available"):
             _ = service.driver
 
+    def test_li_antibot_token_validation_rejects_error_tokens(self, service):
+        """Test LiveIdentity token validation rejects error strings."""
+        assert service._is_li_antibot_token_valid("Error from server: 404") is False
+        assert service._is_li_antibot_token_valid("Erreur serveur") is False
+        assert service._is_li_antibot_token_valid("valid-token") is True
+
     def test_login_success(self, service, mock_driver):
         """Test successful login."""
         # Setup mock elements

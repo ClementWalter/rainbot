@@ -928,7 +928,8 @@ class ParisTennisService:
         lowered = token.strip().lower()
         if not lowered:
             return False
-        if "blacklist" in lowered or "invalid" in lowered:
+        invalid_markers = ("blacklist", "invalid", "error", "erreur")
+        if any(marker in lowered for marker in invalid_markers):
             return False
         return lowered != "invalid response."
 

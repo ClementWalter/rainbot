@@ -77,6 +77,12 @@ class TestCaptchaSolverService:
             service = CaptchaSolverService()
             assert service._api_key == "settings-api-key"
 
+    def test_liveidentity_token_validation_rejects_error_tokens(self, service):
+        """Test LiveIdentity token validation rejects error strings."""
+        assert service._is_liveidentity_token_valid("Error from server: 404") is False
+        assert service._is_liveidentity_token_valid("Erreur serveur") is False
+        assert service._is_liveidentity_token_valid("valid-token") is True
+
     def test_solver_property_creates_instance(self, service):
         """Test solver property creates TwoCaptcha instance."""
         with patch("src.services.captcha_solver.TwoCaptcha") as mock_class:

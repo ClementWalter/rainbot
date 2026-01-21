@@ -198,7 +198,11 @@ mid-loop.
     "no slots available" notification (`send_no_slots_notification()`) that
     includes the search criteria (day, time range, facilities) and reassures the
     user that the system will continue searching automatically.
-16. **No-Slots Notification Spam** - Fixed: The `send_no_slots_notification()`
+16. **LiveIdentity error tokens treated as valid** - Fixed: LiveIdentity refresh
+    attempts can yield token strings like "Error from server: 404". Token
+    validation now treats error/erreur strings as invalid so the bot does not
+    send unusable anti-bot tokens during scraping or booking.
+17. **No-Slots Notification Spam** - Fixed: The `send_no_slots_notification()`
     was called every time the booking job ran and found no slots. With the
     default interval scheduling (as frequent as every 10 seconds), this would
     spam users with repeated identical notifications. Added a
@@ -207,7 +211,7 @@ mid-loop.
     sends one "no slots" notification per booking request per target booking
     date. Also added cleanup function `cleanup_old_no_slots_notifications()` to
     remove old tracking records.
-17. **HTML Injection Vulnerability in Email Notifications** - Fixed: All
+18. **HTML Injection Vulnerability in Email Notifications** - Fixed: All
     notification methods (`send_booking_confirmation`,
     `send_match_day_reminder`, `send_booking_failure_notification`,
     `send_no_slots_notification`) were directly interpolating user-provided data
@@ -218,362 +222,362 @@ mid-loop.
     rendering and CSS injection can be used for phishing attempts. Now uses
     `html.escape()` to properly escape all user-provided data before embedding
     it in HTML templates.
-18. **Missing Cleanup Job for NoSlotsNotifications** - Fixed: The
+19. **Missing Cleanup Job for NoSlotsNotifications** - Fixed: The
     `cleanup_old_no_slots_notifications()` function existed in
     `google_sheets.py` but was never called by any scheduled job. This would
     cause the NoSlotsNotifications sheet to grow indefinitely, potentially
     causing performance issues. Added `cleanup_old_notifications()` cron job
     that runs daily at 3:00 AM Paris time (after the reminder job) to clean up
     records older than 7 days.
-19. **BookingRequest court_type defaults** - Fixed: `BookingRequest.from_dict()`
+20. **BookingRequest court_type defaults** - Fixed: `BookingRequest.from_dict()`
     now treats blank or invalid `court_type` values as `CourtType.ANY` instead
     of raising and dropping the request.
-20. **Priority Logic Slot Ordering** - Fixed: Available slots are now sorted by
+21. **Priority Logic Slot Ordering** - Fixed: Available slots are now sorted by
     facility preference order and earliest start time to guarantee the intended
     priority logic from the PRD.
-21. **Booking Job Too Restrictive by Day** - Fixed: booking_job no longer
+22. **Booking Job Too Restrictive by Day** - Fixed: booking_job no longer
     restricts processing to requests whose day_of_week matches today. It now
     processes requests daily and always searches for the next occurrence of the
     requested day, improving continuous monitoring and booking success chances.
-22. **Carnet Balance Eligibility** - Fixed: Users can now provide a
+23. **Carnet Balance Eligibility** - Fixed: Users can now provide a
     `carnet_balance` value (remaining tickets) and the eligibility check blocks
     bookings when the balance is zero or negative.
-23. **Booking History CSV Export Not Exposed via Sheets Service** - Fixed: Added
+24. **Booking History CSV Export Not Exposed via Sheets Service** - Fixed: Added
     `export_booking_history_csv()` on `GoogleSheetsService` to generate CSV
     histories directly from stored bookings.
-24. **Case-Sensitive Boolean Parsing from Google Sheets** - Fixed: Uppercase
+25. **Case-Sensitive Boolean Parsing from Google Sheets** - Fixed: Uppercase
     "TRUE" values for `subscription_active` and `active` were treated as false,
     unintentionally disabling eligible users/requests. Parsing is now
     case-insensitive for these flags.
-25. ~~**User Lock Scope Per Request** - The booking job released the per-user
+26. ~~**User Lock Scope Per Request** - The booking job released the per-user
     lock after each request, allowing another job to process the same user
     between requests and potentially book multiple courts.~~ **FIXED**: The
     booking job now groups requests by user, holds the lock across all of that
     user's requests, and stops after the first successful booking per user.
-26. ~~**Day-of-Week Parsing Too Strict** - `BookingRequest.from_dict()` only
+27. ~~**Day-of-Week Parsing Too Strict** - `BookingRequest.from_dict()` only
     accepted English day names and would fail on French inputs or extra
     whitespace from Google Sheets, dropping valid requests.~~ **FIXED**: Parsing
     now strips whitespace and accepts French day names (e.g., "mardi").
-27. **Time Strings With Seconds Not Normalized** - `normalize_time()` rejected
+28. **Time Strings With Seconds Not Normalized** - `normalize_time()` rejected
     values like "09:00:00" (common from Google Sheets or site HTML), causing
     booking time validation and slot filtering to fail. **FIXED**: Now accepts
     "HH:MM:SS" and strips seconds for consistent comparisons.
-28. **Carnet Balance Not Decremented After Booking** - Fixed: Successful
+29. **Carnet Balance Not Decremented After Booking** - Fixed: Successful
     bookings now decrement and persist the user's carnet balance in the Users
     sheet when a balance is tracked, preventing overbooking on stale balances.
-29. **Blank Subscription/Active Flags Disable Users/Requests** - Fixed:
+30. **Blank Subscription/Active Flags Disable Users/Requests** - Fixed:
     `subscription_active` and `active` values that are empty or `None` now
     default to `True` to avoid unintentionally disabling eligible users or
     active requests when Sheets cells are blank.
-30. ~~**Missing/Invalid time_end Allows Same-Day Double Booking** - When a
+31. ~~**Missing/Invalid time_end Allows Same-Day Double Booking** - When a
     booking for today lacks a valid `time_end`, `has_pending_booking()` treated
     it as not pending, allowing duplicate same-day bookings in violation of the
     "one active booking per user" rule.~~ **FIXED**: Missing/invalid end times
     are now treated as pending for the day.
-31. ~~**Invisible reCAPTCHA Misclassified as v3** - The CAPTCHA solver treated
+32. ~~**Invisible reCAPTCHA Misclassified as v3** - The CAPTCHA solver treated
     `data-size="invisible"` as reCAPTCHA v3, causing invalid solve calls for
     invisible v2 widgets.~~ **FIXED**: Invisible v2 now calls
     `solve_recaptcha_v2(..., invisible=True)` while v3 detection uses
     `data-action` and page hints.
-32. **Booking.from_dict Drops Date Objects** - `Booking.from_dict()` replaced
+33. **Booking.from_dict Drops Date Objects** - `Booking.from_dict()` replaced
     `date` values passed as `datetime.date` objects with `now_paris()`, which
     could shift booking dates for records coming from Google Sheets. **FIXED**:
     Date objects are now converted to Paris-midnight `datetime` values and
     preserved.
-33. **Notification Locale** - Email templates relied on system locale for
+34. **Notification Locale** - Email templates relied on system locale for
     day/month names, so French templates could display English dates. **FIXED**:
     Booking confirmation dates now use explicit French day/month mappings.
-34. **Court Type Validation in Slot Parsing** - Fixed: Court slots now attempt
+35. **Court Type Validation in Slot Parsing** - Fixed: Court slots now attempt
     to detect indoor/outdoor from DOM attributes/classes and filter mismatched
     results even if the UI filter fails, while allowing unknown types through.
-35. **Invalid Time Component Handling** - Fixed: `normalize_time()` now
+36. **Invalid Time Component Handling** - Fixed: `normalize_time()` now
     validates hour/minute/second ranges (rejecting values like "24:00" or
     "12:99") to prevent invalid times from slipping into request validation and
     slot filtering.
-36. **Facility Preferences None Crash** - Fixed: `BookingRequest.from_dict()`
+37. **Facility Preferences None Crash** - Fixed: `BookingRequest.from_dict()`
     now defaults `facility_preferences` to an empty list when the source value
     is `None` or an unexpected type, preventing `TypeError` when iterating
     facility preferences during court searches.
-37. **French Time Format Parsing** - Fixed: `normalize_time()` now accepts
+38. **French Time Format Parsing** - Fixed: `normalize_time()` now accepts
     French-style formats like "18h00" or "18 h 00" so booking requests and slot
     parsing don't silently drop valid times entered in common French notation.
-38. **User.from_dict None Handling** - Fixed: `User.from_dict()` previously
+39. **User.from_dict None Handling** - Fixed: `User.from_dict()` previously
     converted `None` values into the literal string `"None"` for required fields
     (id/email/credentials), which could make users appear eligible with missing
     credentials and trigger failed logins. Now treats `None` as empty strings so
     eligibility checks behave correctly.
-39. **BookingRequest Direct Init Time Normalization** - Fixed: Direct
+40. **BookingRequest Direct Init Time Normalization** - Fixed: Direct
     `BookingRequest(...)` construction did not normalize/clamp `time_start` and
     `time_end`, which could break time range comparisons (e.g., "9:00" vs
     "20:00"). Added `__post_init__` to normalize/clamp and swap inverted times,
     plus tests for direct initialization.
-40. **Partner Booking Confirmation Missing** - Fixed: Successful bookings only
+41. **Partner Booking Confirmation Missing** - Fixed: Successful bookings only
     notified the user, even when a partner email was provided. Now a booking
     confirmation email is also sent to the partner when `partner_email` is
     available.
-41. **Reminder Schedule Configuration** - Fixed: Match-day reminder cron time is
+42. **Reminder Schedule Configuration** - Fixed: Match-day reminder cron time is
     now configurable via `REMINDER_HOUR`, `REMINDER_MINUTE`, and
     `REMINDER_SECOND`, with a default of 08:00 to align with the PRD's "morning"
     reminder requirement.
-42. **Image CAPTCHA URL Handling** - Fixed: image CAPTCHA sources that are
+43. **Image CAPTCHA URL Handling** - Fixed: image CAPTCHA sources that are
     HTTP(S) URLs are now downloaded and base64-encoded before sending to the
     2Captcha solver, preventing failures when the CAPTCHA image is not a local
     file path.
-43. **AJAX Availability Endpoint Path** - Fixed: the day-availability fetch now
+44. **AJAX Availability Endpoint Path** - Fixed: the day-availability fetch now
     builds the AJAX URL from `search_url` so it resolves to
     `/tennis/jsp/site/Portal.jsp?page=recherche&action=ajax_disponibilite`
     instead of a relative path that duplicated `jsp/site`.
-44. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
+45. **Facility Favorites Discovery** - Fixed: Paris Tennis facility detection
     now uses live DOM favorites (`window.jsFav` / `.tennisName`) with fallback
     to legacy selectors, improving alignment with tennis.paris.fr.
-45. **Court Number Parsing Regex** - Fixed: Court number parsing in
+46. **Court Number Parsing Regex** - Fixed: Court number parsing in
     `paris_tennis.py` used a double-escaped regex that matched literal `\s`/`\d`
     sequences, so labels like "Court n° 3" were not reduced to the numeric court
     number. The regex now correctly extracts digits from common labels.
-46. **Booking Date Timezone Normalization** - Fixed: `Booking.from_dict()`
+47. **Booking Date Timezone Normalization** - Fixed: `Booking.from_dict()`
     parsed ISO datetime strings with timezone offsets but did not normalize them
     to Paris time, so dates near midnight could be off by a day for reminders
     and pending-booking checks. Parsed `date`/`created_at` values are now
     converted to Europe/Paris, and `Booking.is_today()` compares Paris dates for
     timezone-aware values.
-47. **LiveIdentity invisible CAPTCHA fallback** - Fixed: Invisible LI_ANTIBOT
+48. **LiveIdentity invisible CAPTCHA fallback** - Fixed: Invisible LI_ANTIBOT
     responses no longer hard-fail the CAPTCHA solver; the flow now defers to
     reCAPTCHA detection so invisible challenges can still be solved.
-48. **Mon Paris Login Entrypoint** - Fixed: The login flow now detects Mon Paris
+49. **Mon Paris Login Entrypoint** - Fixed: The login flow now detects Mon Paris
     links (parisian-account/mobileMonCompte) and clicks the Mon Paris
     "Connexion" dropdown to reach the SSO login form, aligning with the current
     moncompte.paris.fr flow.
-49. **Booking.is_today naive datetime handling** - Fixed: Naive `Booking.date`
+50. **Booking.is_today naive datetime handling** - Fixed: Naive `Booking.date`
     values are normalized to Paris timezone when checking `is_today`, and the
     tests now use `now_paris()` to align with the Paris-only time model.
-50. **Facility Address Extraction in AJAX flow** - Fixed:
+51. **Facility Address Extraction in AJAX flow** - Fixed:
     `_parse_available_slots_html()` now extracts facility addresses from AJAX
     HTML (data attributes or address labels) so booking confirmations and
     reminders include the facility address.
-51. **CAPTCHA Form Submission After Solve** - Fixed: The booking flow solved
+52. **CAPTCHA Form Submission After Solve** - Fixed: The booking flow solved
     CAPTCHA challenges but did not explicitly submit the CAPTCHA form, which
     could leave the reservation stuck on the CAPTCHA page. The flow now submits
     the CAPTCHA form when present to advance to payment/confirmation.
-52. **Relative Image CAPTCHA URLs** - Fixed: Image CAPTCHA sources that are
+53. **Relative Image CAPTCHA URLs** - Fixed: Image CAPTCHA sources that are
     relative URLs (for example, `/captcha/image`) are now resolved against the
     current page URL before being sent to the solver, preventing failures when
     the site returns non-absolute image sources.
-53. **Image CAPTCHA Data URI Handling** - Fixed: Image CAPTCHA sources embedded
+54. **Image CAPTCHA Data URI Handling** - Fixed: Image CAPTCHA sources embedded
     as `data:` URIs now have their base64 payload extracted before sending to
     the solver, preventing failures when CAPTCHAs are inlined in HTML.
-54. **AJAX Slot Attribute Variants** - Fixed: AJAX slot parsing only matched
+55. **AJAX Slot Attribute Variants** - Fixed: AJAX slot parsing only matched
     `buttonAllOk` buttons and camel-case attributes, so slots could be missed
     when the live site emits `data-*` attributes. Parsing now accepts `data-*`
     equipment/court/date/price/captcha attributes, improving real-site scraping
     resilience.
-55. **AJAX Slot Date Format Variants** - Fixed: Availability parsing only
+56. **AJAX Slot Date Format Variants** - Fixed: Availability parsing only
     handled `YYYY/MM/DD HH:MM:SS` date strings, so slots with dashes or missing
     seconds were dropped. Parsing now accepts both slash/dash formats and
     optional seconds to avoid missing valid slots.
-56. **8:00 AM Booking Burst Minute Scope** - Fixed: The burst booking cron jobs
+57. **8:00 AM Booking Burst Minute Scope** - Fixed: The burst booking cron jobs
     ran every minute during the 8 AM hour because the minute field was omitted.
     The schedule now pins `minute=0` so the burst only runs at
     08:00:00-08:00:08, and tests cover the cron configuration.
-57. **AJAX Slot Endpoint Mismatch** - Fixed: Slot scraping previously called
+58. **AJAX Slot Endpoint Mismatch** - Fixed: Slot scraping previously called
     `action=ajax_disponibilite`, which only returns day-level availability and
     no `buttonAllOk` booking payloads. The scraper now uses
     `action=ajax_rechercher_creneau` with `selInOut[]`/`selCoating[]` parameters
     to fetch actual slot HTML from the live site.
-58. **Facility Preferences Substring Matching** - Fixed: Facility preferences
+59. **Facility Preferences Substring Matching** - Fixed: Facility preferences
     now match facility names when a unique substring match exists (useful for
     codes embedded in facility names), reducing failed searches when request
     preferences are stored as codes.
-59. **Facility Preference Ordering With Codes** - Fixed: When requests stored
+60. **Facility Preference Ordering With Codes** - Fixed: When requests stored
     facility preferences as short codes (for example, "FAC001") and slots used
     normalized facility names, the sorting logic could ignore preference order
     and sort purely by time. Sorting now applies substring-aware matching so
     facility priority is preserved even when codes are embedded in facility
     names.
-60. **Zero Interval Schedule Crash** - Fixed: APScheduler raises when the
+61. **Zero Interval Schedule Crash** - Fixed: APScheduler raises when the
     interval job is configured with HOUR/MINUTE/SECOND all set to zero. The
     scheduler now clamps negative values to zero and defaults to a 10-second
     interval when all values are zero, preventing startup crashes from invalid
     configuration.
-61. **Reservation Form Action URL** - Fixed: The reservation form submission
+62. **Reservation Form Action URL** - Fixed: The reservation form submission
     used a relative action path (`jsp/site/Portal.jsp...`) that could duplicate
     `jsp/site` when resolved from the search results page, potentially breaking
     booking. The action URL is now built from the search URL and passed into the
     submission script, with tests covering the absolute URL.
-62. **reCAPTCHA v3 Script-Only Detection** - Fixed: CAPTCHA solving relied on
+63. **reCAPTCHA v3 Script-Only Detection** - Fixed: CAPTCHA solving relied on
     DOM elements with `data-sitekey`, so pages that only embed reCAPTCHA v3 via
     `api.js?render=` or `grecaptcha.execute(...)` were skipped. The solver now
     extracts sitekeys/actions from page source and CAPTCHA detection recognizes
     script-only reCAPTCHA, ensuring v3 challenges are solved.
-63. **AJAX-Only Slot Search Fallback** - Fixed: `search_available_courts()`
+64. **AJAX-Only Slot Search Fallback** - Fixed: `search_available_courts()`
     previously returned no slots when the AJAX endpoint failed or facility
     preferences could not be resolved, even if slots were visible in the DOM. It
     now falls back to DOM parsing when AJAX yields no slots or no facility names
     are resolved.
-64. **Hidden Search Form Results Context** - Fixed: The live search page hides
+65. **Hidden Search Form Results Context** - Fixed: The live search page hides
     the `#rechercher` submit button, so Selenium timeouts prevented reaching the
     `action=rechercher_creneau` results context and `captchaRequestId`. The flow
     now submits `#search_form` directly and only falls back to clicking the
     button when needed.
-65. **French Boolean Parsing** - Fixed: `is_truthy()` now accepts French boolean
+66. **French Boolean Parsing** - Fixed: `is_truthy()` now accepts French boolean
     strings (for example, "vrai" or "oui") and common English "yes" values so
     active/subscription flags are not misread in French-localized Google Sheets.
-66. **LiveIdentity Single-Quoted Config Parsing** - Fixed: The LiveIdentity
+67. **LiveIdentity Single-Quoted Config Parsing** - Fixed: The LiveIdentity
     parser expected JSON arrays and failed when `LI_ANTIBOT.loadAntibot(...)`
     used single-quoted JavaScript arrays, preventing anti-bot CAPTCHA detection.
     The parser now normalizes JS literals and accepts single-quoted arrays so
     LiveIdentity challenges are detected reliably.
-67. **LiveIdentity Token Validation Trigger** - Fixed: The token injection now
+68. **LiveIdentity Token Validation Trigger** - Fixed: The token injection now
     dispatches input/change events on `li-antibot-token` and calls
     `checkFormValidity()` when available so the live CAPTCHA form enables the
     submit button after a successful solve.
-68. **DOM Fallback Ignores Facility Preferences** - Fixed: When the AJAX slot
+69. **DOM Fallback Ignores Facility Preferences** - Fixed: When the AJAX slot
     search failed, DOM parsing returned slots for all facilities, which could
     result in bookings outside a user's preferred facilities. The DOM fallback
     now filters slots using normalized facility preference matching before
     sorting and booking.
-69. **AJAX Slot Elements Limited to `<button>` Tags** - Fixed: Availability
+70. **AJAX Slot Elements Limited to `<button>` Tags** - Fixed: Availability
     parsing now considers anchor/input elements and attribute-based selectors so
     slots are not missed when the live site renders booking controls outside
     `<button>` tags.
-70. **Search Form Submission Bypassed UI Handlers** - Fixed: The search flow
+71. **Search Form Submission Bypassed UI Handlers** - Fixed: The search flow
     used `form.submit()` on the hidden `#search_form`, which bypassed the
     "Rechercher" button handlers that populate `selWhereTennisName` and caused
     empty facility lists and mismatched `captchaRequestId` values. The flow now
     updates the search form with the target date/facilities and triggers the
     hidden button click to keep parameters aligned with the live site.
-71. **LiveIdentity Config Extraction With Extra Args** - Fixed: The LiveIdentity
+72. **LiveIdentity Config Extraction With Extra Args** - Fixed: The LiveIdentity
     parser only matched `LI_ANTIBOT.loadAntibot([...])` and failed when the live
     site used `window.LI_ANTIBOT.loadAntibot([...], ...)` or added extra
     arguments. Config extraction now scans for the bracketed array literal
     regardless of extra arguments, ensuring CAPTCHA parsing works on live pages.
-72. **DOM Fallback Slot Parsing** - Fixed: DOM fallback parsing now recognizes
+73. **DOM Fallback Slot Parsing** - Fixed: DOM fallback parsing now recognizes
     live `.buttonAllOk` slots and extracts booking identifiers (`equipmentId`,
     `courtId`, `dateDeb`, `dateFin`), facility names from panel IDs, and
     indoor/outdoor labels so fallback bookings work when AJAX results are
     unavailable.
-73. **LiveIdentity CAPTCHA Image URL Resolution** - Fixed: The LiveIdentity
+74. **LiveIdentity CAPTCHA Image URL Resolution** - Fixed: The LiveIdentity
     solver previously concatenated `base_url` with the challenge image URL,
     which produced invalid URLs when the API returned absolute image links. The
     solver now uses `urljoin` with normalized base URLs so both absolute and
     relative image paths resolve correctly.
-74. **Facility Preferences Not Resolved From Map List** - Fixed: The live search
+75. **Facility Preferences Not Resolved From Map List** - Fixed: The live search
     page exposes facility names via `window.mapMarkers`, which can be a Map of
     names, a Map with nested `map` entries, or a plain object with a nested
     `map` property. The service now reads facility names from
     `mapMarkers.get('map')`, `mapMarkers.map`/`mapMarkers['map']`,
     `mapSelectTennis` variants, and the direct Map keys so facility filtering
     works on tennis.paris.fr.
-75. **CAPTCHA Gate Before Availability Scrape** - Fixed: search result scraping
+76. **CAPTCHA Gate Before Availability Scrape** - Fixed: search result scraping
     now detects and solves CAPTCHA challenges before parsing availability,
     preventing the live site from returning empty slot results when anti-bot
     challenges appear.
-76. **LiveIdentity Token Reuse/Refresh** - Fixed: the CAPTCHA solver now checks
+77. **LiveIdentity Token Reuse/Refresh** - Fixed: the CAPTCHA solver now checks
     existing `li-antibot-token` values and triggers the in-page
     `LI_ANTIBOT.reloadAntibot/loadAntibot` flow to refresh tokens before falling
     back to 2Captcha, reducing failed solves on tennis.paris.fr.
-77. **Session-Protected Image CAPTCHA Fetch** - Fixed: image CAPTCHA solving now
+78. **Session-Protected Image CAPTCHA Fetch** - Fixed: image CAPTCHA solving now
     attempts to fetch the CAPTCHA image through the browser context first,
     preserving session cookies so protected CAPTCHA images can be solved
     reliably on tennis.paris.fr.
-78. **captchaRequestId Extraction Too Narrow** - Fixed: booking previously only
+79. **captchaRequestId Extraction Too Narrow** - Fixed: booking previously only
     read a hidden input with `id="captchaRequestId"`, missing cases where the
     value is stored under input `name` attributes, `data-*` attributes, window
     variables, or inline scripts. `_get_captcha_request_id()` now checks these
     sources to keep reservation submissions aligned with the live site.
-79. **reCAPTCHA Token Injection Missed Page Callbacks** - Fixed: token injection
+80. **reCAPTCHA Token Injection Missed Page Callbacks** - Fixed: token injection
     now dispatches input/change events and invokes `data-callback` handlers
     (plus known `___grecaptcha_cfg` callbacks) so the live site recognizes
     solved CAPTCHA responses.
-80. **Login CAPTCHA Resubmission** - Fixed: the Mon Paris login flow now solves
+81. **Login CAPTCHA Resubmission** - Fixed: the Mon Paris login flow now solves
     CAPTCHA challenges when present and re-submits the login form so
     authentication does not stall on CAPTCHA gates.
-81. **AJAX Availability Missing captchaRequestId** - Fixed:
+82. **AJAX Availability Missing captchaRequestId** - Fixed:
     `_fetch_availability_html()` now includes the `captchaRequestId` parameter
     when available so the live `ajax_rechercher_creneau` endpoint returns slot
     results even when CAPTCHA gating is active.
-82. **LiveIdentity Image CAPTCHA Session Fetch** - Fixed: LiveIdentity image
+83. **LiveIdentity Image CAPTCHA Session Fetch** - Fixed: LiveIdentity image
     challenges now attempt a browser-context fetch first so session-protected
     CAPTCHA images can be solved even when direct HTTP requests are blocked,
     falling back to a direct request when browser fetch fails.
-83. **Login State False Positive** - Fixed: The site renders a hidden
+84. **Login State False Positive** - Fixed: The site renders a hidden
     `#banner-mon-compte_menu__logout` element even when logged out, which caused
     `_is_logged_in()` to return true and skip authentication. Login detection
     now checks for visible `.navbar-collapse.connected/.disconnected` nav state
     and the login button before falling back to other indicators.
-84. **Facility Names Hidden Inside mapMarkers Values** - Fixed:
+85. **Facility Names Hidden Inside mapMarkers Values** - Fixed:
     `_get_available_facility_names()` now extracts facility names from both
     mapMarkers keys and common name/label fields inside mapMarkers values (plus
     nested `map`/`mapSelectTennis` entries). This prevents AJAX slot scraping
     from using placeholder `map*` keys that do not match real facility names.
-85. **Day-First AJAX Slot Dates Not Parsed** - Fixed: `_parse_slot_datetime()`
+86. **Day-First AJAX Slot Dates Not Parsed** - Fixed: `_parse_slot_datetime()`
     now accepts day-first date formats like `DD/MM/YYYY HH:MM(:SS)` (plus dash
     variants), preventing Paris tennis AJAX slots from being dropped when the
     site returns French-style dates.
-86. **LiveIdentity Reload JS Error** - Fixed: `LI_ANTIBOT.reloadAntibot()` can
+87. **LiveIdentity Reload JS Error** - Fixed: `LI_ANTIBOT.reloadAntibot()` can
     throw a `TypeError` on the live search results page (blocking token
     refresh). The refresh helper now catches reload failures and falls back to
     `LI_ANTIBOT.loadAntibot()` with the parsed config so LiveIdentity tokens can
     still be refreshed before calling 2Captcha.
-87. **AJAX Availability CAPTCHA Retry** - Fixed: When the AJAX slot endpoint
+88. **AJAX Availability CAPTCHA Retry** - Fixed: When the AJAX slot endpoint
     returns CAPTCHA HTML, `_fetch_availability_html()` now detects the gate,
     attempts to solve the CAPTCHA, and retries once before giving up.
-88. **AJAX Filter Parameter Names** - Fixed: the availability fetch now uses
+89. **AJAX Filter Parameter Names** - Fixed: the availability fetch now uses
     `selInOut` and `selCoating` parameter names (matching the live search AJAX
     request) instead of `selInOut[]`/`selCoating[]`, preventing empty results
     from misnamed filters.
-89. **Reservation POST Missing LiveIdentity Tokens** - Fixed: the booking
+90. **Reservation POST Missing LiveIdentity Tokens** - Fixed: the booking
     submission now includes `li-antibot-token` and `li-antibot-token-code`
     fields (captured from the live search results page) so the reservation
     request matches the tennis.paris.fr flow.
-90. **Surface Filter Values Read Before Navigation** - Fixed: `selCoating`
+91. **Surface Filter Values Read Before Navigation** - Fixed: `selCoating`
     values were fetched before the search page loaded, leaving AJAX requests
     without surface filters and potentially returning empty results. The surface
     values are now read after the search page is loaded.
-91. **reCAPTCHA Response Field Missing** - Fixed: When pages did not include a
+92. **reCAPTCHA Response Field Missing** - Fixed: When pages did not include a
     `g-recaptcha-response` field, token injection had no effect. The injector
     now creates hidden response fields in available forms (or falls back to the
     document body) before setting the token and dispatching events.
-92. **AJAX Availability Missing LiveIdentity Tokens** - Fixed: the availability
+93. **AJAX Availability Missing LiveIdentity Tokens** - Fixed: the availability
     fetch now forwards `li-antibot-token` and `li-antibot-token-code` values
     from the results page when present so the live AJAX search stays aligned
     with the anti-bot session state.
-93. **Invalid LiveIdentity Tokens Sent to AJAX Availability** - Fixed: the
+94. **Invalid LiveIdentity Tokens Sent to AJAX Availability** - Fixed: the
     availability fetch now refreshes LiveIdentity tokens when they are invalid
     (for example, "Blacklisted end-user") and omits invalid tokens before
     sending AJAX requests.
-94. **Booking Re-submits Search Without captchaRequestId** - Fixed: bookings now
+95. **Booking Re-submits Search Without captchaRequestId** - Fixed: bookings now
     reuse the current results page `captchaRequestId` when available before
     re-submitting the search form, reducing unnecessary CAPTCHA retries and
     keeping the selected slot in context.
-95. **Reservation Details + Payment Step Handling** - Fixed: booking flow now
+96. **Reservation Details + Payment Step Handling** - Fixed: booking flow now
     fills reservation player fields, clicks "Ajouter un partenaire" when needed,
     and selects carnet payment options from price tables before advancing,
     aligning with the live reservation flow.
-96. **AJAX Availability CAPTCHA Retry Refresh** - Fixed: when the availability
+97. **AJAX Availability CAPTCHA Retry Refresh** - Fixed: when the availability
     AJAX response returns CAPTCHA HTML, the retry now refreshes
     `captchaRequestId` from the page after solving so the next request includes
     the updated token.
-97. **Slot Identifiers In href/onclick** - Fixed: availability and DOM parsing
+98. **Slot Identifiers In href/onclick** - Fixed: availability and DOM parsing
     now extract equipment/court/date identifiers (and `captchaRequestId`) from
     query strings or inline `onclick` handlers when data attributes are missing,
     improving scraping reliability on tennis.paris.fr.
-98. **LiveIdentity CAPTCHA Fallback** - Fixed: CAPTCHA solving now attempts
+99. **LiveIdentity CAPTCHA Fallback** - Fixed: CAPTCHA solving now attempts
     reCAPTCHA/image fallbacks when LiveIdentity detection fails and returns the
     last error instead of reporting "No CAPTCHA detected", improving success
     rates when LiveIdentity config markup is missing.
-99. **Booking Flow Race Condition After Reservation Submit** - Fixed: The
-    booking flow now waits for a CAPTCHA or reservation/payment step after
-    submitting the reservation form, preventing fast follow-up actions from
-    running before the live page transition completes.
-100. **Refreshed captchaRequestId Not Reused Across Facilities** - Fixed: AJAX
+100. **Booking Flow Race Condition After Reservation Submit** - Fixed: The
+     booking flow now waits for a CAPTCHA or reservation/payment step after
+     submitting the reservation form, preventing fast follow-up actions from
+     running before the live page transition completes.
+101. **Refreshed captchaRequestId Not Reused Across Facilities** - Fixed: AJAX
      availability scraping now reuses refreshed `captchaRequestId` values across
      facility iterations so subsequent slot fetches stay aligned with the latest
      CAPTCHA session token.
-101. **AJAX captchaRequestId Hidden in Availability HTML** - Fixed: availability
+102. **AJAX captchaRequestId Hidden in Availability HTML** - Fixed: availability
      parsing now extracts `captchaRequestId` from AJAX HTML (hidden inputs or
      scripts) and assigns it to slots when button attributes are missing, so
      booking submissions reuse the correct CAPTCHA token.
-102. **CAPTCHA Solve False Positives** - Fixed: when a CAPTCHA is detected but
+103. **CAPTCHA Solve False Positives** - Fixed: when a CAPTCHA is detected but
      the solver reports "No CAPTCHA detected", the flow now treats this as a
      failure instead of proceeding without a solved challenge.
 
