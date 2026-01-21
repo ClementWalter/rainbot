@@ -521,6 +521,10 @@ availability, but still needs real-site verification.
     values were fetched before the search page loaded, leaving AJAX requests
     without surface filters and potentially returning empty results. The surface
     values are now read after the search page is loaded.
+91. **reCAPTCHA Response Field Missing** - Fixed: When pages did not include a
+    `g-recaptcha-response` field, token injection had no effect. The injector
+    now creates hidden response fields in available forms (or falls back to the
+    document body) before setting the token and dispatching events.
 
 ---
 

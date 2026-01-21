@@ -1026,6 +1026,25 @@ class CaptchaSolverService:
                     elements.add(el);
                 }});
 
+                if (elements.size === 0) {{
+                    var containers = Array.prototype.slice.call(document.querySelectorAll('form'));
+                    if (!containers.length && document.body) {{
+                        containers = [document.body];
+                    }}
+                    if (containers.length) {{
+                        containers.forEach(function(container, index) {{
+                            var fallback = document.createElement('textarea');
+                            fallback.name = 'g-recaptcha-response';
+                            fallback.id = index === 0
+                                ? 'g-recaptcha-response'
+                                : 'g-recaptcha-response-' + index;
+                            fallback.style.display = 'none';
+                            container.appendChild(fallback);
+                            elements.add(fallback);
+                        }});
+                    }}
+                }}
+
                 elements.forEach(function(element) {{
                     try {{
                         element.value = token;

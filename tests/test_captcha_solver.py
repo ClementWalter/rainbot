@@ -822,6 +822,14 @@ class TestInjectRecaptchaToken:
         assert "test-token-123" in call_args
         assert "dispatchEvent" in call_args
 
+    def test_inject_token_creates_response_field_when_missing(self, service, mock_driver):
+        """Ensure reCAPTCHA injection creates a response field when none exist."""
+        service._inject_recaptcha_token(mock_driver, "token")
+
+        call_args = mock_driver.execute_script.call_args[0][0]
+        assert "createElement('textarea')" in call_args
+        assert "g-recaptcha-response" in call_args
+
     def test_inject_token_webdriver_error(self, service, mock_driver):
         """Test token injection handles WebDriver errors."""
         from selenium.common.exceptions import WebDriverException
