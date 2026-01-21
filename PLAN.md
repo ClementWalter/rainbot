@@ -573,6 +573,9 @@ mid-loop.
      parsing now extracts `captchaRequestId` from AJAX HTML (hidden inputs or
      scripts) and assigns it to slots when button attributes are missing, so
      booking submissions reuse the correct CAPTCHA token.
+102. **CAPTCHA Solve False Positives** - Fixed: when a CAPTCHA is detected but
+     the solver reports "No CAPTCHA detected", the flow now treats this as a
+     failure instead of proceeding without a solved challenge.
 
 ---
 

@@ -1071,6 +1071,20 @@ class TestParisTennisService:
         assert result is True
         submit.assert_called_once()
 
+    def test_solve_captcha_if_present_fails_on_false_positive(self, service):
+        """Test CAPTCHA solve fails when solver reports no CAPTCHA despite detection."""
+        service._captcha_solver = MagicMock()
+        service._captcha_solver.solve_captcha_from_page.return_value = MagicMock(
+            success=True, token=None, error_message="No CAPTCHA detected"
+        )
+
+        with patch.object(service, "_check_for_captcha", return_value=True):
+            with patch.object(service, "_submit_captcha_form_if_present") as submit:
+                result = service._solve_captcha_if_present()
+
+        assert result is False
+        submit.assert_not_called()
+
     def test_check_booking_success_true(self, service, mock_driver):
         """Test booking success detection when confirmed."""
         mock_driver.page_source = "Votre réservation confirmée avec succès"

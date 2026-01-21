@@ -645,6 +645,11 @@ class ParisTennisService:
         if not captcha_result.success:
             logger.error("CAPTCHA solving failed: %s", captcha_result.error_message)
             return False
+        if not captcha_result.token and (
+            "no captcha detected" in (captcha_result.error_message or "").lower()
+        ):
+            logger.error("CAPTCHA detected but solver did not detect a CAPTCHA")
+            return False
 
         self._submit_captcha_form_if_present(wait)
         return True
