@@ -52,6 +52,7 @@ class LiveIdentityConfig:
     base_url: str
     antibot_id: Optional[str]
     request_id: Optional[str]
+    raw_values: Optional[list] = None
 
 
 class CaptchaSolverService:
@@ -339,6 +340,14 @@ class CaptchaSolverService:
                     error_message="LiveIdentity captcha configuration not found",
                 )
 
+            existing_token = self._read_liveidentity_token(driver)
+            if self._is_liveidentity_token_valid(existing_token):
+                return CaptchaSolveResult(success=True, token=existing_token)
+
+            refreshed_token = self._refresh_liveidentity_token(driver, config)
+            if self._is_liveidentity_token_valid(refreshed_token):
+                return CaptchaSolveResult(success=True, token=refreshed_token)
+
             solve_result = self._solve_liveidentity_antibot(config)
             if solve_result is None:
                 return None
@@ -381,6 +390,7 @@ class CaptchaSolverService:
             base_url=base_url,
             antibot_id=get_value(7),
             request_id=get_value(8),
+            raw_values=config_values,
         )
 
     def _extract_liveidentity_config_array(self, page_source: str) -> Optional[str]:
@@ -524,6 +534,74 @@ class CaptchaSolverService:
         before = value[start - 1] if start > 0 else ""
         after = value[start + length] if start + length < len(value) else ""
         return not is_ident(before) and not is_ident(after)
+
+    def _read_liveidentity_token(self, driver: WebDriver) -> Optional[str]:
+        """Read the LiveIdentity token from the page if present."""
+        try:
+            token = driver.execute_script("""
+                const input = document.getElementById('li-antibot-token')
+                    || document.querySelector(\"input[name='li-antibot-token']\");
+                return input ? input.value : null;
+                """)
+        except WebDriverException:
+            return None
+        if not isinstance(token, str):
+            return None
+        token = token.strip()
+        return token or None
+
+    def _is_liveidentity_token_valid(self, token: Optional[str]) -> bool:
+        """Return True if the LiveIdentity token is usable."""
+        if not token or not isinstance(token, str):
+            return False
+        lowered = token.lower().strip()
+        if not lowered:
+            return False
+        if "blacklist" in lowered or "invalid" in lowered:
+            return False
+        return lowered != "invalid response."
+
+    def _refresh_liveidentity_token(
+        self,
+        driver: WebDriver,
+        config: LiveIdentityConfig,
+        timeout_seconds: int = 4,
+    ) -> Optional[str]:
+        """Attempt to refresh the LiveIdentity token using in-page JS helpers."""
+        try:
+            refreshed = driver.execute_script(
+                """
+                const configValues = arguments[0];
+                const li = window.LI_ANTIBOT;
+                if (!li) {
+                    return false;
+                }
+                if (typeof li.reloadAntibot === 'function') {
+                    li.reloadAntibot();
+                    return true;
+                }
+                if (typeof li.loadAntibot === 'function' && Array.isArray(configValues)) {
+                    li.loadAntibot(configValues);
+                    return true;
+                }
+                return false;
+                """,
+                config.raw_values if config else None,
+            )
+        except WebDriverException:
+            return None
+
+        if refreshed is not True:
+            return None
+
+        deadline = time.time() + max(1, timeout_seconds)
+        while time.time() < deadline:
+            token = self._read_liveidentity_token(driver)
+            if self._is_liveidentity_token_valid(token):
+                return token
+            time.sleep(0.5)
+
+        return None
 
     def _solve_liveidentity_antibot(
         self,

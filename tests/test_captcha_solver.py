@@ -289,7 +289,25 @@ class TestSolveCaptchaFromPage:
 
         assert result.success is True
         assert result.token == "live-token"
-        mock_driver.execute_script.assert_called_once()
+        assert mock_driver.execute_script.call_count >= 1
+
+    def test_liveidentity_uses_existing_token(self, service, mock_driver):
+        """Test LiveIdentity reuses existing valid token without solving."""
+        html = (
+            'LI_ANTIBOT.loadAntibot(["IMAGE","AUDIO","FR","+KEY",'
+            '"https://captcha.liveidentity.com/captcha",null,null,'
+            '"antibot-id","request-id",true]);'
+        )
+        mock_driver.page_source = html
+        mock_driver.find_element.return_value = MagicMock()
+        mock_driver.execute_script.return_value = "valid-token"
+
+        with patch.object(service, "_solve_liveidentity_antibot") as mock_solver:
+            result = service.solve_captcha_from_page(mock_driver, max_retries=1)
+
+        assert result.success is True
+        assert result.token == "valid-token"
+        mock_solver.assert_not_called()
 
     def test_no_captcha_detected(self, service, mock_driver):
         """Test when no CAPTCHA is present on page."""

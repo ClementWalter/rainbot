@@ -46,8 +46,10 @@ real-site verification.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
    the booking flow.
 5. **LiveIdentity anti-bot CAPTCHA**: Image-based LI_ANTIBOT flow is wired up.
-   Invisible challenges now fall back to reCAPTCHA detection, but live-site
-   validation is still required to confirm behavior.
+   The solver now reuses existing `li-antibot-token` values and attempts a
+   browser-side `LI_ANTIBOT.reloadAntibot/loadAntibot` refresh before calling
+   2Captcha, but live-site validation is still required to confirm behavior and
+   resolve "Blacklisted end-user" cases.
 6. **Deployment**: Scaleway cloud deployment (Docker, docker-compose) plus
    monitoring/logging. Use the Scaleway skill for guidance; it is not currently
    installed in this environment, so install it via `skill-installer` before
@@ -449,6 +451,10 @@ real-site verification.
     now detects and solves CAPTCHA challenges before parsing availability,
     preventing the live site from returning empty slot results when anti-bot
     challenges appear.
+76. **LiveIdentity Token Reuse/Refresh** - Fixed: the CAPTCHA solver now checks
+    existing `li-antibot-token` values and triggers the in-page
+    `LI_ANTIBOT.reloadAntibot/loadAntibot` flow to refresh tokens before falling
+    back to 2Captcha, reducing failed solves on tennis.paris.fr.
 
 ---
 
