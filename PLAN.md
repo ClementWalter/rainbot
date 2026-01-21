@@ -496,6 +496,11 @@ real-site verification.
     now accepts day-first date formats like `DD/MM/YYYY HH:MM(:SS)` (plus dash
     variants), preventing Paris tennis AJAX slots from being dropped when the
     site returns French-style dates.
+86. **LiveIdentity Reload JS Error** - Fixed: `LI_ANTIBOT.reloadAntibot()` can
+    throw a `TypeError` on the live search results page (blocking token
+    refresh). The refresh helper now catches reload failures and falls back to
+    `LI_ANTIBOT.loadAntibot()` with the parsed config so LiveIdentity tokens can
+    still be refreshed before calling 2Captcha.
 
 ---
 

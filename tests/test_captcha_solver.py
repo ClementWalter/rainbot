@@ -309,6 +309,36 @@ class TestSolveCaptchaFromPage:
         assert result.token == "valid-token"
         mock_solver.assert_not_called()
 
+    def test_refresh_liveidentity_token_accepts_dict_result(self, service, mock_driver):
+        """Test LiveIdentity token refresh handles dict responses from JS."""
+        config = LiveIdentityConfig(
+            captcha_type="IMAGE",
+            locale="FR",
+            sp_key="+KEY",
+            base_url="https://captcha.liveidentity.com/captcha",
+            antibot_id="antibot-id",
+            request_id="request-id",
+            raw_values=[
+                "IMAGE",
+                "AUDIO",
+                "FR",
+                "+KEY",
+                "https://captcha.liveidentity.com/captcha",
+                None,
+                None,
+                "antibot-id",
+                "request-id",
+                True,
+            ],
+        )
+        mock_driver.execute_script.return_value = {"ok": True, "method": "load"}
+
+        with patch.object(service, "_read_liveidentity_token", return_value="fresh-token"):
+            token = service._refresh_liveidentity_token(mock_driver, config, timeout_seconds=1)
+
+        assert token == "fresh-token"
+        mock_driver.execute_script.assert_called_once()
+
     def test_no_captcha_detected(self, service, mock_driver):
         """Test when no CAPTCHA is present on page."""
         from selenium.common.exceptions import NoSuchElementException

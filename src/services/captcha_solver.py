@@ -574,24 +574,44 @@ class CaptchaSolverService:
                 const configValues = arguments[0];
                 const li = window.LI_ANTIBOT;
                 if (!li) {
-                    return false;
+                    return { ok: false, reason: 'missing' };
                 }
+
+                let triedReload = false;
                 if (typeof li.reloadAntibot === 'function') {
-                    li.reloadAntibot();
-                    return true;
+                    triedReload = true;
+                    try {
+                        li.reloadAntibot();
+                        return { ok: true, method: 'reload' };
+                    } catch (error) {
+                        // Fall through to loadAntibot when reload fails.
+                    }
                 }
+
                 if (typeof li.loadAntibot === 'function' && Array.isArray(configValues)) {
-                    li.loadAntibot(configValues);
-                    return true;
+                    try {
+                        li.loadAntibot(configValues);
+                        return { ok: true, method: 'load', triedReload };
+                    } catch (error) {
+                        return { ok: false, reason: 'load-failed', triedReload };
+                    }
                 }
-                return false;
+
+                return { ok: false, reason: 'unsupported', triedReload };
                 """,
                 config.raw_values if config else None,
             )
         except WebDriverException:
             return None
 
-        if refreshed is not True:
+        if refreshed is True:
+            refreshed_ok = True
+        elif isinstance(refreshed, dict):
+            refreshed_ok = bool(refreshed.get("ok"))
+        else:
+            refreshed_ok = False
+
+        if not refreshed_ok:
             return None
 
         deadline = time.time() + max(1, timeout_seconds)
