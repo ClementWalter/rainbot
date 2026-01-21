@@ -977,23 +977,67 @@ class CaptchaSolverService:
             # Standard g-recaptcha-response textarea
             driver.execute_script(f"""
                 var token = {escaped_token};
+                var fireEvent = function(element) {{
+                    if (!element) {{
+                        return;
+                    }}
+                    element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }};
+
+                var elements = new Set();
                 var textarea = document.getElementById('g-recaptcha-response');
                 if (textarea) {{
-                    textarea.innerHTML = token;
-                    textarea.value = token;
+                    elements.add(textarea);
                 }}
-                // Also try hidden input
-                var hiddenInputs = document.querySelectorAll('input[name="g-recaptcha-response"]');
-                hiddenInputs.forEach(function(input) {{
-                    input.value = token;
+                document.querySelectorAll('textarea[name="g-recaptcha-response"]').forEach(function(el) {{
+                    elements.add(el);
                 }});
-                // Trigger callback if exists
-                if (typeof ___grecaptcha_cfg !== 'undefined') {{
-                    for (var key in ___grecaptcha_cfg.clients) {{
-                        var client = ___grecaptcha_cfg.clients[key];
-                        if (client && client.hl && client.hl.l) {{
-                            client.hl.l.callback(token);
+                document.querySelectorAll('input[name="g-recaptcha-response"]').forEach(function(el) {{
+                    elements.add(el);
+                }});
+
+                elements.forEach(function(element) {{
+                    try {{
+                        element.value = token;
+                        if (element.tagName && element.tagName.toLowerCase() === 'textarea') {{
+                            element.innerHTML = token;
                         }}
+                        fireEvent(element);
+                    }} catch (e) {{
+                        // Ignore individual element injection errors.
+                    }}
+                }});
+
+                var callbackElement = document.querySelector(
+                    '.g-recaptcha[data-callback], [data-sitekey][data-callback]'
+                );
+                if (callbackElement) {{
+                    var callbackName = callbackElement.getAttribute('data-callback');
+                    if (callbackName && typeof window[callbackName] === 'function') {{
+                        try {{
+                            window[callbackName](token);
+                        }} catch (e) {{
+                            // Ignore callback failures; page handlers will surface issues.
+                        }}
+                    }}
+                }}
+
+                if (typeof ___grecaptcha_cfg !== 'undefined' && ___grecaptcha_cfg.clients) {{
+                    try {{
+                        Object.values(___grecaptcha_cfg.clients).forEach(function(client) {{
+                            var callback = null;
+                            if (client && typeof client.callback === 'function') {{
+                                callback = client.callback;
+                            }} else if (client && client.hl && client.hl.l && client.hl.l.callback) {{
+                                callback = client.hl.l.callback;
+                            }}
+                            if (typeof callback === 'function') {{
+                                callback(token);
+                            }}
+                        }});
+                    }} catch (e) {{
+                        // Ignore callback discovery failures.
                     }}
                 }}
                 """)

@@ -464,6 +464,10 @@ real-site verification.
     value is stored under input `name` attributes, `data-*` attributes, window
     variables, or inline scripts. `_get_captcha_request_id()` now checks these
     sources to keep reservation submissions aligned with the live site.
+79. **reCAPTCHA Token Injection Missed Page Callbacks** - Fixed: token injection
+    now dispatches input/change events and invokes `data-callback` handlers
+    (plus known `___grecaptcha_cfg` callbacks) so the live site recognizes
+    solved CAPTCHA responses.
 
 ---
 

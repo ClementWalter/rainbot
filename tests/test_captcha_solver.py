@@ -745,6 +745,7 @@ class TestInjectRecaptchaToken:
         mock_driver.execute_script.assert_called_once()
         call_args = mock_driver.execute_script.call_args[0][0]
         assert "test-token-123" in call_args
+        assert "dispatchEvent" in call_args
 
     def test_inject_token_webdriver_error(self, service, mock_driver):
         """Test token injection handles WebDriver errors."""
@@ -776,6 +777,13 @@ class TestInjectRecaptchaToken:
         # Newlines should be escaped as \n and \r in the JSON string
         assert "\\n" in call_args
         assert "\\r" in call_args
+
+    def test_inject_token_includes_data_callback_lookup(self, service, mock_driver):
+        """Test reCAPTCHA injection includes data-callback lookup."""
+        service._inject_recaptcha_token(mock_driver, "token")
+
+        call_args = mock_driver.execute_script.call_args[0][0]
+        assert "data-callback" in call_args
 
 
 class TestInjectLiveIdentityToken:
