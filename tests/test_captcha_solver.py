@@ -611,6 +611,51 @@ class TestLiveIdentitySolver:
             "https://captcha.liveidentity.com/captcha/images/abc.png", timeout=30
         )
 
+    def test_liveidentity_prefers_browser_fetch(self, service):
+        """Test LiveIdentity uses the browser to fetch captcha images when available."""
+        config = LiveIdentityConfig(
+            captcha_type="IMAGE",
+            locale="FR",
+            sp_key="+KEY",
+            base_url="https://captcha.liveidentity.com/captcha",
+            antibot_id="antibot-id",
+            request_id="request-id",
+        )
+        transaction = {"antibotMethod": "IMAGE"}
+        challenge = {
+            "captchaType": "IMAGE",
+            "questions": ["images/abc.png"],
+            "captchaValidationUrl": "/validate",
+        }
+        mock_driver = MagicMock()
+        data_url = "data:image/png;base64,AAA"
+
+        with patch.object(
+            service, "_fetch_liveidentity_transaction", return_value=transaction
+        ), patch.object(
+            service, "_fetch_liveidentity_challenge", return_value=challenge
+        ), patch.object(
+            service, "_fetch_captcha_image_data_url", return_value=data_url
+        ) as mock_fetch, patch(
+            "src.services.captcha_solver.requests.get"
+        ) as mock_get, patch.object(
+            service,
+            "solve_image_captcha",
+            return_value=CaptchaSolveResult(success=True, token="answer"),
+        ) as mock_solve, patch.object(
+            service,
+            "_validate_liveidentity_answer",
+            return_value=CaptchaSolveResult(success=True, token="token"),
+        ):
+            result = service._solve_liveidentity_antibot(config, driver=mock_driver)
+
+        assert result.success is True
+        mock_fetch.assert_called_once_with(
+            mock_driver, "https://captcha.liveidentity.com/captcha/images/abc.png"
+        )
+        mock_get.assert_not_called()
+        mock_solve.assert_called_once_with(data_url)
+
 
 class TestLiveIdentityParsing:
     """Tests for LiveIdentity config parsing."""

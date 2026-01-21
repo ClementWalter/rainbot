@@ -348,7 +348,7 @@ class CaptchaSolverService:
             if self._is_liveidentity_token_valid(refreshed_token):
                 return CaptchaSolveResult(success=True, token=refreshed_token)
 
-            solve_result = self._solve_liveidentity_antibot(config)
+            solve_result = self._solve_liveidentity_antibot(config, driver=driver)
             if solve_result is None:
                 return None
             if solve_result.success and solve_result.token:
@@ -606,6 +606,7 @@ class CaptchaSolverService:
     def _solve_liveidentity_antibot(
         self,
         config: LiveIdentityConfig,
+        driver: Optional[WebDriver] = None,
     ) -> Optional[CaptchaSolveResult]:
         """Solve LiveIdentity anti-bot using the public API."""
         if str(config.captcha_type).upper() == "INVISIBLE_CAPTCHA":
@@ -654,18 +655,26 @@ class CaptchaSolverService:
 
         base_url = config.base_url.rstrip("/") + "/"
         image_url = urljoin(base_url, question_url)
-        try:
-            response = requests.get(image_url, timeout=30)
-            response.raise_for_status()
-        except requests.RequestException as e:
-            return CaptchaSolveResult(
-                success=False, error_message=f"Failed to fetch captcha image: {e}"
-            )
 
-        with tempfile.NamedTemporaryFile(suffix=".png") as temp_file:
-            temp_file.write(response.content)
-            temp_file.flush()
-            image_result = self.solve_image_captcha(temp_file.name)
+        image_payload = None
+        if driver is not None:
+            image_payload = self._fetch_captcha_image_data_url(driver, image_url)
+
+        if image_payload:
+            image_result = self.solve_image_captcha(image_payload)
+        else:
+            try:
+                response = requests.get(image_url, timeout=30)
+                response.raise_for_status()
+            except requests.RequestException as e:
+                return CaptchaSolveResult(
+                    success=False, error_message=f"Failed to fetch captcha image: {e}"
+                )
+
+            with tempfile.NamedTemporaryFile(suffix=".png") as temp_file:
+                temp_file.write(response.content)
+                temp_file.flush()
+                image_result = self.solve_image_captcha(temp_file.name)
 
         if not image_result.success or not image_result.token:
             return CaptchaSolveResult(

@@ -476,6 +476,10 @@ real-site verification.
     `_fetch_availability_html()` now includes the `captchaRequestId` parameter
     when available so the live `ajax_rechercher_creneau` endpoint returns slot
     results even when CAPTCHA gating is active.
+82. **LiveIdentity Image CAPTCHA Session Fetch** - Fixed: LiveIdentity image
+    challenges now attempt a browser-context fetch first so session-protected
+    CAPTCHA images can be solved even when direct HTTP requests are blocked,
+    falling back to a direct request when browser fetch fails.
 
 ---
 
