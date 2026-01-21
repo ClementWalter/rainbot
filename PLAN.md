@@ -438,10 +438,11 @@ but the fallback still needs live-site validation.
     solver now uses `urljoin` with normalized base URLs so both absolute and
     relative image paths resolve correctly.
 74. **Facility Preferences Not Resolved From Map List** - Fixed: The live search
-    page exposes facility names via `window.mapMarkers`/`mapSelectTennis` and
-    expects selections in the hidden `select#selWhereTennisName`. The service
-    now reads facility names from map markers and populates the select options
-    so facility filtering works on tennis.paris.fr.
+    page exposes facility names via a `window.mapMarkers` Map (facility names
+    live under the `map` key, not `mapSelectTennis`) and expects selections in
+    the hidden `select#selWhereTennisName`. The service now reads facility names
+    from `mapMarkers.get('map')` and populates the select options so facility
+    filtering works on tennis.paris.fr.
 
 ---
 

@@ -1053,6 +1053,12 @@ class TestParisTennisService:
         names = service._get_available_facility_names()
 
         assert names == ["Alain Mimoun", "Amandiers"]
+        map_marker_calls = [
+            call_args.args[0]
+            for call_args in mock_driver.execute_script.call_args_list
+            if "mapMarkers" in call_args.args[0]
+        ]
+        assert any("get('map')" in script for script in map_marker_calls)
 
     def test_get_available_facility_names_falls_back_to_dom(self, service, mock_driver):
         """Test facility name discovery falls back to DOM tokens."""

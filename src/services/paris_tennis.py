@@ -749,10 +749,37 @@ class ParisTennisService:
         names: list[str] = []
 
         try:
-            marker_names = self.driver.execute_script(
-                "return (window.mapMarkers && window.mapMarkers.get ? "
-                "Object.keys(window.mapMarkers.get('mapSelectTennis') || {}) : []);"
-            )
+            marker_names = self.driver.execute_script("""
+                const markers = window.mapMarkers;
+                if (!markers) {
+                    return [];
+                }
+
+                const collectKeys = (value) => {
+                    if (!value) {
+                        return [];
+                    }
+                    if (value instanceof Map) {
+                        return Array.from(value.keys());
+                    }
+                    if (typeof value === 'object') {
+                        return Object.keys(value);
+                    }
+                    return [];
+                };
+
+                if (typeof markers.get === 'function') {
+                    const mapSelect = markers.get('mapSelectTennis');
+                    let keys = collectKeys(mapSelect);
+                    if (!keys.length) {
+                        const mapList = markers.get('map');
+                        keys = collectKeys(mapList);
+                    }
+                    return keys;
+                }
+
+                return collectKeys(markers);
+                """)
         except WebDriverException:
             marker_names = []
 
