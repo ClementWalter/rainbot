@@ -442,7 +442,7 @@ class TestParisTennisService:
         script = args[0]
         assert args[-1] == urljoin(
             service.search_url,
-            "Portal.jsp?page=reservation&view=reservation_captcha",
+            "Portal.jsp?page=reservation&view=reservation_creneau",
         )
         assert "li-antibot-token" in script
         assert "li-antibot-token-code" in script
@@ -1019,6 +1019,31 @@ class TestParisTennisService:
                 return []
             if by == By.TAG_NAME and value == "select":
                 return [mock_select]
+            return []
+
+        mock_driver.find_elements.side_effect = find_elements_side_effect
+
+        assert service._select_carnet_payment_if_present() is True
+        mock_option.click.assert_called_once()
+
+    def test_select_carnet_payment_clicks_price_option(self, service, mock_driver):
+        """Test carnet selection clicks a price table option when present."""
+        mock_option = MagicMock()
+        mock_option.text = "J'utilise 1 heure de mon carnet en ligne"
+
+        def find_elements_side_effect(by, value):
+            if by == By.CSS_SELECTOR and value in (
+                ".price-item.option",
+                ".priceTable .option",
+                ".price-item",
+            ):
+                return [mock_option]
+            if by == By.CSS_SELECTOR:
+                return []
+            if by == By.XPATH:
+                return []
+            if by == By.TAG_NAME and value == "select":
+                return []
             return []
 
         mock_driver.find_elements.side_effect = find_elements_side_effect

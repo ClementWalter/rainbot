@@ -201,7 +201,13 @@ def _process_booking_request(
                     f"court {slot.court_number} at {slot.time_start}"
                 )
 
-                result = tennis_service.book_court(slot, request.partner_name)
+                result = tennis_service.book_court(
+                    slot,
+                    partner_name=request.partner_name,
+                    partner_email=request.partner_email,
+                    player_name=user.name,
+                    player_email=user.email,
+                )
 
                 if result.success:
                     logger.info(f"Booking successful! Confirmation: {result.confirmation_id}")

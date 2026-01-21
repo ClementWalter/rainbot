@@ -399,7 +399,11 @@ class TestProcessBookingRequest:
         )
 
         mock_service.book_court.assert_called_once_with(
-            mock_slot, mock_booking_request.partner_name
+            mock_slot,
+            partner_name=mock_booking_request.partner_name,
+            partner_email=mock_booking_request.partner_email,
+            player_name=mock_user.name,
+            player_email=mock_user.email,
         )
         mock_sheets.add_booking.assert_called_once()
         mock_sheets.update_user_carnet_balance.assert_called_once_with(mock_user.id, 1)

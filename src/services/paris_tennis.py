@@ -1639,7 +1639,7 @@ class ParisTennisService:
         date_fin = reservation_end.strftime("%Y/%m/%d %H:%M:%S")
         action_url = urljoin(
             self.search_url,
-            "Portal.jsp?page=reservation&view=reservation_captcha",
+            "Portal.jsp?page=reservation&view=reservation_creneau",
         )
 
         try:
@@ -2147,6 +2147,9 @@ class ParisTennisService:
         self,
         slot: CourtSlot,
         partner_name: Optional[str] = None,
+        player_name: Optional[str] = None,
+        player_email: Optional[str] = None,
+        partner_email: Optional[str] = None,
     ) -> BookingResult:
         """
         Book a specific court slot.
@@ -2154,6 +2157,9 @@ class ParisTennisService:
         Args:
             slot: The CourtSlot to book
             partner_name: Name of the playing partner
+            player_name: Name of the booking user for reservation forms
+            player_email: Email of the booking user for reservation forms
+            partner_email: Email of the partner for reservation forms
 
         Returns:
             BookingResult with success status and confirmation ID
@@ -2197,43 +2203,20 @@ class ParisTennisService:
                     sel_in_out=sel_in_out,
                 )
             self._submit_reservation_form(slot, captcha_request_id)
+            self._solve_captcha_if_present(wait)
 
-            # Wait for CAPTCHA page
-            try:
-                wait.until(EC.presence_of_element_located((By.ID, "formCaptcha")))
-            except TimeoutException:
-                logger.debug("CAPTCHA form not found; continuing")
+            self._handle_reservation_details(
+                player_name=player_name,
+                player_email=player_email,
+                partner_name=partner_name,
+                partner_email=partner_email,
+                wait=wait,
+            )
+            self._solve_captcha_if_present(wait)
 
-            # Handle CAPTCHA if present
-            captcha_present = self._check_for_captcha()
-            if captcha_present:
-                logger.info("CAPTCHA detected - attempting to solve")
-                captcha_result = self.captcha_solver.solve_captcha_from_page(
-                    self.driver, max_retries=3
-                )
-                if not captcha_result.success:
-                    logger.error(f"CAPTCHA solving failed: {captcha_result.error_message}")
-                    return BookingResult(
-                        success=False,
-                        error_message=f"CAPTCHA solving failed: {captcha_result.error_message}",
-                        slot=slot,
-                    )
-                logger.info("CAPTCHA solved successfully")
-                self._submit_captcha_form_if_present(wait)
-
-            if partner_name:
-                try:
-                    partner_field = self.driver.find_element(By.ID, "partnerName")
-                    partner_field.clear()
-                    partner_field.send_keys(partner_name)
-                except NoSuchElementException:
-                    logger.debug("Partner name field not found")
-                except WebDriverException:
-                    logger.debug("Unable to fill partner name")
-
-            # Select carnet payment option if present on the page
-            if self._select_carnet_payment_if_present():
-                logger.debug("Carnet payment option selected")
+            if self._handle_payment_step(wait=wait):
+                logger.debug("Payment step handled")
+            self._solve_captcha_if_present(wait)
 
             # Confirm booking if confirmation button is present
             try:
@@ -2362,6 +2345,247 @@ class ParisTennisService:
 
         return submitted
 
+    def _normalize_label_text(self, value: str) -> str:
+        """Normalize label text for matching form fields."""
+        return _normalize_court_type_text(value or "")
+
+    def _get_input_label_text(self, element) -> str:
+        """Return the best-effort label text for an input element."""
+        label_text = ""
+        try:
+            label_text = self.driver.execute_script(
+                """
+                const el = arguments[0];
+                const group = el.closest('.form-group');
+                if (!group) {
+                    return '';
+                }
+                const label = group.querySelector('label');
+                return label ? (label.textContent || '') : '';
+                """,
+                element,
+            )
+        except WebDriverException:
+            label_text = ""
+
+        if label_text:
+            return str(label_text)
+
+        for attr in ("aria-label", "placeholder", "title", "name"):
+            try:
+                label_text = element.get_attribute(attr) or ""
+            except WebDriverException:
+                label_text = ""
+            if label_text:
+                break
+
+        return str(label_text or "")
+
+    def _element_is_visible(self, element) -> bool:
+        """Return True if a Selenium element is displayed."""
+        try:
+            return element.is_displayed()
+        except WebDriverException:
+            return False
+
+    def _has_visible_inputs(self, name: str) -> bool:
+        """Return True if any visible inputs exist for the given name."""
+        try:
+            elements = self.driver.find_elements(By.NAME, name)
+        except WebDriverException:
+            return False
+
+        return any(self._element_is_visible(element) for element in elements)
+
+    def _split_full_name(self, full_name: Optional[str]) -> tuple[str, str]:
+        """Split a full name into first and last names."""
+        if not full_name:
+            return "", ""
+        cleaned = " ".join(str(full_name).strip().split())
+        if not cleaned:
+            return "", ""
+        if "," in cleaned:
+            last, first = [part.strip() for part in cleaned.split(",", 1)]
+            if not first:
+                first = last
+            if not last:
+                last = first
+            return first, last
+        parts = cleaned.split(" ")
+        if len(parts) == 1:
+            return parts[0], parts[0]
+        return parts[0], " ".join(parts[1:])
+
+    def _fill_player_inputs(
+        self,
+        name: str,
+        first_name: str,
+        last_name: str,
+        email: Optional[str],
+    ) -> bool:
+        """Fill player fields (name/email) when present on the reservation form."""
+        try:
+            elements = self.driver.find_elements(By.NAME, name)
+        except WebDriverException:
+            return False
+
+        if not elements:
+            return False
+
+        filled = False
+        fallback_values = [value for value in (last_name, first_name) if value]
+        fallback_index = 0
+
+        for element in elements:
+            if not self._element_is_visible(element):
+                continue
+
+            try:
+                current_value = element.get_attribute("value") or ""
+            except WebDriverException:
+                current_value = ""
+            if str(current_value).strip():
+                continue
+
+            label_text = self._normalize_label_text(self._get_input_label_text(element))
+            target = None
+
+            if "prenom" in label_text:
+                target = first_name
+            elif "nom" in label_text:
+                target = last_name
+            elif "mail" in label_text or "email" in label_text:
+                target = email
+            elif fallback_index < len(fallback_values):
+                target = fallback_values[fallback_index]
+                fallback_index += 1
+
+            if not target:
+                continue
+
+            try:
+                element.clear()
+                element.send_keys(target)
+                filled = True
+            except WebDriverException:
+                continue
+
+        return filled
+
+    def _click_if_present(self, by: By, value: str) -> bool:
+        """Click an element if it exists."""
+        try:
+            element = self.driver.find_element(by, value)
+        except (NoSuchElementException, WebDriverException):
+            return False
+
+        if not self._element_is_visible(element):
+            return False
+
+        try:
+            element.click()
+            return True
+        except WebDriverException:
+            try:
+                self.driver.execute_script("arguments[0].click();", element)
+                return True
+            except WebDriverException:
+                return False
+
+    def _is_reservation_details_page(self) -> bool:
+        """Return True if the reservation details form is present."""
+        try:
+            current_url = self.driver.current_url or ""
+        except WebDriverException:
+            current_url = ""
+
+        if "view=reservation_creneau" in current_url:
+            return True
+
+        try:
+            if self.driver.find_elements(By.ID, "submitControle"):
+                return True
+        except WebDriverException:
+            return False
+
+        return self._has_visible_inputs("player1") or self._has_visible_inputs("player")
+
+    def _handle_reservation_details(
+        self,
+        player_name: Optional[str],
+        player_email: Optional[str],
+        partner_name: Optional[str],
+        partner_email: Optional[str],
+        wait: Optional[WebDriverWait] = None,
+    ) -> bool:
+        """Fill reservation details and advance to the payment step when possible."""
+        if not self._is_reservation_details_page():
+            return False
+
+        first_name, last_name = self._split_full_name(player_name)
+        filled_primary = False
+        if self._has_visible_inputs("player1"):
+            filled_primary = self._fill_player_inputs(
+                "player1", first_name, last_name, player_email
+            )
+        elif self._has_visible_inputs("player"):
+            filled_primary = self._fill_player_inputs("player", first_name, last_name, player_email)
+
+        if partner_name:
+            if not self._has_visible_inputs("player2"):
+                self._click_if_present(By.CSS_SELECTOR, ".addPlayer")
+                time.sleep(0.5)
+            partner_first, partner_last = self._split_full_name(partner_name)
+            self._fill_player_inputs("player2", partner_first, partner_last, partner_email)
+
+        if self._click_if_present(By.ID, "submitControle"):
+            if wait is not None:
+                try:
+                    wait.until(lambda driver: "view=methode_paiement" in (driver.current_url or ""))
+                except TimeoutException:
+                    pass
+            return True
+
+        return filled_primary
+
+    def _is_payment_page(self) -> bool:
+        """Return True if the payment selection form is present."""
+        try:
+            current_url = self.driver.current_url or ""
+        except WebDriverException:
+            current_url = ""
+
+        if "view=methode_paiement" in current_url:
+            return True
+
+        try:
+            if self.driver.find_elements(By.ID, "order_select_payment_form"):
+                return True
+            if self.driver.find_elements(By.ID, "paymentMode"):
+                return True
+        except WebDriverException:
+            return False
+
+        return False
+
+    def _handle_payment_step(self, wait: Optional[WebDriverWait] = None) -> bool:
+        """Select carnet payment on the payment page and advance."""
+        if not self._is_payment_page():
+            return False
+
+        selected = self._select_carnet_payment_if_present()
+        if selected:
+            if not self._click_if_present(By.ID, "submit"):
+                self._click_if_present(By.ID, "envoyer")
+            if wait is not None:
+                try:
+                    wait.until(
+                        lambda driver: "view=methode_paiement" not in (driver.current_url or "")
+                    )
+                except TimeoutException:
+                    pass
+        return selected
+
     def _select_carnet_payment_if_present(self) -> bool:
         """
         Attempt to select a carnet payment option if one is present.
@@ -2402,6 +2626,22 @@ class ParisTennisService:
                     return True
                 except WebDriverException:
                     continue
+
+            price_selectors = [
+                ".price-item.option",
+                ".priceTable .option",
+                ".price-item",
+            ]
+            for selector in price_selectors:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                for element in elements:
+                    try:
+                        text = (element.text or "").strip().lower()
+                    except WebDriverException:
+                        text = ""
+                    if "carnet" in text or "ticket" in text:
+                        element.click()
+                        return True
 
             selects = self.driver.find_elements(By.TAG_NAME, "select")
             for select in selects:

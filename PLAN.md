@@ -37,16 +37,16 @@ availability, but still needs real-site verification.
 ### Remaining Work
 
 1. **Paris Tennis selectors/flow**: Validate the remaining live DOM selectors
-   and CAPTCHA handling (login entrypoint, confirmation page, partner fields,
-   search form facility selection) and complete an end-to-end run on
-   tennis.paris.fr. Slot scraping now uses `action=ajax_rechercher_creneau` (the
-   live slot listing endpoint), and reservation posts now include LiveIdentity
-   token fields, but the full booking flow still needs validation on the live
-   site.
+   and CAPTCHA handling (login entrypoint, reservation details player fields,
+   payment selection, confirmation page, partner fields, search form facility
+   selection) and complete an end-to-end run on tennis.paris.fr. Slot scraping
+   now uses `action=ajax_rechercher_creneau` (the live slot listing endpoint),
+   and reservation posts now include LiveIdentity token fields, but the full
+   booking flow still needs validation on the live site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
-   steps. A best-effort carnet selector exists but is not validated on the live
-   site.
+   steps. The carnet selector now handles price table options but still needs
+   live-site validation.
 3. **Subscription/payment**: Add paid subscription handling beyond manual
    `subscription_active` flags.
 4. **Integration tests**: Add end-to-end tests (recorded HTML or staging) for
@@ -84,8 +84,8 @@ availability, but still needs real-site verification.
    this gracefully by skipping partners without email.
 2. **Login state selectors still need broader validation** - The landing page
    and Mon Paris SSO selectors have been validated on tennis.paris.fr, but the
-   post-login booking flow still needs live-site verification for partner,
-   carnet, and confirmation selectors.
+   post-login booking flow still needs live-site verification for reservation
+   details (player fields), carnet selection, and confirmation selectors.
 3. **LiveIdentity CAPTCHA edge cases** - Invisible challenge handling now defers
    to reCAPTCHA detection, but live-site validation on tennis.paris.fr is still
    pending.
@@ -538,6 +538,10 @@ availability, but still needs real-site verification.
     reuse the current results page `captchaRequestId` when available before
     re-submitting the search form, reducing unnecessary CAPTCHA retries and
     keeping the selected slot in context.
+95. **Reservation Details + Payment Step Handling** - Fixed: booking flow now
+    fills reservation player fields, clicks "Ajouter un partenaire" when needed,
+    and selects carnet payment options from price tables before advancing,
+    aligning with the live reservation flow.
 
 ---
 
