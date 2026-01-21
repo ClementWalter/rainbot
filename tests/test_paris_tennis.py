@@ -1162,6 +1162,24 @@ class TestParisTennisService:
         assert any("get('map')" in script for script in map_marker_calls)
         assert any("obj.map" in script for script in map_marker_calls)
 
+    def test_get_available_facility_names_from_map_marker_values(self, service, mock_driver):
+        """Test facility name discovery pulls nested names from mapMarkers values."""
+
+        def execute_script_side_effect(script):
+            if "mapMarkers" in script:
+                assert "collectValueKeys" in script
+                return ["Jesse Owens", " ", "Bertrand Dauvin"]
+            if "jsFav" in script:
+                return []
+            return []
+
+        mock_driver.execute_script.side_effect = execute_script_side_effect
+        mock_driver.find_elements.return_value = []
+
+        names = service._get_available_facility_names()
+
+        assert names == ["Jesse Owens", "Bertrand Dauvin"]
+
     def test_get_available_facility_names_from_direct_map_markers(self, service, mock_driver):
         """Test facility name discovery supports mapMarkers as a Map of names."""
 

@@ -487,6 +487,11 @@ real-site verification.
     `_is_logged_in()` to return true and skip authentication. Login detection
     now checks for visible `.navbar-collapse.connected/.disconnected` nav state
     and the login button before falling back to other indicators.
+84. **Facility Names Hidden Inside mapMarkers Values** - Fixed:
+    `_get_available_facility_names()` now extracts facility names from the
+    values stored in `window.mapMarkers` (a Map whose values contain facility
+    name keys on tennis.paris.fr). This prevents AJAX slot scraping from using
+    `map*` keys that do not match real facility names.
 
 ---
 

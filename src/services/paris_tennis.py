@@ -901,6 +901,17 @@ class ParisTennisService:
                     return [];
                 };
 
+                const collectValueKeys = (mapLike) => {
+                    if (!mapLike || typeof mapLike.values !== 'function') {
+                        return [];
+                    }
+                    const results = [];
+                    for (const value of mapLike.values()) {
+                        results.push(...collectKeys(value));
+                    }
+                    return results;
+                };
+
                 const extractFromObject = (obj) => {
                     if (!obj || typeof obj !== 'object') {
                         return [];
@@ -921,8 +932,12 @@ class ParisTennisService:
                         const mapList = markers.get('map');
                         keys = collectKeys(mapList);
                     }
+                    const valueKeys = collectValueKeys(markers);
                     if (!keys.length) {
                         keys = collectKeys(markers);
+                    }
+                    if (valueKeys.length) {
+                        return valueKeys.concat(keys);
                     }
                     return keys;
                 }
