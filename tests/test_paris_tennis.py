@@ -1019,13 +1019,40 @@ class TestParisTennisService:
 
     def test_get_available_facility_names_from_js_favorites(self, service, mock_driver):
         """Test facility name discovery uses jsFav when available."""
-        mock_driver.execute_script.return_value = ["Jesse Owens", " ", "Max Rousié"]
+
+        def execute_script_side_effect(script):
+            if "mapMarkers" in script:
+                return []
+            if "jsFav" in script:
+                return ["Jesse Owens", " ", "Max Rousié"]
+            return []
+
+        mock_driver.execute_script.side_effect = execute_script_side_effect
         mock_driver.find_elements.return_value = []
 
         names = service._get_available_facility_names()
 
         assert names == ["Jesse Owens", "Max Rousié"]
-        mock_driver.execute_script.assert_called_once_with("return window.jsFav || []")
+        assert any(
+            "jsFav" in call_args.args[0] for call_args in mock_driver.execute_script.call_args_list
+        )
+
+    def test_get_available_facility_names_from_map_markers(self, service, mock_driver):
+        """Test facility name discovery uses map markers when available."""
+
+        def execute_script_side_effect(script):
+            if "mapMarkers" in script:
+                return ["Alain Mimoun", " ", "Amandiers"]
+            if "jsFav" in script:
+                return []
+            return []
+
+        mock_driver.execute_script.side_effect = execute_script_side_effect
+        mock_driver.find_elements.return_value = []
+
+        names = service._get_available_facility_names()
+
+        assert names == ["Alain Mimoun", "Amandiers"]
 
     def test_get_available_facility_names_falls_back_to_dom(self, service, mock_driver):
         """Test facility name discovery falls back to DOM tokens."""

@@ -660,13 +660,27 @@ class ParisTennisService:
                     }
 
                     form.querySelectorAll("input[name='selWhereTennisName']").forEach((el) => el.remove());
-                    facilityNames.forEach((name) => {
-                        const input = document.createElement('input');
-                        input.type = 'hidden';
-                        input.name = 'selWhereTennisName';
-                        input.value = name;
-                        form.appendChild(input);
-                    });
+                    const whereSelect = form.querySelector("select[name='selWhereTennisName']");
+                    if (whereSelect) {
+                        while (whereSelect.options.length) {
+                            whereSelect.remove(0);
+                        }
+                        facilityNames.forEach((name) => {
+                            const option = document.createElement('option');
+                            option.value = name;
+                            option.text = name;
+                            option.selected = true;
+                            whereSelect.appendChild(option);
+                        });
+                    } else {
+                        facilityNames.forEach((name) => {
+                            const input = document.createElement('input');
+                            input.type = 'hidden';
+                            input.name = 'selWhereTennisName';
+                            input.value = name;
+                            form.appendChild(input);
+                        });
+                    }
                 }
 
                 if (selInOut.length) {
@@ -733,6 +747,19 @@ class ParisTennisService:
     def _get_available_facility_names(self) -> list[str]:
         """Return tennis names visible in the results bookmark list."""
         names: list[str] = []
+
+        try:
+            marker_names = self.driver.execute_script(
+                "return (window.mapMarkers && window.mapMarkers.get ? "
+                "Object.keys(window.mapMarkers.get('mapSelectTennis') || {}) : []);"
+            )
+        except WebDriverException:
+            marker_names = []
+
+        if isinstance(marker_names, (list, tuple)):
+            names.extend(
+                [name.strip() for name in marker_names if isinstance(name, str) and name.strip()]
+            )
 
         try:
             favorites = self.driver.execute_script("return window.jsFav || []")

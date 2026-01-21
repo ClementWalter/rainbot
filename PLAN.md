@@ -31,10 +31,10 @@ but the fallback still needs live-site validation.
 ### Remaining Work
 
 1. **Paris Tennis selectors/flow**: Validate the remaining live DOM selectors
-   (login entrypoint, confirmation page, partner fields) and complete an
-   end-to-end run on tennis.paris.fr. Slot scraping now uses
-   `action=ajax_rechercher_creneau` (the live slot listing endpoint), but the
-   full booking flow still needs validation on the live site.
+   (login entrypoint, confirmation page, partner fields, search form facility
+   selection) and complete an end-to-end run on tennis.paris.fr. Slot scraping
+   now uses `action=ajax_rechercher_creneau` (the live slot listing endpoint),
+   but the full booking flow still needs validation on the live site.
 2. **Carnet payment step validation**: Align carnet selection/payment
    confirmation with the live DOM and confirm any post-confirmation payment
    steps. A best-effort carnet selector exists but is not validated on the live
@@ -437,6 +437,11 @@ but the fallback still needs live-site validation.
     which produced invalid URLs when the API returned absolute image links. The
     solver now uses `urljoin` with normalized base URLs so both absolute and
     relative image paths resolve correctly.
+74. **Facility Preferences Not Resolved From Map List** - Fixed: The live search
+    page exposes facility names via `window.mapMarkers`/`mapSelectTennis` and
+    expects selections in the hidden `select#selWhereTennisName`. The service
+    now reads facility names from map markers and populates the select options
+    so facility filtering works on tennis.paris.fr.
 
 ---
 
