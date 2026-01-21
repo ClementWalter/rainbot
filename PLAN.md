@@ -534,6 +534,10 @@ availability, but still needs real-site verification.
     availability fetch now refreshes LiveIdentity tokens when they are invalid
     (for example, "Blacklisted end-user") and omits invalid tokens before
     sending AJAX requests.
+94. **Booking Re-submits Search Without captchaRequestId** - Fixed: bookings now
+    reuse the current results page `captchaRequestId` when available before
+    re-submitting the search form, reducing unnecessary CAPTCHA retries and
+    keeping the selected slot in context.
 
 ---
 

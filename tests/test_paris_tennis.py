@@ -1033,6 +1033,54 @@ class TestParisTennisService:
         assert result.success is False
         assert result.error_message == "Not logged in"
 
+    def test_book_court_reuses_captcha_request_id_from_results_page(
+        self,
+        service,
+        mock_driver,
+    ):
+        """Test booking reuses existing captchaRequestId when already on results page."""
+        from selenium.common.exceptions import TimeoutException
+
+        service._logged_in = True
+        start_time = now_paris()
+        slot = CourtSlot(
+            facility_name="Facility",
+            facility_code="FAC1",
+            court_number="1",
+            date=start_time,
+            time_start="08:00",
+            time_end="09:00",
+            court_type=CourtType.ANY,
+            equipment_id="equip-1",
+            court_id="court-1",
+            reservation_start=start_time,
+            reservation_end=start_time + timedelta(hours=1),
+        )
+        mock_driver.current_url = (
+            "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?"
+            "page=recherche&action=rechercher_creneau"
+        )
+
+        with patch("src.services.paris_tennis.WebDriverWait") as mock_wait, patch.object(
+            service, "_get_captcha_request_id", return_value="CAP-321"
+        ) as mock_get, patch.object(
+            service, "_ensure_search_results_page"
+        ) as mock_ensure, patch.object(
+            service, "_submit_reservation_form"
+        ) as mock_submit, patch.object(
+            service, "_check_for_captcha", return_value=False
+        ), patch.object(
+            service, "_extract_confirmation_id", return_value="CONF-123"
+        ):
+            mock_wait.return_value.until.side_effect = TimeoutException()
+
+            result = service.book_court(slot)
+
+        assert result.success is True
+        mock_submit.assert_called_once_with(slot, "CAP-321")
+        mock_ensure.assert_not_called()
+        mock_get.assert_called_once()
+
     def test_search_available_courts_empty(self, service, mock_driver, sample_booking_request):
         """Test search returns empty list when no results."""
         with patch.object(service, "_ensure_search_results_page"), patch.object(

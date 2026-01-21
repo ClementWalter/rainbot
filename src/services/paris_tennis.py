@@ -2180,6 +2180,11 @@ class ParisTennisService:
             wait = WebDriverWait(self.driver, BOOKING_WAIT_TIMEOUT)
             captcha_request_id = slot.captcha_request_id
             if not captcha_request_id:
+                current_url = self.driver.current_url or ""
+                if SEARCH_RESULTS_QUERY in current_url or "page=recherche" in current_url:
+                    captcha_request_id = self._get_captcha_request_id()
+
+            if not captcha_request_id:
                 target_date = slot.reservation_start or slot.date
                 facility_names = [slot.facility_name] if slot.facility_name else None
                 hour_range = self._format_hour_range(slot.time_start, slot.time_end)
