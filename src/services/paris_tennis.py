@@ -277,6 +277,9 @@ class ParisTennisService:
 
     def _is_logged_in(self) -> bool:
         """Check if currently logged in."""
+        # Temporarily disable implicit wait to avoid slow lookups
+        original_wait = self.driver.timeouts.implicit_wait
+        self.driver.implicitly_wait(0)
         try:
 
             def is_element_visible(element) -> bool:
@@ -319,20 +322,28 @@ class ParisTennisService:
             return has_visible_element(indicators)
         except WebDriverException:
             return False
+        finally:
+            self.driver.implicitly_wait(original_wait / 1000)
 
     def _accept_cookie_banner(self) -> None:
         """Dismiss cookie banners if present."""
-        for selector in COOKIE_ACCEPT_SELECTORS:
-            try:
-                element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                element.click()
-                return
-            except NoSuchElementException:
-                continue
-            except WebDriverException:
-                continue
-            except Exception:
-                continue
+        # Temporarily disable implicit wait to avoid slow lookups
+        original_wait = self.driver.timeouts.implicit_wait
+        self.driver.implicitly_wait(0)
+        try:
+            for selector in COOKIE_ACCEPT_SELECTORS:
+                try:
+                    element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    element.click()
+                    return
+                except NoSuchElementException:
+                    continue
+                except WebDriverException:
+                    continue
+                except Exception:
+                    continue
+        finally:
+            self.driver.implicitly_wait(original_wait / 1000)
 
     def _click_login_entrypoint(self, wait: WebDriverWait) -> bool:
         """Click the login entry point on the public landing page if present."""

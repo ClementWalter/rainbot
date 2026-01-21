@@ -422,8 +422,13 @@ class CaptchaSolverService:
 
             logger.info("Found LiveIdentity captcha image in iframe, solving via 2captcha")
 
-            # Solve the image captcha
-            solve_result = self.solve_image_captcha(img_src)
+            # First try to fetch image through browser context (preserves session cookies)
+            data_url = self._fetch_captcha_image_data_url(driver, img_src)
+            if data_url:
+                solve_result = self.solve_image_captcha(data_url)
+            else:
+                # Fallback to direct URL (may fail with 403 for protected images)
+                solve_result = self.solve_image_captcha(img_src)
             if not solve_result.success:
                 return solve_result
 

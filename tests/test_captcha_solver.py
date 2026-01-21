@@ -729,6 +729,31 @@ class TestLiveIdentitySolver:
         mock_get.assert_not_called()
         mock_solve.assert_called_once_with(data_url)
 
+    def test_liveidentity_iframe_captcha_uses_browser_fetch(self, service):
+        """Test LiveIdentity iframe fallback uses browser to fetch protected images."""
+        mock_driver = MagicMock()
+        mock_driver.execute_script.return_value = {
+            "imgSrc": "https://captcha.liveidentity.com/captcha/image.png"
+        }
+        data_url = "data:image/png;base64,IFRAMEIMG"
+
+        with patch.object(
+            service, "_fetch_captcha_image_data_url", return_value=data_url
+        ) as mock_fetch, patch.object(
+            service,
+            "solve_image_captcha",
+            return_value=CaptchaSolveResult(success=True, token="answer"),
+        ) as mock_solve, patch.object(
+            service, "_enter_liveidentity_iframe_answer", return_value=True
+        ):
+            result = service._solve_liveidentity_iframe_captcha(mock_driver)
+
+        assert result.success is True
+        mock_fetch.assert_called_once_with(
+            mock_driver, "https://captcha.liveidentity.com/captcha/image.png"
+        )
+        mock_solve.assert_called_once_with(data_url)
+
 
 class TestLiveIdentityParsing:
     """Tests for LiveIdentity config parsing."""
