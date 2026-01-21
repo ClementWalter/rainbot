@@ -1034,8 +1034,12 @@ class CaptchaSolverService:
             if not parsed_src.scheme and driver.current_url:
                 img_src = urljoin(driver.current_url, img_src)
 
-            # Solve the image CAPTCHA
-            result = self.solve_image_captcha(img_src)
+            # Fetch through the browser to include session cookies when possible.
+            data_url = self._fetch_captcha_image_data_url(driver, img_src)
+            if data_url:
+                result = self.solve_image_captcha(data_url)
+            else:
+                result = self.solve_image_captcha(img_src)
 
             if result.success and result.token:
                 # Find and fill the input field
@@ -1046,6 +1050,53 @@ class CaptchaSolverService:
         except WebDriverException as e:
             logger.error(f"WebDriver error detecting image CAPTCHA: {e}")
             return None
+
+    def _fetch_captcha_image_data_url(
+        self,
+        driver: WebDriver,
+        img_src: str,
+    ) -> Optional[str]:
+        """Fetch CAPTCHA image as a data URL using the browser context."""
+        if not img_src:
+            return None
+        if str(img_src).strip().lower().startswith("data:"):
+            return img_src
+        try:
+            result = driver.execute_async_script(
+                """
+                const url = arguments[0];
+                const callback = arguments[arguments.length - 1];
+                if (!url) {
+                    callback({ ok: false, error: "missing url" });
+                    return;
+                }
+                fetch(url, { credentials: "include" })
+                    .then((response) => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        return response.blob();
+                    })
+                    .then((blob) => new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.onerror = () => reject(new Error("read failed"));
+                        reader.readAsDataURL(blob);
+                    }))
+                    .then((dataUrl) => callback({ ok: true, dataUrl }))
+                    .catch((error) => callback({ ok: false, error: String(error) }));
+                """,
+                img_src,
+            )
+        except WebDriverException:
+            return None
+
+        if not isinstance(result, dict) or not result.get("ok"):
+            return None
+        data_url = result.get("dataUrl")
+        if isinstance(data_url, str) and data_url.startswith("data:"):
+            return data_url
+        return None
 
     def _fill_captcha_input(self, driver: WebDriver, answer: str) -> None:
         """Fill the CAPTCHA answer input field."""

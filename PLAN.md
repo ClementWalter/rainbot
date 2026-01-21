@@ -455,6 +455,10 @@ real-site verification.
     existing `li-antibot-token` values and triggers the in-page
     `LI_ANTIBOT.reloadAntibot/loadAntibot` flow to refresh tokens before falling
     back to 2Captcha, reducing failed solves on tennis.paris.fr.
+77. **Session-Protected Image CAPTCHA Fetch** - Fixed: image CAPTCHA solving now
+    attempts to fetch the CAPTCHA image through the browser context first,
+    preserving session cookies so protected CAPTCHA images can be solved
+    reliably on tennis.paris.fr.
 
 ---
 

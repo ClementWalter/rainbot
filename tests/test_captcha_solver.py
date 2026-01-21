@@ -371,6 +371,35 @@ class TestSolveCaptchaFromPage:
         mock_solve.assert_called_once_with("https://tennis.paris.fr/captcha/image")
         mock_fill.assert_called_once_with(mock_driver, "img-token")
 
+    def test_image_captcha_uses_browser_data_url(self, service, mock_driver):
+        """Test image CAPTCHA uses browser-fetched data URLs when available."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_image = MagicMock()
+        mock_image.get_attribute.return_value = "https://tennis.paris.fr/captcha/image"
+
+        def find_element_side_effect(by, value):
+            if value == "#captcha img":
+                return mock_image
+            raise NoSuchElementException()
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+        mock_driver.execute_async_script.return_value = {
+            "ok": True,
+            "dataUrl": "data:image/png;base64,ABC123",
+        }
+
+        with patch.object(
+            service,
+            "solve_image_captcha",
+            return_value=CaptchaSolveResult(success=True, token="img-token"),
+        ) as mock_solve, patch.object(service, "_fill_captcha_input") as mock_fill:
+            result = service._detect_and_solve_image_captcha(mock_driver)
+
+        assert result.success is True
+        mock_solve.assert_called_once_with("data:image/png;base64,ABC123")
+        mock_fill.assert_called_once_with(mock_driver, "img-token")
+
     def test_liveidentity_invisible_falls_back_to_recaptcha(self, service, mock_driver):
         """Test LiveIdentity invisible flow defers to reCAPTCHA detection."""
         from selenium.common.exceptions import NoSuchElementException
