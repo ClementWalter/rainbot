@@ -355,14 +355,143 @@ class CaptchaSolverService:
                 return CaptchaSolveResult(success=True, token=refreshed_token)
 
             solve_result = self._solve_liveidentity_antibot(config, driver=driver)
-            if solve_result is None:
-                return None
-            if solve_result.success and solve_result.token:
+            if solve_result is not None and solve_result.success and solve_result.token:
                 self._inject_liveidentity_token(driver, solve_result.token)
-            return solve_result
+                return solve_result
+
+            # Fallback: try to extract and solve the image directly from the iframe
+            iframe_result = self._solve_liveidentity_iframe_captcha(driver)
+            if iframe_result is not None:
+                return iframe_result
+
+            # Return API error if iframe fallback also failed
+            if solve_result is not None:
+                return solve_result
+            return None
         except WebDriverException as e:
             logger.error(f"WebDriver error detecting LiveIdentity CAPTCHA: {e}")
             return None
+
+    def _solve_liveidentity_iframe_captcha(self, driver: WebDriver) -> Optional[CaptchaSolveResult]:
+        """Extract and solve LiveIdentity captcha image from the iframe.
+
+        This is a fallback method when the API approach fails.
+        """
+        try:
+            # Extract captcha image URL from the iframe
+            captcha_info = driver.execute_script("""
+                const liContainer = document.getElementById('li-antibot');
+                if (!liContainer) return null;
+
+                const iframe = liContainer.querySelector('iframe');
+                if (!iframe) return null;
+
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (!iframeDoc) return null;
+
+                    // Find the captcha image
+                    const img = iframeDoc.querySelector('img');
+                    if (!img || !img.src) return null;
+
+                    // Also find the input field for the answer
+                    const input = iframeDoc.querySelector('input[type="text"]');
+
+                    return {
+                        imgSrc: img.src,
+                        inputId: input ? input.id : null,
+                        inputName: input ? input.name : null
+                    };
+                } catch(e) {
+                    return {error: e.toString()};
+                }
+                """)
+
+            if not captcha_info or not isinstance(captcha_info, dict):
+                logger.debug("Could not extract captcha info from LiveIdentity iframe")
+                return None
+
+            if "error" in captcha_info:
+                logger.debug(f"Error extracting captcha from iframe: {captcha_info.get('error')}")
+                return None
+
+            img_src = captcha_info.get("imgSrc")
+            if not img_src or not isinstance(img_src, str):
+                logger.debug("No captcha image found in LiveIdentity iframe")
+                return None
+
+            logger.info("Found LiveIdentity captcha image in iframe, solving via 2captcha")
+
+            # Solve the image captcha
+            solve_result = self.solve_image_captcha(img_src)
+            if not solve_result.success:
+                return solve_result
+
+            # Enter the solution into the iframe input field
+            answer = solve_result.token
+            if answer:
+                self._enter_liveidentity_iframe_answer(driver, answer)
+
+            return solve_result
+        except WebDriverException as e:
+            logger.error(f"Error solving LiveIdentity iframe captcha: {e}")
+            return None
+
+    def _enter_liveidentity_iframe_answer(self, driver: WebDriver, answer: str) -> bool:
+        """Enter the solved captcha answer into the LiveIdentity iframe input field."""
+        try:
+            result = driver.execute_script(
+                """
+                const answer = arguments[0];
+                const liContainer = document.getElementById('li-antibot');
+                if (!liContainer) return {success: false, error: 'no container'};
+
+                const iframe = liContainer.querySelector('iframe');
+                if (!iframe) return {success: false, error: 'no iframe'};
+
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (!iframeDoc) return {success: false, error: 'no iframe doc'};
+
+                    // Find the input field
+                    const input = iframeDoc.querySelector('input[type="text"]');
+                    if (!input) return {success: false, error: 'no input'};
+
+                    // Enter the answer
+                    input.value = answer;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+                    // Try to find and click the submit/validate button
+                    const buttons = iframeDoc.querySelectorAll('button, input[type="submit"]');
+                    for (const btn of buttons) {
+                        const text = (btn.textContent || btn.value || '').toLowerCase();
+                        if (text.includes('valid') || text.includes('submit') || text.includes('ok')) {
+                            btn.click();
+                            break;
+                        }
+                    }
+
+                    return {success: true};
+                } catch(e) {
+                    return {success: false, error: e.toString()};
+                }
+                """,
+                answer,
+            )
+
+            if result and result.get("success"):
+                logger.info("Successfully entered LiveIdentity captcha answer")
+                # Wait for the token to be populated
+                time.sleep(2)
+                # Read the token that should now be set
+                token = self._read_liveidentity_token(driver)
+                if self._is_liveidentity_token_valid(token):
+                    return True
+            return False
+        except WebDriverException as e:
+            logger.error(f"Error entering LiveIdentity iframe answer: {e}")
+            return False
 
     def _parse_liveidentity_config(self, page_source: str) -> Optional[LiveIdentityConfig]:
         """Parse LiveIdentity config from page source."""
