@@ -1048,6 +1048,37 @@ class TestParisTennisService:
 
         assert result == []
 
+    def test_search_available_courts_reads_surface_values_after_navigation(
+        self,
+        service,
+        mock_driver,
+        sample_booking_request,
+    ):
+        """Test surface values are read after navigating to the search page."""
+        get_called = {"value": False}
+
+        def get_side_effect(*args, **kwargs):
+            get_called["value"] = True
+
+        mock_driver.get.side_effect = get_side_effect
+
+        def surface_side_effect():
+            assert get_called["value"] is True
+            return []
+
+        with patch.object(
+            service, "_get_surface_values", side_effect=surface_side_effect
+        ) as mock_get, patch.object(service, "_ensure_search_results_page"), patch.object(
+            service,
+            "_resolve_facility_preferences",
+            return_value=[],
+        ), patch.object(
+            service, "_parse_all_results", return_value=[]
+        ):
+            service.search_available_courts(sample_booking_request)
+
+        assert mock_get.called is True
+
     def test_search_available_courts_dom_fallback_on_ajax_empty(
         self,
         service,

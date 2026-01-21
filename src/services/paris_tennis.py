@@ -495,7 +495,6 @@ class ParisTennisService:
             when_value = target_date.strftime("%d/%m/%Y")
             hour_range = self._format_hour_range(request.time_start, request.time_end)
             sel_in_out = self._get_indoor_outdoor_values(request.court_type)
-            sel_coating = self._get_surface_values()
 
             # Navigate to search page and load results context
             self.driver.get(self.search_url)
@@ -511,6 +510,7 @@ class ParisTennisService:
                 sel_in_out=sel_in_out,
             )
 
+            sel_coating = self._get_surface_values()
             if not facility_names:
                 facility_names = self._resolve_facility_preferences(request)
 

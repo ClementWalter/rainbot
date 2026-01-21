@@ -517,6 +517,10 @@ availability, but still needs real-site verification.
     submission now includes `li-antibot-token` and `li-antibot-token-code`
     fields (captured from the live search results page) so the reservation
     request matches the tennis.paris.fr flow.
+90. **Surface Filter Values Read Before Navigation** - Fixed: `selCoating`
+    values were fetched before the search page loaded, leaving AJAX requests
+    without surface filters and potentially returning empty results. The surface
+    values are now read after the search page is loaded.
 
 ---
 
