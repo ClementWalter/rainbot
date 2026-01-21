@@ -432,6 +432,11 @@ but the fallback still needs live-site validation.
     `courtId`, `dateDeb`, `dateFin`), facility names from panel IDs, and
     indoor/outdoor labels so fallback bookings work when AJAX results are
     unavailable.
+73. **LiveIdentity CAPTCHA Image URL Resolution** - Fixed: The LiveIdentity
+    solver previously concatenated `base_url` with the challenge image URL,
+    which produced invalid URLs when the API returned absolute image links. The
+    solver now uses `urljoin` with normalized base URLs so both absolute and
+    relative image paths resolve correctly.
 
 ---
 

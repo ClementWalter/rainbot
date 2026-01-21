@@ -521,6 +521,50 @@ class TestSolveCaptchaFromPage:
         mock_inject.assert_called_once_with(mock_driver, "v3-token")
 
 
+class TestLiveIdentitySolver:
+    """Tests for LiveIdentity challenge solving."""
+
+    def test_liveidentity_image_url_accepts_absolute_url(self, service):
+        """Test LiveIdentity image URLs are not double-prefixed."""
+        config = LiveIdentityConfig(
+            captcha_type="IMAGE",
+            locale="FR",
+            sp_key="+KEY",
+            base_url="https://captcha.liveidentity.com/captcha",
+            antibot_id="antibot-id",
+            request_id="request-id",
+        )
+        transaction = {"antibotMethod": "IMAGE"}
+        challenge = {
+            "captchaType": "IMAGE",
+            "questions": ["https://captcha.liveidentity.com/captcha/images/abc.png"],
+            "captchaValidationUrl": "/validate",
+        }
+        response = MagicMock()
+        response.content = b"captcha-bytes"
+        response.raise_for_status.return_value = None
+
+        with patch.object(
+            service, "_fetch_liveidentity_transaction", return_value=transaction
+        ), patch.object(service, "_fetch_liveidentity_challenge", return_value=challenge), patch(
+            "src.services.captcha_solver.requests.get", return_value=response
+        ) as mock_get, patch.object(
+            service,
+            "solve_image_captcha",
+            return_value=CaptchaSolveResult(success=True, token="answer"),
+        ), patch.object(
+            service,
+            "_validate_liveidentity_answer",
+            return_value=CaptchaSolveResult(success=True, token="token"),
+        ):
+            result = service._solve_liveidentity_antibot(config)
+
+        assert result.success is True
+        mock_get.assert_called_once_with(
+            "https://captcha.liveidentity.com/captcha/images/abc.png", timeout=30
+        )
+
+
 class TestLiveIdentityParsing:
     """Tests for LiveIdentity config parsing."""
 

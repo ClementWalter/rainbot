@@ -567,7 +567,15 @@ class CaptchaSolverService:
                 error_message="LiveIdentity challenge returned no images",
             )
 
-        image_url = f"{config.base_url}{question_urls[0]}"
+        question_url = str(question_urls[0]).strip()
+        if not question_url:
+            return CaptchaSolveResult(
+                success=False,
+                error_message="LiveIdentity challenge returned empty image URL",
+            )
+
+        base_url = config.base_url.rstrip("/") + "/"
+        image_url = urljoin(base_url, question_url)
         try:
             response = requests.get(image_url, timeout=30)
             response.raise_for_status()
