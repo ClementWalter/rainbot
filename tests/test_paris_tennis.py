@@ -1178,11 +1178,37 @@ class TestParisTennisService:
         assert "captchaRequestId" in script
         assert "li-antibot-token" in script
         assert "li-antibot-token-code" in script
-        assert args[-2] == "CAPTCHA-123"
+        assert args[6] == "CAPTCHA-123"
         assert args[-1] == (
             "https://example.com/tennis/jsp/site/Portal.jsp?"
             "page=recherche&action=ajax_rechercher_creneau"
         )
+
+    def test_fetch_availability_html_refreshes_invalid_liveidentity_token(
+        self, service, mock_driver
+    ):
+        """Test invalid LiveIdentity token triggers refresh before AJAX fetch."""
+        mock_driver.execute_script.side_effect = [
+            ["Blacklisted end-user.", "102"],
+            ["valid-token", "200"],
+        ]
+        mock_driver.execute_async_script.return_value = {"ok": True, "text": "<html></html>"}
+
+        with patch.object(service, "_solve_captcha_if_present", return_value=True) as mock_solve:
+            html = service._fetch_availability_html(
+                hour_range="8-10",
+                when_value="01/01/2025",
+                facility_name="Facility",
+                sel_in_out=["V"],
+                sel_coating=["X"],
+                captcha_request_id="CAPTCHA-123",
+            )
+
+        assert html == "<html></html>"
+        mock_solve.assert_called_once()
+        args = mock_driver.execute_async_script.call_args[0]
+        assert args[7] == "valid-token"
+        assert args[8] == "200"
 
     def test_fetch_availability_html_retries_after_captcha(self, service, mock_driver):
         """Test availability fetch retries after detecting CAPTCHA HTML."""

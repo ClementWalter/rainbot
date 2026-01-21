@@ -92,9 +92,10 @@ availability, but still needs real-site verification.
 4. **Parallel Paris Tennis flow code** - The service mixes placeholder DOM
    scraping with AJAX-based slot parsing, which can drift as the site evolves.
 5. **LiveIdentity token blacklisted** - Live site sessions can populate
-   `li-antibot-token` with "Blacklisted end-user" before booking, which may
-   block reservation flows. Needs validation and potential anti-bot mitigation
-   work (profile hygiene, throttling, or human-in-the-loop fallback).
+   `li-antibot-token` with "Blacklisted end-user" before booking. Availability
+   scraping now refreshes/omits invalid tokens before AJAX requests, but the
+   reservation flow still needs live validation and mitigation if tokens remain
+   blacklisted.
 
 ### Resolved Issues
 
@@ -529,6 +530,10 @@ availability, but still needs real-site verification.
     fetch now forwards `li-antibot-token` and `li-antibot-token-code` values
     from the results page when present so the live AJAX search stays aligned
     with the anti-bot session state.
+93. **Invalid LiveIdentity Tokens Sent to AJAX Availability** - Fixed: the
+    availability fetch now refreshes LiveIdentity tokens when they are invalid
+    (for example, "Blacklisted end-user") and omits invalid tokens before
+    sending AJAX requests.
 
 ---
 

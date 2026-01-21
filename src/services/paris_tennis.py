@@ -845,6 +845,60 @@ class ParisTennisService:
 
         return None
 
+    def _read_li_antibot_tokens(self) -> tuple[Optional[str], Optional[str]]:
+        """Read LiveIdentity token values from page inputs."""
+        try:
+            values = self.driver.execute_script("""
+                const tokenInput = document.getElementById('li-antibot-token')
+                    || document.querySelector("input[name='li-antibot-token']");
+                const codeInput = document.getElementById('li-antibot-token-code')
+                    || document.querySelector("input[name='li-antibot-token-code']");
+                const token = tokenInput ? tokenInput.value : "";
+                const code = codeInput ? codeInput.value : "";
+                return [token, code];
+                """)
+        except WebDriverException:
+            return None, None
+
+        if not isinstance(values, (list, tuple)) or len(values) < 2:
+            return None, None
+
+        token = values[0] if values[0] is not None else ""
+        code = values[1] if values[1] is not None else ""
+        if not isinstance(token, str):
+            token = str(token)
+        if not isinstance(code, str):
+            code = str(code)
+        token = token.strip()
+        code = code.strip()
+        return (token or None, code or None)
+
+    def _is_li_antibot_token_valid(self, token: Optional[str]) -> bool:
+        """Return True if the LiveIdentity token looks usable."""
+        if not token or not isinstance(token, str):
+            return False
+        lowered = token.strip().lower()
+        if not lowered:
+            return False
+        if "blacklist" in lowered or "invalid" in lowered:
+            return False
+        return lowered != "invalid response."
+
+    def _ensure_valid_li_antibot_tokens(
+        self, wait: Optional[WebDriverWait] = None
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Refresh LiveIdentity tokens when they are present but invalid."""
+        token, code = self._read_li_antibot_tokens()
+        if token and not self._is_li_antibot_token_valid(token):
+            logger.info("LiveIdentity token invalid; attempting refresh")
+            self._solve_captcha_if_present(wait)
+            token, code = self._read_li_antibot_tokens()
+            if token and not self._is_li_antibot_token_valid(token):
+                return None, None
+        if not token:
+            return None, None
+        return token, code
+
     def _resolve_facility_preferences(self, request: BookingRequest) -> list[str]:
         """Resolve requested facility preferences against visible tennis names."""
         available = self._get_available_facility_names()
@@ -1132,6 +1186,7 @@ class ParisTennisService:
         try:
             ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
             for attempt in range(2):
+                li_token, li_token_code = self._ensure_valid_li_antibot_tokens()
                 response = self.driver.execute_async_script(
                     """
                     const callback = arguments[arguments.length - 1];
@@ -1141,12 +1196,9 @@ class ParisTennisService:
                     const selInOut = arguments[3] || [];
                     const selCoating = arguments[4] || [];
                     const captchaRequestId = arguments[5];
-                    const liTokenInput = document.getElementById('li-antibot-token')
-                        || document.querySelector("input[name='li-antibot-token']");
-                    const liTokenCodeInput = document.getElementById('li-antibot-token-code')
-                        || document.querySelector("input[name='li-antibot-token-code']");
-                    const liToken = liTokenInput ? liTokenInput.value : "";
-                    const liTokenCode = liTokenCodeInput ? liTokenCodeInput.value : "";
+                    const liToken = arguments[6] || "";
+                    const liTokenCode = arguments[7] || "";
+                    const ajaxUrl = arguments[8];
                     const params = new URLSearchParams();
                     params.append("hourRange", hourRange);
                     params.append("when", whenValue);
@@ -1163,7 +1215,7 @@ class ParisTennisService:
                         params.append("li-antibot-token-code", liTokenCode);
                     }
 
-                    fetch(arguments[6], {
+                    fetch(ajaxUrl, {
                         method: "POST",
                         headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
                         body: params.toString(),
@@ -1178,6 +1230,8 @@ class ParisTennisService:
                     sel_in_out,
                     sel_coating,
                     captcha_request_id,
+                    li_token,
+                    li_token_code,
                     ajax_url,
                 )
                 if not response or not response.get("ok"):
