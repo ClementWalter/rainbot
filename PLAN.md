@@ -427,6 +427,11 @@ but the fallback still needs live-site validation.
     site used `window.LI_ANTIBOT.loadAntibot([...], ...)` or added extra
     arguments. Config extraction now scans for the bracketed array literal
     regardless of extra arguments, ensuring CAPTCHA parsing works on live pages.
+72. **DOM Fallback Slot Parsing** - Fixed: DOM fallback parsing now recognizes
+    live `.buttonAllOk` slots and extracts booking identifiers (`equipmentId`,
+    `courtId`, `dateDeb`, `dateFin`), facility names from panel IDs, and
+    indoor/outdoor labels so fallback bookings work when AJAX results are
+    unavailable.
 
 ---
 

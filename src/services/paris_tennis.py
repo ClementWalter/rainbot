@@ -951,6 +951,24 @@ class ParisTennisService:
                 return str(value).strip()
         return None
 
+    def _get_dom_element_attr(self, element, *names: str) -> Optional[str]:
+        """Return the first non-empty attribute value from a Selenium element."""
+        if element is None:
+            return None
+        for name in names:
+            try:
+                value = element.get_attribute(name)
+            except WebDriverException:
+                value = None
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                value = str(value)
+            value = value.strip()
+            if value:
+                return value
+        return None
+
     def _parse_slot_datetime(self, value: Optional[str]) -> Optional[datetime]:
         """Parse slot date strings from AJAX results into datetimes."""
         if not value:
@@ -975,6 +993,54 @@ class ParisTennisService:
             return datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
         except ValueError:
             return None
+
+    def _parse_price_value(self, value: Optional[str]) -> Optional[float]:
+        """Parse a price string into a float."""
+        if not value:
+            return None
+        cleaned = re.sub(r"[^\d,\.]", "", str(value))
+        if not cleaned:
+            return None
+        if cleaned.count(",") == 1 and cleaned.count(".") == 0:
+            cleaned = cleaned.replace(",", ".")
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+    def _extract_facility_from_panel_id(self, value: Optional[str]) -> Optional[str]:
+        """Extract facility name from panel IDs like collapseJesseOwens08h."""
+        if not value:
+            return None
+        for prefix in ("collapse", "courtList", "head"):
+            if value.startswith(prefix):
+                trimmed = value[len(prefix) :]
+                break
+        else:
+            return None
+        trimmed = re.sub(r"\d{1,2}h\d{0,2}$", "", trimmed, flags=re.IGNORECASE)
+        trimmed = trimmed.strip()
+        return trimmed or None
+
+    def _infer_facility_name_from_dom(self, element) -> Optional[str]:
+        """Infer facility name from DOM ancestors when missing on slot elements."""
+        xpaths = (
+            "ancestor::*[starts-with(@id,'collapse')][1]",
+            "ancestor::*[starts-with(@id,'courtList')][1]",
+            "ancestor::*[starts-with(@id,'head')][1]",
+        )
+        for xpath in xpaths:
+            try:
+                ancestor = element.find_element(By.XPATH, xpath)
+            except NoSuchElementException:
+                continue
+            except WebDriverException:
+                continue
+            raw_id = self._get_dom_element_attr(ancestor, "id")
+            facility = self._extract_facility_from_panel_id(raw_id)
+            if facility:
+                return facility
+        return None
 
     def _extract_facility_address(self, button) -> Optional[str]:
         """Best-effort extraction of a facility address from an availability button."""
@@ -1087,6 +1153,15 @@ class ParisTennisService:
             )
             or ""
         )
+        indoor_outdoor = (
+            self._get_slot_button_attr(
+                button,
+                "indooroutdoor",
+                "data-indooroutdoor",
+                "data-indoor-outdoor",
+            )
+            or ""
+        )
         button_captcha_request_id = self._get_slot_button_attr(
             button,
             "captcharequestid",
@@ -1112,7 +1187,9 @@ class ParisTennisService:
             court_text = court_span.get_text(strip=True) if court_span else ""
 
         court_number = self._parse_court_number(court_text)
-        court_type = self._parse_court_type_from_text(court_text, type_price)
+        court_type = self._parse_court_type_from_text(
+            court_text, " ".join([type_price, indoor_outdoor]).strip()
+        )
         facility_address = self._extract_facility_address(button)
 
         price = None
@@ -1356,7 +1433,12 @@ class ParisTennisService:
             )
 
             # Find available time slots
-            time_slots = facility_section.find_elements(By.CSS_SELECTOR, ".time-slot.available")
+            time_slots = facility_section.find_elements(
+                By.CSS_SELECTOR,
+                ".time-slot.available, .court-available, .buttonAllOk, "
+                "button.buttonAllOk, a.buttonAllOk, input.buttonAllOk, "
+                "[equipmentid], [data-equipment-id], [data-equipmentid]",
+            )
 
             for slot_elem in time_slots:
                 slot = self._parse_slot_element(slot_elem, facility_code, target_date, request)
@@ -1381,7 +1463,10 @@ class ParisTennisService:
         slots: list[CourtSlot] = []
         try:
             available_elements = self.driver.find_elements(
-                By.CSS_SELECTOR, ".time-slot.available, .court-available"
+                By.CSS_SELECTOR,
+                ".time-slot.available, .court-available, .buttonAllOk, "
+                "button.buttonAllOk, a.buttonAllOk, input.buttonAllOk, "
+                "[equipmentid], [data-equipment-id], [data-equipmentid]",
             )
 
             for elem in available_elements:
@@ -1448,27 +1533,197 @@ class ParisTennisService:
     ) -> Optional[CourtSlot]:
         """Parse a single slot element into CourtSlot."""
         try:
-            time_start = element.get_attribute("data-start") or ""
-            time_end = element.get_attribute("data-end") or ""
-            court_number = element.get_attribute("data-court") or ""
-            facility_name = element.get_attribute("data-facility-name") or ""
-            facility_address = element.get_attribute("data-facility-address") or ""
+            get_attr = self._get_dom_element_attr
+
+            facility_name = (
+                get_attr(
+                    element,
+                    "data-facility-name",
+                    "data-facilityname",
+                    "facilityName",
+                    "facility",
+                )
+                or ""
+            )
+            facility_address = (
+                get_attr(
+                    element,
+                    "data-facility-address",
+                    "data-address",
+                    "data-adresse",
+                )
+                or ""
+            )
 
             if not facility_code:
-                facility_code = element.get_attribute("data-facility") or ""
+                facility_code = (
+                    get_attr(
+                        element,
+                        "data-facility",
+                        "data-facility-code",
+                        "data-facilitycode",
+                        "facilityCode",
+                    )
+                    or ""
+                )
+            if not facility_name:
+                facility_name = self._infer_facility_name_from_dom(element) or ""
+            if not facility_name and facility_code:
+                facility_name = facility_code
+            if not facility_code and facility_name:
+                facility_code = self._normalize_facility_code(facility_name)
+
+            equipment_id = get_attr(
+                element,
+                "equipmentId",
+                "equipmentid",
+                "data-equipment-id",
+                "data-equipmentid",
+            )
+            court_id = get_attr(
+                element,
+                "courtId",
+                "courtid",
+                "data-court-id",
+                "data-courtid",
+            )
+            date_deb = get_attr(
+                element,
+                "dateDeb",
+                "datedeb",
+                "data-date-deb",
+                "data-datedeb",
+            )
+            date_fin = get_attr(
+                element,
+                "dateFin",
+                "datefin",
+                "data-date-fin",
+                "data-datefin",
+            )
+            reservation_start = self._parse_slot_datetime(date_deb) if date_deb else None
+            reservation_end = self._parse_slot_datetime(date_fin) if date_fin else None
+
+            time_start = reservation_start.strftime("%H:%M") if reservation_start else ""
+            time_end = reservation_end.strftime("%H:%M") if reservation_end else ""
+            if not time_start:
+                time_start = normalize_time(
+                    get_attr(element, "data-start", "data-deb", "start", "hourStart") or ""
+                )
+            if not time_end:
+                time_end = normalize_time(
+                    get_attr(element, "data-end", "data-fin", "end", "hourEnd") or ""
+                )
+
+            court_number = (
+                get_attr(
+                    element,
+                    "data-court",
+                    "data-court-number",
+                    "courtNumber",
+                    "courtnumber",
+                    "court",
+                )
+                or ""
+            )
+            court_text = ""
+            price_description = ""
+            price_text = ""
+            try:
+                court_container = element.find_element(
+                    By.XPATH, "ancestor::*[contains(@class,'tennis-court')][1]"
+                )
+            except NoSuchElementException:
+                court_container = None
+            except WebDriverException:
+                court_container = None
+
+            if court_container:
+                try:
+                    court_span = court_container.find_element(By.CSS_SELECTOR, "span.court")
+                    court_text = (court_span.text or "").strip()
+                except NoSuchElementException:
+                    court_text = ""
+                except WebDriverException:
+                    court_text = ""
+
+                try:
+                    price_desc_elem = court_container.find_element(
+                        By.CSS_SELECTOR, ".price-description"
+                    )
+                    price_description = (price_desc_elem.text or "").strip()
+                except NoSuchElementException:
+                    price_description = ""
+                except WebDriverException:
+                    price_description = ""
+
+                try:
+                    price_elem = court_container.find_element(By.CSS_SELECTOR, ".price")
+                    price_text = (price_elem.text or "").strip()
+                except NoSuchElementException:
+                    price_text = ""
+                except WebDriverException:
+                    price_text = ""
+
+            if not court_text:
+                try:
+                    court_text = (element.text or "").strip()
+                except WebDriverException:
+                    court_text = ""
+
+            if court_text:
+                parsed_court = self._parse_court_number(court_text)
+                if parsed_court and not court_number:
+                    court_number = parsed_court
+
+            type_price = (
+                get_attr(
+                    element,
+                    "typePrice",
+                    "typeprice",
+                    "data-type-price",
+                    "data-typeprice",
+                )
+                or ""
+            )
+            indoor_outdoor = (
+                get_attr(
+                    element,
+                    "indoorOutdoor",
+                    "indooroutdoor",
+                    "data-indoor-outdoor",
+                    "data-indooroutdoor",
+                )
+                or ""
+            )
+            combined_price_text = " ".join(
+                [text for text in (type_price, indoor_outdoor, price_description) if text]
+            ).strip()
 
             detected_type = self._detect_court_type_from_element(element)
-            court_type = detected_type or CourtType.ANY
+            court_type = detected_type or self._parse_court_type_from_text(
+                court_text, combined_price_text
+            )
+
+            price_value = get_attr(element, "price", "data-price", "data-price-value")
+            price = self._parse_price_value(price_value)
+            if price is None and price_text:
+                price = self._parse_price_value(price_text)
 
             return CourtSlot(
                 facility_name=facility_name,
                 facility_code=facility_code,
                 court_number=court_number,
-                date=target_date,
+                date=reservation_start or target_date,
                 time_start=time_start,
                 time_end=time_end,
                 court_type=court_type,
                 facility_address=facility_address if facility_address else None,
+                price=price,
+                equipment_id=equipment_id,
+                court_id=court_id,
+                reservation_start=reservation_start,
+                reservation_end=reservation_end,
             )
         except Exception as e:
             logger.debug(f"Failed to parse slot element: {e}")

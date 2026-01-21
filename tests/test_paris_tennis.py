@@ -415,6 +415,8 @@ class TestParisTennisService:
         sample_booking_request,
     ):
         """Test slot parsing detects court type from element attributes."""
+        from selenium.common.exceptions import NoSuchElementException
+
         element = MagicMock()
 
         def get_attribute_side_effect(name):
@@ -430,6 +432,7 @@ class TestParisTennisService:
 
         element.get_attribute.side_effect = get_attribute_side_effect
         element.text = ""
+        element.find_element.side_effect = NoSuchElementException()
 
         slot = service._parse_slot_element(
             element,
@@ -440,6 +443,94 @@ class TestParisTennisService:
 
         assert slot is not None
         assert slot.court_type == CourtType.OUTDOOR
+
+    def test_parse_slot_element_parses_dom_booking_identifiers(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test slot parsing extracts booking identifiers from DOM attributes."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        element = MagicMock()
+        attrs = {
+            "data-facility-name": "Tennis Club Paris",
+            "data-facility-address": "123 Rue de Tennis",
+            "data-facility": "facility-1",
+            "data-court": "3",
+            "equipmentid": "E123",
+            "courtid": "C456",
+            "datedeb": "2025/01/15 18:00:00",
+            "datefin": "2025/01/15 19:00:00",
+            "typeprice": "Decouvert",
+            "indooroutdoor": "Exterieur",
+            "price": "10",
+        }
+
+        def get_attribute_side_effect(name):
+            return attrs.get(name.lower(), "")
+
+        element.get_attribute.side_effect = get_attribute_side_effect
+        element.text = ""
+        element.find_element.side_effect = NoSuchElementException()
+
+        slot = service._parse_slot_element(
+            element,
+            "facility-1",
+            now_paris(),
+            sample_booking_request,
+        )
+
+        assert slot is not None
+        assert slot.equipment_id == "E123"
+        assert slot.court_id == "C456"
+        assert slot.time_start == "18:00"
+        assert slot.time_end == "19:00"
+        assert slot.price == 10.0
+        assert slot.court_type == CourtType.OUTDOOR
+
+    def test_parse_slot_element_infers_facility_from_panel_id(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test facility inference from collapse panel IDs."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        element = MagicMock()
+        attrs = {
+            "equipmentid": "E999",
+            "courtid": "C999",
+            "datedeb": "2025/01/15 08:00:00",
+            "datefin": "2025/01/15 09:00:00",
+        }
+
+        def get_attribute_side_effect(name):
+            return attrs.get(name.lower(), "")
+
+        element.get_attribute.side_effect = get_attribute_side_effect
+        element.text = ""
+
+        collapse = MagicMock()
+        collapse.get_attribute.return_value = "collapseJesseOwens08h"
+
+        def find_element_side_effect(by, value):
+            if by == By.XPATH and "collapse" in value:
+                return collapse
+            raise NoSuchElementException()
+
+        element.find_element.side_effect = find_element_side_effect
+
+        slot = service._parse_slot_element(
+            element,
+            "",
+            now_paris(),
+            sample_booking_request,
+        )
+
+        assert slot is not None
+        assert slot.facility_name == "JesseOwens"
+        assert slot.facility_code == "jesseowens"
 
     def test_parse_available_slots_html_extracts_facility_address(
         self,
