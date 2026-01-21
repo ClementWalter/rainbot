@@ -501,6 +501,9 @@ real-site verification.
     refresh). The refresh helper now catches reload failures and falls back to
     `LI_ANTIBOT.loadAntibot()` with the parsed config so LiveIdentity tokens can
     still be refreshed before calling 2Captcha.
+87. **AJAX Availability CAPTCHA Retry** - Fixed: When the AJAX slot endpoint
+    returns CAPTCHA HTML, `_fetch_availability_html()` now detects the gate,
+    attempts to solve the CAPTCHA, and retries once before giving up.
 
 ---
 

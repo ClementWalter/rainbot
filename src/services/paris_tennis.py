@@ -1072,49 +1072,80 @@ class ParisTennisService:
         """Fetch available slots HTML for a facility via AJAX."""
         try:
             ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
-            response = self.driver.execute_async_script(
-                """
-                const callback = arguments[arguments.length - 1];
-                const hourRange = arguments[0];
-                const whenValue = arguments[1];
-                const facilityName = arguments[2];
-                const selInOut = arguments[3] || [];
-                const selCoating = arguments[4] || [];
-                const captchaRequestId = arguments[5];
-                const params = new URLSearchParams();
-                params.append("hourRange", hourRange);
-                params.append("when", whenValue);
-                params.append("selWhereTennisName", facilityName);
-                selInOut.forEach((value) => params.append("selInOut[]", value));
-                selCoating.forEach((value) => params.append("selCoating[]", value));
-                if (captchaRequestId) {
-                    params.append("captchaRequestId", captchaRequestId);
-                }
+            for attempt in range(2):
+                response = self.driver.execute_async_script(
+                    """
+                    const callback = arguments[arguments.length - 1];
+                    const hourRange = arguments[0];
+                    const whenValue = arguments[1];
+                    const facilityName = arguments[2];
+                    const selInOut = arguments[3] || [];
+                    const selCoating = arguments[4] || [];
+                    const captchaRequestId = arguments[5];
+                    const params = new URLSearchParams();
+                    params.append("hourRange", hourRange);
+                    params.append("when", whenValue);
+                    params.append("selWhereTennisName", facilityName);
+                    selInOut.forEach((value) => params.append("selInOut[]", value));
+                    selCoating.forEach((value) => params.append("selCoating[]", value));
+                    if (captchaRequestId) {
+                        params.append("captchaRequestId", captchaRequestId);
+                    }
 
-                fetch(arguments[6], {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
-                    body: params.toString(),
-                })
-                    .then((response) => response.text())
-                    .then((text) => callback({ ok: true, text }))
-                    .catch((error) => callback({ ok: false, error: String(error) }));
-                """,
-                hour_range,
-                when_value,
-                facility_name,
-                sel_in_out,
-                sel_coating,
-                captcha_request_id,
-                ajax_url,
-            )
-            if not response or not response.get("ok"):
-                logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
-                return None
-            return response.get("text")
+                    fetch(arguments[6], {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+                        body: params.toString(),
+                    })
+                        .then((response) => response.text())
+                        .then((text) => callback({ ok: true, text }))
+                        .catch((error) => callback({ ok: false, error: String(error) }));
+                    """,
+                    hour_range,
+                    when_value,
+                    facility_name,
+                    sel_in_out,
+                    sel_coating,
+                    captcha_request_id,
+                    ajax_url,
+                )
+                if not response or not response.get("ok"):
+                    logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
+                    return None
+
+                html = response.get("text")
+                if attempt == 0 and self._looks_like_captcha_html(html):
+                    logger.info(
+                        "Availability response indicates CAPTCHA; attempting solve before retry"
+                    )
+                    if not self._solve_captcha_if_present():
+                        logger.warning(
+                            "CAPTCHA solve failed during availability fetch for %s",
+                            facility_name,
+                        )
+                        return None
+                    continue
+                return html
+            return None
         except WebDriverException as e:
             logger.debug("Availability fetch failed for %s: %s", facility_name, e)
             return None
+
+    def _looks_like_captcha_html(self, html: Optional[str]) -> bool:
+        """Return True if the response HTML appears to be a CAPTCHA gate."""
+        if not html:
+            return False
+        lowered = str(html).lower()
+        markers = (
+            "g-recaptcha",
+            "recaptcha",
+            "li-antibot",
+            "li_antibot",
+            "formcaptcha",
+            "captcha-input",
+            "captcha-answer",
+        )
+        return any(marker in lowered for marker in markers)
 
     def _parse_available_slots_html(
         self,
