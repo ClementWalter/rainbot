@@ -11,7 +11,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from selenium.common.exceptions import (
@@ -1358,6 +1358,109 @@ class ParisTennisService:
                 return value
         return None
 
+    def _normalize_slot_param_key(self, key: str) -> Optional[str]:
+        """Normalize slot parameter keys from URLs/JS snippets."""
+        if not key:
+            return None
+        cleaned = re.sub(r"[^a-z0-9]", "", key.lower())
+        mapping = {
+            "equipmentid": "equipment_id",
+            "courtid": "court_id",
+            "datedeb": "date_deb",
+            "datefin": "date_fin",
+            "price": "price",
+            "typeprice": "type_price",
+            "indooroutdoor": "indoor_outdoor",
+            "captcharequestid": "captcha_request_id",
+        }
+        return mapping.get(cleaned)
+
+    def _looks_like_datetime(self, value: str) -> bool:
+        """Return True if a string looks like a date/time value."""
+        if not value:
+            return False
+        if not re.search(r"\d{1,2}:\d{2}", value):
+            return False
+        return bool(
+            re.search(r"\d{4}[/-]\d{1,2}[/-]\d{1,2}", value)
+            or re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", value)
+        )
+
+    def _extract_positional_slot_params(self, args: list[str]) -> dict[str, str]:
+        """Extract slot identifiers from positional JavaScript arguments."""
+        if len(args) < 4:
+            return {}
+        date_indices = [i for i, arg in enumerate(args) if self._looks_like_datetime(arg)]
+        if len(date_indices) < 2:
+            return {}
+        first, second = date_indices[-2], date_indices[-1]
+        if second != first + 1 or first < 2:
+            return {}
+        return {
+            "equipmentId": args[first - 2],
+            "courtId": args[first - 1],
+            "dateDeb": args[first],
+            "dateFin": args[second],
+        }
+
+    def _extract_slot_params_from_text(self, value: Optional[str]) -> dict[str, str]:
+        """Parse slot identifiers from URL/query strings or JS snippets."""
+        if not value:
+            return {}
+
+        raw = str(value)
+        params: dict[str, str] = {}
+
+        def add_param(key: str, val: Optional[str]) -> None:
+            normalized = self._normalize_slot_param_key(key)
+            if not normalized:
+                return
+            if normalized in params:
+                return
+            if val is None:
+                return
+            cleaned = str(val).strip()
+            if not cleaned:
+                return
+            params[normalized] = cleaned
+
+        if "?" in raw:
+            parsed = urlparse(raw)
+            query = parsed.query or raw.split("?", 1)[1]
+            query = query.split("#", 1)[0]
+            for key, values in parse_qs(query, keep_blank_values=True).items():
+                if values:
+                    add_param(key, values[0])
+        elif "=" in raw and "&" in raw:
+            query = raw.split("#", 1)[0]
+            for key, values in parse_qs(query, keep_blank_values=True).items():
+                if values:
+                    add_param(key, values[0])
+
+        key_pattern = (
+            r"(equipmentId|equipmentid|courtId|courtid|dateDeb|datedeb|dateFin|datefin"
+            r"|price|typePrice|typeprice|indoorOutdoor|indooroutdoor"
+            r"|captchaRequestId|captcharequestid)\s*[:=]\s*['\"]([^'\"]+)"
+        )
+        for match in re.finditer(key_pattern, raw):
+            add_param(match.group(1), match.group(2))
+
+        args = re.findall(r"['\"]([^'\"]+)['\"]", raw)
+        for key, val in self._extract_positional_slot_params(args).items():
+            add_param(key, val)
+
+        return params
+
+    def _extract_slot_params_from_sources(self, *values: Optional[str]) -> dict[str, str]:
+        """Merge slot parameters from multiple attribute sources."""
+        merged: dict[str, str] = {}
+        for value in values:
+            params = self._extract_slot_params_from_text(value)
+            for key, val in params.items():
+                if key not in merged:
+                    merged[key] = val
+        return merged
+
     def _parse_slot_datetime(self, value: Optional[str]) -> Optional[datetime]:
         """Parse slot date strings from AJAX results into datetimes."""
         if not value:
@@ -1563,6 +1666,21 @@ class ParisTennisService:
         )
         if button_captcha_request_id:
             captcha_request_id = button_captcha_request_id
+
+        extra_params = self._extract_slot_params_from_sources(
+            self._get_slot_button_attr(button, "href"),
+            self._get_slot_button_attr(button, "onclick"),
+        )
+        if extra_params:
+            equipment_id = equipment_id or extra_params.get("equipment_id")
+            court_id = court_id or extra_params.get("court_id")
+            date_deb = date_deb or extra_params.get("date_deb")
+            date_fin = date_fin or extra_params.get("date_fin")
+            price_value = price_value or extra_params.get("price")
+            type_price = type_price or extra_params.get("type_price", "")
+            indoor_outdoor = indoor_outdoor or extra_params.get("indoor_outdoor", "")
+            if not button_captcha_request_id:
+                captcha_request_id = captcha_request_id or extra_params.get("captcha_request_id")
 
         if not equipment_id or not court_id or not date_deb or not date_fin:
             return None
@@ -2002,6 +2120,15 @@ class ParisTennisService:
                 "data-date-fin",
                 "data-datefin",
             )
+            extra_params = self._extract_slot_params_from_sources(
+                get_attr(element, "href"),
+                get_attr(element, "onclick"),
+            )
+            if extra_params:
+                equipment_id = equipment_id or extra_params.get("equipment_id")
+                court_id = court_id or extra_params.get("court_id")
+                date_deb = date_deb or extra_params.get("date_deb")
+                date_fin = date_fin or extra_params.get("date_fin")
             reservation_start = self._parse_slot_datetime(date_deb) if date_deb else None
             reservation_end = self._parse_slot_datetime(date_fin) if date_fin else None
 
@@ -2097,6 +2224,9 @@ class ParisTennisService:
                 )
                 or ""
             )
+            if extra_params:
+                type_price = type_price or extra_params.get("type_price", "")
+                indoor_outdoor = indoor_outdoor or extra_params.get("indoor_outdoor", "")
             combined_price_text = " ".join(
                 [text for text in (type_price, indoor_outdoor, price_description) if text]
             ).strip()
@@ -2107,9 +2237,15 @@ class ParisTennisService:
             )
 
             price_value = get_attr(element, "price", "data-price", "data-price-value")
+            if extra_params:
+                price_value = price_value or extra_params.get("price")
             price = self._parse_price_value(price_value)
             if price is None and price_text:
                 price = self._parse_price_value(price_text)
+
+            captcha_request_id = None
+            if extra_params:
+                captcha_request_id = extra_params.get("captcha_request_id")
 
             return CourtSlot(
                 facility_name=facility_name,
@@ -2125,6 +2261,7 @@ class ParisTennisService:
                 court_id=court_id,
                 reservation_start=reservation_start,
                 reservation_end=reservation_end,
+                captcha_request_id=captcha_request_id,
             )
         except Exception as e:
             logger.debug(f"Failed to parse slot element: {e}")

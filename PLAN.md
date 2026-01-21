@@ -18,7 +18,9 @@ names (`selInOut`, `selCoating`) to avoid empty results from misnamed filters.
 Search result scraping now attempts to solve CAPTCHA gates before parsing
 availability, but still needs real-site verification. Availability retries now
 refresh `captchaRequestId` after solving CAPTCHA gates so the AJAX slot endpoint
-receives the updated token on retry.
+receives the updated token on retry. Slot parsing now also extracts booking
+identifiers from link query strings or inline `onclick` handlers when data
+attributes are missing, but still needs live-site verification.
 
 ### What Exists
 
@@ -548,6 +550,10 @@ receives the updated token on retry.
     AJAX response returns CAPTCHA HTML, the retry now refreshes
     `captchaRequestId` from the page after solving so the next request includes
     the updated token.
+97. **Slot Identifiers In href/onclick** - Fixed: availability and DOM parsing
+    now extract equipment/court/date identifiers (and `captchaRequestId`) from
+    query strings or inline `onclick` handlers when data attributes are missing,
+    improving scraping reliability on tennis.paris.fr.
 
 ---
 

@@ -696,6 +696,36 @@ class TestParisTennisService:
         assert slot.equipment_id == "E5"
         assert slot.court_id == "C5"
 
+    def test_parse_available_slots_html_reads_identifiers_from_href(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing extracts identifiers from href query strings."""
+        html = """
+        <div class="tennis-court">
+            <a class="buttonAllOk"
+                href="Portal.jsp?page=reservation&equipmentId=E7&courtId=C7&dateDeb=2025/01/15%2018:00:00&dateFin=2025/01/15%2019:00:00&typePrice=Couvert&price=14&captchaRequestId=CAP-777"></a>
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Facility",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id=None,
+        )
+
+        assert slots
+        slot = slots[0]
+        assert slot.equipment_id == "E7"
+        assert slot.court_id == "C7"
+        assert slot.time_start == "18:00"
+        assert slot.time_end == "19:00"
+        assert slot.price == 14.0
+        assert slot.captcha_request_id == "CAP-777"
+
     def test_parse_available_slots_html_accepts_date_formats_without_seconds(
         self,
         service,
@@ -724,6 +754,39 @@ class TestParisTennisService:
 
         assert slots
         slot = slots[0]
+        assert slot.time_start == "18:00"
+        assert slot.time_end == "19:00"
+
+    def test_parse_slot_element_reads_identifiers_from_onclick(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test DOM slot parsing extracts identifiers from onclick attributes."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        element = MagicMock()
+        attrs = {
+            "onclick": "selectSlot('E8','C8','2025/01/15 18:00:00','2025/01/15 19:00:00')",
+        }
+
+        def get_attribute_side_effect(name):
+            return attrs.get(name.lower(), "")
+
+        element.get_attribute.side_effect = get_attribute_side_effect
+        element.text = ""
+        element.find_element.side_effect = NoSuchElementException()
+
+        slot = service._parse_slot_element(
+            element,
+            "facility-1",
+            now_paris(),
+            sample_booking_request,
+        )
+
+        assert slot is not None
+        assert slot.equipment_id == "E8"
+        assert slot.court_id == "C8"
         assert slot.time_start == "18:00"
         assert slot.time_end == "19:00"
 
