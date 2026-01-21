@@ -1804,6 +1804,8 @@ class ParisTennisService:
         self,
         slot: CourtSlot,
         captcha_request_id: Optional[str],
+        li_token: Optional[str] = None,
+        li_token_code: Optional[str] = None,
     ) -> None:
         """Submit the reservation form using slot identifiers."""
         reservation_start = slot.reservation_start or slot.date
@@ -1824,13 +1826,9 @@ class ParisTennisService:
                 const dateDeb = arguments[2];
                 const dateFin = arguments[3];
                 const captchaRequestId = arguments[4];
-                const actionUrl = arguments[5];
-                const liTokenInput = document.getElementById('li-antibot-token')
-                    || document.querySelector("input[name='li-antibot-token']");
-                const liTokenCodeInput = document.getElementById('li-antibot-token-code')
-                    || document.querySelector("input[name='li-antibot-token-code']");
-                const liToken = liTokenInput ? liTokenInput.value : "";
-                const liTokenCode = liTokenCodeInput ? liTokenCodeInput.value : "";
+                const liToken = arguments[5] || "";
+                const liTokenCode = arguments[6] || "";
+                const actionUrl = arguments[7];
 
                 let form = document.getElementById("formReservation");
                 if (!form) {
@@ -1857,8 +1855,12 @@ class ParisTennisService:
                 setInput("dateDeb", dateDeb);
                 setInput("dateFin", dateFin);
                 setInput("annulation", "false");
-                setInput("li-antibot-token", liToken);
-                setInput("li-antibot-token-code", liTokenCode);
+                if (liToken) {
+                    setInput("li-antibot-token", liToken);
+                    if (liTokenCode) {
+                        setInput("li-antibot-token-code", liTokenCode);
+                    }
+                }
                 if (captchaRequestId) {
                     setInput("captchaRequestId", captchaRequestId);
                 }
@@ -1870,6 +1872,8 @@ class ParisTennisService:
                 date_deb,
                 date_fin,
                 captcha_request_id,
+                li_token or "",
+                li_token_code or "",
                 action_url,
             )
         except WebDriverException as e:
@@ -2395,7 +2399,15 @@ class ParisTennisService:
                     hour_range=hour_range,
                     sel_in_out=sel_in_out,
                 )
-            self._submit_reservation_form(slot, captcha_request_id)
+            li_token, li_token_code = self._ensure_valid_li_antibot_tokens(wait)
+            if not li_token:
+                li_token_code = None
+            self._submit_reservation_form(
+                slot,
+                captcha_request_id,
+                li_token,
+                li_token_code,
+            )
             self._wait_for_booking_state(wait)
             self._solve_captcha_if_present(wait)
 

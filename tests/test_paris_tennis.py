@@ -442,7 +442,12 @@ class TestParisTennisService:
             reservation_end=start_time + timedelta(hours=1),
         )
 
-        service._submit_reservation_form(slot, captcha_request_id="captcha-1")
+        service._submit_reservation_form(
+            slot,
+            captcha_request_id="captcha-1",
+            li_token="li-token",
+            li_token_code="li-code",
+        )
 
         args, _ = mock_driver.execute_script.call_args
         script = args[0]
@@ -450,6 +455,8 @@ class TestParisTennisService:
             service.search_url,
             "Portal.jsp?page=reservation&view=reservation_creneau",
         )
+        assert args[-3] == "li-token"
+        assert args[-2] == "li-code"
         assert "li-antibot-token" in script
         assert "li-antibot-token-code" in script
 
@@ -1205,6 +1212,10 @@ class TestParisTennisService:
         ) as mock_ensure, patch.object(
             service, "_submit_reservation_form"
         ) as mock_submit, patch.object(
+            service,
+            "_ensure_valid_li_antibot_tokens",
+            return_value=("LI-TOKEN", "LI-CODE"),
+        ) as mock_tokens, patch.object(
             service, "_check_for_captcha", return_value=False
         ), patch.object(
             service, "_extract_confirmation_id", return_value="CONF-123"
@@ -1214,9 +1225,10 @@ class TestParisTennisService:
             result = service.book_court(slot)
 
         assert result.success is True
-        mock_submit.assert_called_once_with(slot, "CAP-321")
+        mock_submit.assert_called_once_with(slot, "CAP-321", "LI-TOKEN", "LI-CODE")
         mock_ensure.assert_not_called()
         mock_get.assert_called_once()
+        mock_tokens.assert_called_once_with(mock_wait.return_value)
 
     def test_book_court_waits_for_booking_state_after_submit(
         self,
@@ -1248,6 +1260,10 @@ class TestParisTennisService:
         ) as mock_state, patch.object(
             service, "_submit_reservation_form"
         ) as mock_submit, patch.object(
+            service,
+            "_ensure_valid_li_antibot_tokens",
+            return_value=(None, "102"),
+        ) as mock_tokens, patch.object(
             service, "_solve_captcha_if_present", return_value=False
         ), patch.object(
             service, "_handle_reservation_details", return_value=False
@@ -1261,8 +1277,9 @@ class TestParisTennisService:
             result = service.book_court(slot)
 
         assert result.success is True
-        mock_submit.assert_called_once_with(slot, "CAP-123")
+        mock_submit.assert_called_once_with(slot, "CAP-123", None, None)
         mock_state.assert_called_once_with(mock_wait.return_value)
+        mock_tokens.assert_called_once_with(mock_wait.return_value)
 
     def test_search_available_courts_empty(self, service, mock_driver, sample_booking_request):
         """Test search returns empty list when no results."""

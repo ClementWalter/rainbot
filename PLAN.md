@@ -580,6 +580,10 @@ mid-loop.
 103. **CAPTCHA Solve False Positives** - Fixed: when a CAPTCHA is detected but
      the solver reports "No CAPTCHA detected", the flow now treats this as a
      failure instead of proceeding without a solved challenge.
+104. **Reservation Submit Uses Invalid LiveIdentity Tokens** - Fixed: booking
+     now validates LiveIdentity tokens before submitting reservations and omits
+     blacklisted tokens/code so live booking requests do not fail with
+     "Blacklisted end-user" responses.
 
 ---
 
