@@ -276,6 +276,7 @@ class CaptchaSolverService:
             CaptchaSolveResult with success status.
         """
         current_url = driver.current_url
+        last_error: Optional[CaptchaSolveResult] = None
 
         for attempt in range(1, max_retries + 1):
             logger.info(f"CAPTCHA solve attempt {attempt}/{max_retries}")
@@ -285,8 +286,7 @@ class CaptchaSolverService:
             if liveidentity_result is not None:
                 if liveidentity_result.success:
                     return liveidentity_result
-                time.sleep(2)
-                continue
+                last_error = liveidentity_result
 
             # Try to detect reCAPTCHA
             recaptcha_result = self._detect_and_solve_recaptcha(driver, current_url)
@@ -294,6 +294,7 @@ class CaptchaSolverService:
                 if recaptcha_result.success:
                     return recaptcha_result
                 # Continue to next attempt if failed
+                last_error = recaptcha_result
                 time.sleep(2)
                 continue
 
@@ -303,13 +304,18 @@ class CaptchaSolverService:
                 if image_result.success:
                     return image_result
                 # Continue to next attempt if failed
+                last_error = image_result
                 time.sleep(2)
                 continue
 
             # No CAPTCHA detected
-            logger.info("No CAPTCHA detected on page")
-            return CaptchaSolveResult(success=True, error_message="No CAPTCHA detected")
+            if last_error is None:
+                logger.info("No CAPTCHA detected on page")
+                return CaptchaSolveResult(success=True, error_message="No CAPTCHA detected")
+            time.sleep(2)
 
+        if last_error is not None:
+            return last_error
         return CaptchaSolveResult(
             success=False,
             error_message=f"Failed to solve CAPTCHA after {max_retries} attempts",

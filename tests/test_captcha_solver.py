@@ -4,6 +4,7 @@ import base64
 from unittest.mock import MagicMock, patch
 
 import pytest
+from selenium.webdriver.common.by import By
 
 from src.services.captcha_solver import (
     CaptchaSolveResult,
@@ -309,6 +310,42 @@ class TestSolveCaptchaFromPage:
         assert result.token == "valid-token"
         mock_solver.assert_not_called()
 
+    def test_liveidentity_missing_config_falls_back_to_recaptcha(self, service, mock_driver):
+        """Test LiveIdentity config failure allows reCAPTCHA fallback."""
+        from selenium.common.exceptions import NoSuchElementException
+
+        mock_driver.page_source = "<div class='g-recaptcha' data-sitekey='sitekey'></div>"
+
+        def find_element_side_effect(by, value):
+            if by == By.ID and value == "li-antibot":
+                return MagicMock()
+            if by == By.CSS_SELECTOR and value in (
+                "iframe[src*='recaptcha']",
+                ".g-recaptcha",
+                "[data-sitekey]",
+            ):
+                element = MagicMock()
+
+                def get_attribute_side_effect(attr):
+                    if attr == "data-sitekey":
+                        return "sitekey"
+                    return None
+
+                element.get_attribute.side_effect = get_attribute_side_effect
+                return element
+            raise NoSuchElementException()
+
+        mock_driver.find_element.side_effect = find_element_side_effect
+
+        with patch.object(service, "solve_recaptcha_v2") as mock_solve:
+            mock_solve.return_value = CaptchaSolveResult(success=True, token="rc-token")
+
+            result = service.solve_captcha_from_page(mock_driver, max_retries=1)
+
+        assert result.success is True
+        assert result.token == "rc-token"
+        mock_solve.assert_called_once_with("sitekey", mock_driver.current_url, invisible=False)
+
     def test_refresh_liveidentity_token_accepts_dict_result(self, service, mock_driver):
         """Test LiveIdentity token refresh handles dict responses from JS."""
         config = LiveIdentityConfig(
@@ -490,7 +527,7 @@ class TestSolveCaptchaFromPage:
                 result = service.solve_captcha_from_page(mock_driver, max_retries=2)
 
             assert result.success is False
-            assert "after 2 attempts" in result.error_message
+            assert result.error_message == "Solving failed"
 
     def test_recaptcha_invisible_uses_v2(self, service, mock_driver):
         """Test invisible reCAPTCHA uses v2 flow with invisible flag."""

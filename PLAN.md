@@ -554,6 +554,10 @@ attributes are missing, but still needs live-site verification.
     now extract equipment/court/date identifiers (and `captchaRequestId`) from
     query strings or inline `onclick` handlers when data attributes are missing,
     improving scraping reliability on tennis.paris.fr.
+98. **LiveIdentity CAPTCHA Fallback** - Fixed: CAPTCHA solving now attempts
+    reCAPTCHA/image fallbacks when LiveIdentity detection fails and returns the
+    last error instead of reporting "No CAPTCHA detected", improving success
+    rates when LiveIdentity config markup is missing.
 
 ---
 
