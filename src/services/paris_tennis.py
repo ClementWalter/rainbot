@@ -429,6 +429,9 @@ class ParisTennisService:
             if not facility_names:
                 logger.warning("No facility preferences resolved; falling back to DOM parsing")
                 available_slots = self._parse_all_results(target_date, request)
+                available_slots = self._filter_slots_by_facility_preferences(
+                    available_slots, request
+                )
                 available_slots = self._sort_available_slots(available_slots, request)
                 logger.info(f"Found {len(available_slots)} available slots (DOM fallback)")
                 return available_slots
@@ -457,11 +460,16 @@ class ParisTennisService:
                 )
                 available_slots.extend(slots)
 
+            available_slots = self._filter_slots_by_facility_preferences(available_slots, request)
+
             if not available_slots:
                 logger.info(
                     "AJAX availability search returned no slots; falling back to DOM parsing"
                 )
                 available_slots = self._parse_all_results(target_date, request)
+                available_slots = self._filter_slots_by_facility_preferences(
+                    available_slots, request
+                )
 
             available_slots = self._sort_available_slots(available_slots, request)
 
@@ -608,6 +616,12 @@ class ParisTennisService:
         normalized = _normalize_court_type_text(name)
         normalized = re.sub(r"[^a-z0-9]+", "", normalized)
         return normalized
+
+    def _normalized_facility_preferences(self, request: BookingRequest) -> list[str]:
+        """Return normalized facility preferences for matching."""
+        return [
+            self._normalize_facility_code(pref) for pref in request.facility_preferences if pref
+        ]
 
     def _match_facility_preference(
         self,
@@ -1050,9 +1064,7 @@ class ParisTennisService:
         if not slots:
             return slots
 
-        normalized_prefs = [
-            self._normalize_facility_code(pref) for pref in request.facility_preferences if pref
-        ]
+        normalized_prefs = self._normalized_facility_preferences(request)
         facility_order = {pref: index for index, pref in enumerate(normalized_prefs) if pref}
 
         def facility_rank(slot: CourtSlot) -> int:
@@ -1077,6 +1089,52 @@ class ParisTennisService:
             return (facility_index, time_key)
 
         return sorted(slots, key=sort_key)
+
+    def _slot_matches_facility_preferences(
+        self,
+        slot: CourtSlot,
+        request: BookingRequest,
+    ) -> bool:
+        """Check whether a slot matches the requested facility preferences."""
+        normalized_prefs = self._normalized_facility_preferences(request)
+        if not normalized_prefs:
+            return True
+
+        candidates: list[str] = []
+        for value in (slot.facility_code, slot.facility_name):
+            if not value:
+                continue
+            normalized_value = self._normalize_facility_code(value)
+            if normalized_value and normalized_value not in candidates:
+                candidates.append(normalized_value)
+
+        if not candidates:
+            return False
+
+        for candidate in candidates:
+            if candidate in normalized_prefs:
+                return True
+
+        for candidate in candidates:
+            for pref in normalized_prefs:
+                if not pref or len(pref) < MIN_FACILITY_MATCH_LENGTH:
+                    continue
+                if pref in candidate or candidate in pref:
+                    return True
+
+        return False
+
+    def _filter_slots_by_facility_preferences(
+        self,
+        slots: list[CourtSlot],
+        request: BookingRequest,
+    ) -> list[CourtSlot]:
+        """Filter slots to those matching the requested facility preferences."""
+        if not slots:
+            return slots
+        if not request.facility_preferences:
+            return slots
+        return [slot for slot in slots if self._slot_matches_facility_preferences(slot, request)]
 
     def _set_time_range(self, time_start: str, time_end: str) -> None:
         """Set time range filters if available."""

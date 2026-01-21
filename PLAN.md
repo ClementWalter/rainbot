@@ -403,6 +403,15 @@ but the fallback still needs live-site validation.
     used single-quoted JavaScript arrays, preventing anti-bot CAPTCHA detection.
     The parser now normalizes JS literals and accepts single-quoted arrays so
     LiveIdentity challenges are detected reliably.
+67. **LiveIdentity Token Validation Trigger** - Fixed: The token injection now
+    dispatches input/change events on `li-antibot-token` and calls
+    `checkFormValidity()` when available so the live CAPTCHA form enables the
+    submit button after a successful solve.
+68. **DOM Fallback Ignores Facility Preferences** - Fixed: When the AJAX slot
+    search failed, DOM parsing returned slots for all facilities, which could
+    result in bookings outside a user's preferred facilities. The DOM fallback
+    now filters slots using normalized facility preference matching before
+    sorting and booking.
 
 ---
 

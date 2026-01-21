@@ -690,11 +690,21 @@ class CaptchaSolverService:
                 const tokenInput = document.getElementById('li-antibot-token');
                 if (tokenInput) {
                     tokenInput.value = token;
+                    tokenInput.setAttribute('value', token);
+                    tokenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    tokenInput.dispatchEvent(new Event('change', { bubbles: true }));
                 }
                 const container = document.getElementById('li-antibot');
                 if (container) {
                     const event = new Event('change', { bubbles: true });
                     container.dispatchEvent(event);
+                }
+                if (typeof checkFormValidity === 'function') {
+                    try {
+                        checkFormValidity();
+                    } catch (error) {
+                        // Ignore validation errors; the submit handler will surface failures.
+                    }
                 }
                 """,
                 token,

@@ -667,6 +667,20 @@ class TestInjectRecaptchaToken:
         assert "\\r" in call_args
 
 
+class TestInjectLiveIdentityToken:
+    """Tests for _inject_liveidentity_token method."""
+
+    def test_inject_liveidentity_token_triggers_validation(self, service, mock_driver):
+        """Test LiveIdentity token injection triggers validation events."""
+        service._inject_liveidentity_token(mock_driver, "live-token")
+
+        mock_driver.execute_script.assert_called_once()
+        script = mock_driver.execute_script.call_args[0][0]
+        assert "li-antibot-token" in script
+        assert "dispatchEvent" in script
+        assert "checkFormValidity" in script
+
+
 class TestGetCaptchaService:
     """Tests for get_captcha_service function."""
 

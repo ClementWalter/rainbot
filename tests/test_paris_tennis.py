@@ -775,6 +775,42 @@ class TestParisTennisService:
 
         assert result == [sample_court_slot]
 
+    def test_search_available_courts_dom_fallback_filters_by_facility_preferences(
+        self,
+        service,
+        mock_driver,
+        sample_booking_request,
+    ):
+        """Test DOM fallback respects facility preferences when parsing all slots."""
+        preferred_request = replace(sample_booking_request, facility_preferences=["Facility A"])
+        preferred_slot = CourtSlot(
+            facility_name="Facility A",
+            facility_code="facility-a",
+            court_number="1",
+            date=now_paris(),
+            time_start="18:00",
+            time_end="19:00",
+            court_type=CourtType.INDOOR,
+        )
+        other_slot = CourtSlot(
+            facility_name="Facility B",
+            facility_code="facility-b",
+            court_number="2",
+            date=now_paris(),
+            time_start="18:00",
+            time_end="19:00",
+            court_type=CourtType.INDOOR,
+        )
+
+        with patch.object(service, "_ensure_search_results_page"), patch.object(
+            service,
+            "_resolve_facility_preferences",
+            return_value=[],
+        ), patch.object(service, "_parse_all_results", return_value=[other_slot, preferred_slot]):
+            result = service.search_available_courts(preferred_request)
+
+        assert result == [preferred_slot]
+
     def test_fetch_availability_html_uses_search_url_base(self, service, mock_driver):
         """Test availability fetch builds the AJAX URL from search_url."""
         mock_driver.execute_async_script.return_value = {"ok": True, "text": "<html></html>"}
