@@ -412,6 +412,10 @@ but the fallback still needs live-site validation.
     result in bookings outside a user's preferred facilities. The DOM fallback
     now filters slots using normalized facility preference matching before
     sorting and booking.
+69. **AJAX Slot Elements Limited to `<button>` Tags** - Fixed: Availability
+    parsing now considers anchor/input elements and attribute-based selectors so
+    slots are not missed when the live site renders booking controls outside
+    `<button>` tags.
 
 ---
 

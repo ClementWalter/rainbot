@@ -507,6 +507,66 @@ class TestParisTennisService:
         assert slot.price == 12.0
         assert slot.court_type == CourtType.OUTDOOR
 
+    def test_parse_available_slots_html_accepts_anchor_elements(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing handles anchor elements."""
+        html = """
+        <div class="tennis-court">
+            <a class="buttonAllOk"
+                data-equipment-id="E4"
+                data-court-id="C4"
+                data-date-deb="2025/01/15 18:00:00"
+                data-date-fin="2025/01/15 19:00:00"
+                data-type-price="Couvert"></a>
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Facility",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id=None,
+        )
+
+        assert slots
+        slot = slots[0]
+        assert slot.equipment_id == "E4"
+        assert slot.court_id == "C4"
+
+    def test_parse_available_slots_html_accepts_input_elements(
+        self,
+        service,
+        sample_booking_request,
+    ):
+        """Test availability parsing handles input elements."""
+        html = """
+        <div class="tennis-court">
+            <input type="button" class="buttonAllOk"
+                equipmentid="E5"
+                courtid="C5"
+                datedeb="2025/01/15 18:00:00"
+                datefin="2025/01/15 19:00:00"
+                typeprice="Couvert" />
+        </div>
+        """
+
+        slots = service._parse_available_slots_html(
+            html=html,
+            facility_name="Facility",
+            target_date=now_paris(),
+            request=sample_booking_request,
+            captcha_request_id=None,
+        )
+
+        assert slots
+        slot = slots[0]
+        assert slot.equipment_id == "E5"
+        assert slot.court_id == "C5"
+
     def test_parse_available_slots_html_accepts_date_formats_without_seconds(
         self,
         service,

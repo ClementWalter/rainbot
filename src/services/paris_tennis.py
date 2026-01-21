@@ -745,12 +745,12 @@ class ParisTennisService:
             return []
 
         soup = BeautifulSoup(html, "html.parser")
-        buttons = soup.select("button")
+        slot_elements = self._find_slot_elements(soup)
         slots: list[CourtSlot] = []
 
-        for button in buttons:
+        for element in slot_elements:
             slot = self._parse_slot_button(
-                button=button,
+                button=element,
                 facility_name=facility_name,
                 target_date=target_date,
                 captcha_request_id=captcha_request_id,
@@ -763,6 +763,28 @@ class ParisTennisService:
                 slots.append(slot)
 
         return slots
+
+    def _find_slot_elements(self, soup: BeautifulSoup) -> list:
+        """Return candidate slot elements from AJAX HTML."""
+        selectors = [
+            "button",
+            "a",
+            "input",
+            ".buttonAllOk",
+            "[equipmentid]",
+            "[data-equipment-id]",
+            "[data-equipmentid]",
+        ]
+        elements = []
+        seen_ids: set[int] = set()
+        for selector in selectors:
+            for element in soup.select(selector):
+                element_id = id(element)
+                if element_id in seen_ids:
+                    continue
+                seen_ids.add(element_id)
+                elements.append(element)
+        return elements
 
     def _get_slot_button_attr(self, button, *names: str) -> Optional[str]:
         """Return the first non-empty attribute value from a slot button."""
