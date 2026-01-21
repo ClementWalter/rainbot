@@ -1304,6 +1304,35 @@ class TestParisTennisService:
         assert mock_driver.execute_async_script.call_count == 2
         mock_solve.assert_called_once()
 
+    def test_fetch_availability_html_refreshes_captcha_request_id_after_captcha(
+        self, service, mock_driver
+    ):
+        """Test availability retry uses refreshed captchaRequestId after CAPTCHA solve."""
+        mock_driver.execute_async_script.side_effect = [
+            {"ok": True, "text": "<div id='formCaptcha'></div>"},
+            {"ok": True, "text": "<html>slots</html>"},
+        ]
+
+        with patch.object(service, "_solve_captcha_if_present", return_value=True) as mock_solve:
+            with patch.object(
+                service, "_get_captcha_request_id", return_value="CAP-NEW"
+            ) as mock_id:
+                html = service._fetch_availability_html(
+                    hour_range="8-10",
+                    when_value="01/01/2025",
+                    facility_name="Facility",
+                    sel_in_out=["V"],
+                    sel_coating=["X"],
+                    captcha_request_id=None,
+                )
+
+        assert html == "<html>slots</html>"
+        assert mock_driver.execute_async_script.call_count == 2
+        mock_solve.assert_called_once()
+        mock_id.assert_called_once()
+        second_call_args = mock_driver.execute_async_script.call_args_list[1][0]
+        assert second_call_args[6] == "CAP-NEW"
+
     def test_get_available_facility_names_from_js_favorites(self, service, mock_driver):
         """Test facility name discovery uses jsFav when available."""
 

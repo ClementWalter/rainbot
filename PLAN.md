@@ -16,7 +16,9 @@ with the real booking flow, but the full captcha-to-confirmation path still
 needs live-site verification. The AJAX slot fetch now uses live-site parameter
 names (`selInOut`, `selCoating`) to avoid empty results from misnamed filters.
 Search result scraping now attempts to solve CAPTCHA gates before parsing
-availability, but still needs real-site verification.
+availability, but still needs real-site verification. Availability retries now
+refresh `captchaRequestId` after solving CAPTCHA gates so the AJAX slot endpoint
+receives the updated token on retry.
 
 ### What Exists
 
@@ -542,6 +544,10 @@ availability, but still needs real-site verification.
     fills reservation player fields, clicks "Ajouter un partenaire" when needed,
     and selects carnet payment options from price tables before advancing,
     aligning with the live reservation flow.
+96. **AJAX Availability CAPTCHA Retry Refresh** - Fixed: when the availability
+    AJAX response returns CAPTCHA HTML, the retry now refreshes
+    `captchaRequestId` from the page after solving so the next request includes
+    the updated token.
 
 ---
 

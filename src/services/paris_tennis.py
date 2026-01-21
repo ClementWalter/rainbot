@@ -1185,6 +1185,7 @@ class ParisTennisService:
         """Fetch available slots HTML for a facility via AJAX."""
         try:
             ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
+            current_captcha_request_id = captcha_request_id
             for attempt in range(2):
                 li_token, li_token_code = self._ensure_valid_li_antibot_tokens()
                 response = self.driver.execute_async_script(
@@ -1229,7 +1230,7 @@ class ParisTennisService:
                     facility_name,
                     sel_in_out,
                     sel_coating,
-                    captcha_request_id,
+                    current_captcha_request_id,
                     li_token,
                     li_token_code,
                     ajax_url,
@@ -1249,6 +1250,9 @@ class ParisTennisService:
                             facility_name,
                         )
                         return None
+                    refreshed_id = self._get_captcha_request_id()
+                    if refreshed_id:
+                        current_captcha_request_id = refreshed_id
                     continue
                 return html
             return None
