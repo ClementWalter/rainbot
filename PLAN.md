@@ -444,11 +444,12 @@ real-site verification.
     solver now uses `urljoin` with normalized base URLs so both absolute and
     relative image paths resolve correctly.
 74. **Facility Preferences Not Resolved From Map List** - Fixed: The live search
-    page exposes facility names via `window.mapMarkers`, which can be a Map or a
-    plain object with a nested `map` property (facility names live under the
-    `map` key, not `mapSelectTennis`). The service now reads facility names from
-    `mapMarkers.get('map')` and `mapMarkers.map`/`mapMarkers['map']` (plus
-    `mapSelectTennis` variants) so facility filtering works on tennis.paris.fr.
+    page exposes facility names via `window.mapMarkers`, which can be a Map of
+    names, a Map with nested `map` entries, or a plain object with a nested
+    `map` property. The service now reads facility names from
+    `mapMarkers.get('map')`, `mapMarkers.map`/`mapMarkers['map']`,
+    `mapSelectTennis` variants, and the direct Map keys so facility filtering
+    works on tennis.paris.fr.
 75. **CAPTCHA Gate Before Availability Scrape** - Fixed: search result scraping
     now detects and solves CAPTCHA challenges before parsing availability,
     preventing the live site from returning empty slot results when anti-bot

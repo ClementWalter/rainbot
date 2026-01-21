@@ -921,6 +921,9 @@ class ParisTennisService:
                         const mapList = markers.get('map');
                         keys = collectKeys(mapList);
                     }
+                    if (!keys.length) {
+                        keys = collectKeys(markers);
+                    }
                     return keys;
                 }
 
