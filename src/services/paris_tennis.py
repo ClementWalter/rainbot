@@ -901,6 +901,19 @@ class ParisTennisService:
                     return [];
                 };
 
+                const extractFromObject = (obj) => {
+                    if (!obj || typeof obj !== 'object') {
+                        return [];
+                    }
+                    const mapSelect = obj.mapSelectTennis || obj['mapSelectTennis'];
+                    let keys = collectKeys(mapSelect);
+                    if (!keys.length) {
+                        const mapList = obj.map || obj['map'];
+                        keys = collectKeys(mapList);
+                    }
+                    return keys;
+                };
+
                 if (typeof markers.get === 'function') {
                     const mapSelect = markers.get('mapSelectTennis');
                     let keys = collectKeys(mapSelect);
@@ -909,6 +922,11 @@ class ParisTennisService:
                         keys = collectKeys(mapList);
                     }
                     return keys;
+                }
+
+                const objectKeys = extractFromObject(markers);
+                if (objectKeys.length) {
+                    return objectKeys;
                 }
 
                 return collectKeys(markers);

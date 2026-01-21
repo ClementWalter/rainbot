@@ -1160,6 +1160,7 @@ class TestParisTennisService:
             if "mapMarkers" in call_args.args[0]
         ]
         assert any("get('map')" in script for script in map_marker_calls)
+        assert any("obj.map" in script for script in map_marker_calls)
 
     def test_get_available_facility_names_falls_back_to_dom(self, service, mock_driver):
         """Test facility name discovery falls back to DOM tokens."""
