@@ -93,6 +93,30 @@ SEARCH_RESULTS_QUERY = "page=recherche&action=rechercher_creneau"
 SEARCH_SLOTS_AJAX_PATH = "Portal.jsp?page=recherche&action=ajax_rechercher_creneau"
 MIN_FACILITY_MATCH_LENGTH = 4
 
+FRENCH_WEEKDAYS = (
+    "lundi",
+    "mardi",
+    "mercredi",
+    "jeudi",
+    "vendredi",
+    "samedi",
+    "dimanche",
+)
+FRENCH_MONTHS = (
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+)
+
 
 def _normalize_court_type_text(value: str) -> str:
     if not value:
@@ -419,13 +443,28 @@ class ParisTennisService:
         try:
             logger.info(f"Searching courts for {target_date.strftime('%Y-%m-%d')}")
 
+            when_value = target_date.strftime("%d/%m/%Y")
+            hour_range = self._format_hour_range(request.time_start, request.time_end)
+            sel_in_out = self._get_indoor_outdoor_values(request.court_type)
+            sel_coating = self._get_surface_values()
+
             # Navigate to search page and load results context
             self.driver.get(self.search_url)
             wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
             self._accept_cookie_banner()
-            captcha_request_id = self._ensure_search_results_page(wait)
 
             facility_names = self._resolve_facility_preferences(request)
+            captcha_request_id = self._ensure_search_results_page(
+                wait,
+                target_date=target_date,
+                facility_names=facility_names if facility_names else None,
+                hour_range=hour_range,
+                sel_in_out=sel_in_out,
+            )
+
+            if not facility_names:
+                facility_names = self._resolve_facility_preferences(request)
+
             if not facility_names:
                 logger.warning("No facility preferences resolved; falling back to DOM parsing")
                 available_slots = self._parse_all_results(target_date, request)
@@ -435,11 +474,6 @@ class ParisTennisService:
                 available_slots = self._sort_available_slots(available_slots, request)
                 logger.info(f"Found {len(available_slots)} available slots (DOM fallback)")
                 return available_slots
-
-            when_value = target_date.strftime("%d/%m/%Y")
-            hour_range = self._format_hour_range(request.time_start, request.time_end)
-            sel_in_out = self._get_indoor_outdoor_values(request.court_type)
-            sel_coating = self._get_surface_values()
 
             for facility_name in facility_names:
                 html = self._fetch_availability_html(
@@ -491,15 +525,32 @@ class ParisTennisService:
             days_ahead += 7
         return today + timedelta(days=days_ahead)
 
-    def _ensure_search_results_page(self, wait: WebDriverWait) -> Optional[str]:
+    def _ensure_search_results_page(
+        self,
+        wait: WebDriverWait,
+        target_date: Optional[datetime] = None,
+        facility_names: Optional[list[str]] = None,
+        hour_range: Optional[str] = None,
+        sel_in_out: Optional[list[str]] = None,
+    ) -> Optional[str]:
         """Ensure the search results page is loaded and return captcha request id if available."""
         try:
-            if SEARCH_RESULTS_QUERY in (self.driver.current_url or ""):
-                return self._get_captcha_request_id()
+            current_url = self.driver.current_url or ""
+            already_results = SEARCH_RESULTS_QUERY in current_url
 
-            if "page=recherche" not in (self.driver.current_url or ""):
+            if not already_results and "page=recherche" not in current_url:
                 self.driver.get(self.search_url)
                 self._accept_cookie_banner()
+
+            self._configure_search_form(
+                target_date=target_date,
+                facility_names=facility_names,
+                hour_range=hour_range,
+                sel_in_out=sel_in_out,
+            )
+
+            if already_results and not any([target_date, facility_names, hour_range, sel_in_out]):
+                return self._get_captcha_request_id()
 
             if self._submit_search_form_if_present():
                 try:
@@ -522,15 +573,119 @@ class ParisTennisService:
         """Submit the hidden search form to reach the results context."""
         try:
             return bool(self.driver.execute_script("""
+                    const button = document.getElementById('rechercher');
+                    if (button) {
+                        button.click();
+                        return true;
+                    }
                     const form = document.getElementById('search_form');
                     if (!form) {
                         return false;
                     }
-                    form.submit();
+                    const event = new Event('submit', { bubbles: true, cancelable: true });
+                    const proceed = form.dispatchEvent(event);
+                    if (proceed) {
+                        form.submit();
+                    }
                     return true;
                     """))
         except WebDriverException:
             return False
+
+    def _format_french_date_label(self, target_date: datetime) -> str:
+        """Format a date value as the French label used by the search input."""
+        date_value = target_date.date()
+        weekday = FRENCH_WEEKDAYS[date_value.weekday()]
+        month = FRENCH_MONTHS[date_value.month - 1]
+        return f"{weekday} {date_value.day} {month} {date_value.year}"
+
+    def _configure_search_form(
+        self,
+        target_date: Optional[datetime],
+        facility_names: Optional[list[str]],
+        hour_range: Optional[str],
+        sel_in_out: Optional[list[str]],
+    ) -> None:
+        """Update search form values to match the desired search parameters."""
+        if not any([target_date, facility_names, hour_range, sel_in_out]):
+            return
+
+        when_value = target_date.strftime("%d/%m/%Y") if target_date else ""
+        when_label = self._format_french_date_label(target_date) if target_date else ""
+        facility_names = [name for name in (facility_names or []) if name]
+        sel_in_out = [value for value in (sel_in_out or []) if value]
+        hour_range = hour_range or ""
+
+        try:
+            self.driver.execute_script(
+                """
+                const whenValue = arguments[0];
+                const whenLabel = arguments[1];
+                const hourRange = arguments[2];
+                const facilityNames = arguments[3] || [];
+                const selInOut = arguments[4] || [];
+
+                const form = document.getElementById('search_form');
+                if (!form) {
+                    return false;
+                }
+
+                const whenInput = form.querySelector("input[name='when']");
+                if (whenInput && whenValue) {
+                    whenInput.value = whenValue;
+                    whenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    whenInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                const visibleWhen = document.getElementById('when');
+                if (visibleWhen && (whenLabel || whenValue)) {
+                    visibleWhen.value = whenLabel || whenValue;
+                    visibleWhen.dispatchEvent(new Event('input', { bubbles: true }));
+                    visibleWhen.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                const hourInput = form.querySelector("input[name='hourRange']");
+                if (hourInput && hourRange) {
+                    hourInput.value = hourRange;
+                    hourInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    hourInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                if (facilityNames.length) {
+                    const whereInput = document.getElementById('where');
+                    if (whereInput) {
+                        whereInput.value = facilityNames.join(', ');
+                        whereInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        whereInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+
+                    form.querySelectorAll("input[name='selWhereTennisName']").forEach((el) => el.remove());
+                    facilityNames.forEach((name) => {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'selWhereTennisName';
+                        input.value = name;
+                        form.appendChild(input);
+                    });
+                }
+
+                if (selInOut.length) {
+                    const desired = new Set(selInOut);
+                    form.querySelectorAll("input[name='selInOut']").forEach((input) => {
+                        input.checked = desired.has(input.value);
+                    });
+                }
+
+                return true;
+                """,
+                when_value,
+                when_label,
+                hour_range,
+                facility_names,
+                sel_in_out,
+            )
+        except WebDriverException:
+            return
 
     def _get_captcha_request_id(self) -> Optional[str]:
         """Extract captchaRequestId from the results page if present."""
@@ -1371,7 +1526,19 @@ class ParisTennisService:
                 )
 
             wait = WebDriverWait(self.driver, BOOKING_WAIT_TIMEOUT)
-            captcha_request_id = slot.captcha_request_id or self._ensure_search_results_page(wait)
+            captcha_request_id = slot.captcha_request_id
+            if not captcha_request_id:
+                target_date = slot.reservation_start or slot.date
+                facility_names = [slot.facility_name] if slot.facility_name else None
+                hour_range = self._format_hour_range(slot.time_start, slot.time_end)
+                sel_in_out = self._get_indoor_outdoor_values(slot.court_type)
+                captcha_request_id = self._ensure_search_results_page(
+                    wait,
+                    target_date=target_date,
+                    facility_names=facility_names,
+                    hour_range=hour_range,
+                    sel_in_out=sel_in_out,
+                )
             self._submit_reservation_form(slot, captcha_request_id)
 
             # Wait for CAPTCHA page

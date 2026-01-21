@@ -416,6 +416,12 @@ but the fallback still needs live-site validation.
     parsing now considers anchor/input elements and attribute-based selectors so
     slots are not missed when the live site renders booking controls outside
     `<button>` tags.
+70. **Search Form Submission Bypassed UI Handlers** - Fixed: The search flow
+    used `form.submit()` on the hidden `#search_form`, which bypassed the
+    "Rechercher" button handlers that populate `selWhereTennisName` and caused
+    empty facility lists and mismatched `captchaRequestId` values. The flow now
+    updates the search form with the target date/facilities and triggers the
+    hidden button click to keep parameters aligned with the live site.
 
 ---
 

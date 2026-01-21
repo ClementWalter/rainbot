@@ -728,6 +728,35 @@ class TestParisTennisService:
         assert result == "captcha-123"
         submit.assert_called_once()
 
+    def test_ensure_search_results_page_configures_form(self, service, mock_driver):
+        """Test search results page configures the form before submission."""
+        mock_driver.current_url = (
+            "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?"
+            "page=recherche&view=recherche_creneau"
+        )
+        wait = MagicMock()
+        wait.until.return_value = True
+        target_date = datetime(2026, 1, 21)
+
+        with patch.object(service, "_configure_search_form") as configure:
+            with patch.object(service, "_submit_search_form_if_present", return_value=True):
+                with patch.object(service, "_get_captcha_request_id", return_value="captcha-456"):
+                    result = service._ensure_search_results_page(
+                        wait,
+                        target_date=target_date,
+                        facility_names=["Jesse Owens"],
+                        hour_range="8-22",
+                        sel_in_out=["V"],
+                    )
+
+        assert result == "captcha-456"
+        configure.assert_called_once_with(
+            target_date=target_date,
+            facility_names=["Jesse Owens"],
+            hour_range="8-22",
+            sel_in_out=["V"],
+        )
+
     def test_check_booking_success_true(self, service, mock_driver):
         """Test booking success detection when confirmed."""
         mock_driver.page_source = "Votre réservation confirmée avec succès"
