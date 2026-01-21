@@ -20,7 +20,10 @@ availability, but still needs real-site verification. Availability retries now
 refresh `captchaRequestId` after solving CAPTCHA gates so the AJAX slot endpoint
 receives the updated token on retry. Slot parsing now also extracts booking
 identifiers from link query strings or inline `onclick` handlers when data
-attributes are missing, but still needs live-site verification.
+attributes are missing, but still needs live-site verification. Availability
+scraping now carries refreshed `captchaRequestId` values across facility AJAX
+requests to reduce repeated CAPTCHA gating when the search page rotates tokens
+mid-loop.
 
 ### What Exists
 
@@ -562,6 +565,10 @@ attributes are missing, but still needs live-site verification.
     booking flow now waits for a CAPTCHA or reservation/payment step after
     submitting the reservation form, preventing fast follow-up actions from
     running before the live page transition completes.
+100. **Refreshed captchaRequestId Not Reused Across Facilities** - Fixed: AJAX
+     availability scraping now reuses refreshed `captchaRequestId` values across
+     facility iterations so subsequent slot fetches stay aligned with the latest
+     CAPTCHA session token.
 
 ---
 

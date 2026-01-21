@@ -1221,7 +1221,7 @@ class TestParisTennisService:
             service,
             "_resolve_facility_preferences",
             return_value=["Max Rousié"],
-        ), patch.object(service, "_fetch_availability_html", return_value=""), patch.object(
+        ), patch.object(service, "_fetch_availability_html", return_value=("", None)), patch.object(
             service, "_parse_available_slots_html", return_value=[]
         ), patch.object(
             service, "_parse_all_results", return_value=[]
@@ -1273,7 +1273,7 @@ class TestParisTennisService:
             service,
             "_resolve_facility_preferences",
             return_value=["Max Rousié"],
-        ), patch.object(service, "_fetch_availability_html", return_value=""), patch.object(
+        ), patch.object(service, "_fetch_availability_html", return_value=("", None)), patch.object(
             service, "_parse_available_slots_html", return_value=[]
         ), patch.object(
             service, "_parse_all_results", return_value=[sample_court_slot]
@@ -1335,6 +1335,36 @@ class TestParisTennisService:
 
         assert result == [preferred_slot]
 
+    def test_search_available_courts_reuses_refreshed_captcha_request_id(
+        self,
+        service,
+        mock_driver,
+        sample_booking_request,
+    ):
+        """Test refreshed captchaRequestId is reused across facility AJAX calls."""
+        with patch.object(
+            service, "_ensure_search_results_page", return_value="CAP-OLD"
+        ), patch.object(
+            service,
+            "_resolve_facility_preferences",
+            return_value=["Facility A", "Facility B"],
+        ), patch.object(
+            service, "_get_surface_values", return_value=[]
+        ), patch.object(
+            service,
+            "_fetch_availability_html",
+            side_effect=[("", "CAP-NEW"), ("", "CAP-NEW")],
+        ) as mock_fetch, patch.object(
+            service, "_parse_available_slots_html", return_value=[]
+        ), patch.object(
+            service, "_parse_all_results", return_value=[]
+        ):
+            service.search_available_courts(sample_booking_request)
+
+        assert mock_fetch.call_count == 2
+        second_call_kwargs = mock_fetch.call_args_list[1].kwargs
+        assert second_call_kwargs["captcha_request_id"] == "CAP-NEW"
+
     def test_fetch_availability_html_uses_search_url_base(self, service, mock_driver):
         """Test availability fetch builds the AJAX URL from search_url."""
         mock_driver.execute_async_script.return_value = {"ok": True, "text": "<html></html>"}
@@ -1343,7 +1373,7 @@ class TestParisTennisService:
             "page=recherche&view=recherche_creneau"
         )
 
-        html = service._fetch_availability_html(
+        html, captcha_request_id = service._fetch_availability_html(
             hour_range="8-10",
             when_value="01/01/2025",
             facility_name="Facility",
@@ -1353,6 +1383,7 @@ class TestParisTennisService:
         )
 
         assert html == "<html></html>"
+        assert captcha_request_id == "CAPTCHA-123"
         args = mock_driver.execute_async_script.call_args[0]
         script = args[0]
         assert "selInOut" in script
@@ -1377,7 +1408,7 @@ class TestParisTennisService:
         mock_driver.execute_async_script.return_value = {"ok": True, "text": "<html></html>"}
 
         with patch.object(service, "_solve_captcha_if_present", return_value=True) as mock_solve:
-            html = service._fetch_availability_html(
+            html, _ = service._fetch_availability_html(
                 hour_range="8-10",
                 when_value="01/01/2025",
                 facility_name="Facility",
@@ -1400,7 +1431,7 @@ class TestParisTennisService:
         ]
 
         with patch.object(service, "_solve_captcha_if_present", return_value=True) as mock_solve:
-            html = service._fetch_availability_html(
+            html, _ = service._fetch_availability_html(
                 hour_range="8-10",
                 when_value="01/01/2025",
                 facility_name="Facility",
@@ -1426,7 +1457,7 @@ class TestParisTennisService:
             with patch.object(
                 service, "_get_captcha_request_id", return_value="CAP-NEW"
             ) as mock_id:
-                html = service._fetch_availability_html(
+                html, captcha_request_id = service._fetch_availability_html(
                     hour_range="8-10",
                     when_value="01/01/2025",
                     facility_name="Facility",
@@ -1436,6 +1467,7 @@ class TestParisTennisService:
                 )
 
         assert html == "<html>slots</html>"
+        assert captcha_request_id == "CAP-NEW"
         assert mock_driver.execute_async_script.call_count == 2
         mock_solve.assert_called_once()
         mock_id.assert_called_once()

@@ -525,7 +525,7 @@ class ParisTennisService:
                 return available_slots
 
             for facility_name in facility_names:
-                html = self._fetch_availability_html(
+                html, captcha_request_id = self._fetch_availability_html(
                     hour_range=hour_range,
                     when_value=when_value,
                     facility_name=facility_name,
@@ -1181,8 +1181,8 @@ class ParisTennisService:
         sel_in_out: list[str],
         sel_coating: list[str],
         captcha_request_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """Fetch available slots HTML for a facility via AJAX."""
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Fetch available slots HTML and the latest captchaRequestId via AJAX."""
         try:
             ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
             current_captcha_request_id = captcha_request_id
@@ -1237,7 +1237,7 @@ class ParisTennisService:
                 )
                 if not response or not response.get("ok"):
                     logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
-                    return None
+                    return None, current_captcha_request_id
 
                 html = response.get("text")
                 if attempt == 0 and self._looks_like_captcha_html(html):
@@ -1249,16 +1249,16 @@ class ParisTennisService:
                             "CAPTCHA solve failed during availability fetch for %s",
                             facility_name,
                         )
-                        return None
+                        return None, current_captcha_request_id
                     refreshed_id = self._get_captcha_request_id()
                     if refreshed_id:
                         current_captcha_request_id = refreshed_id
                     continue
-                return html
-            return None
+                return html, current_captcha_request_id
+            return None, current_captcha_request_id
         except WebDriverException as e:
             logger.debug("Availability fetch failed for %s: %s", facility_name, e)
-            return None
+            return None, current_captcha_request_id
 
     def _looks_like_captcha_html(self, html: Optional[str]) -> bool:
         """Return True if the response HTML appears to be a CAPTCHA gate."""
