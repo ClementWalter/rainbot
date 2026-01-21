@@ -1094,6 +1094,7 @@ class TestParisTennisService:
             facility_name="Facility",
             sel_in_out=["V"],
             sel_coating=["X"],
+            captcha_request_id="CAPTCHA-123",
         )
 
         assert html == "<html></html>"
@@ -1101,6 +1102,8 @@ class TestParisTennisService:
         script = args[0]
         assert "selInOut[]" in script
         assert "selCoating[]" in script
+        assert "captchaRequestId" in script
+        assert args[-2] == "CAPTCHA-123"
         assert args[-1] == (
             "https://example.com/tennis/jsp/site/Portal.jsp?"
             "page=recherche&action=ajax_rechercher_creneau"

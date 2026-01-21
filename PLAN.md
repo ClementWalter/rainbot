@@ -472,6 +472,10 @@ real-site verification.
 80. **Login CAPTCHA Resubmission** - Fixed: the Mon Paris login flow now solves
     CAPTCHA challenges when present and re-submits the login form so
     authentication does not stall on CAPTCHA gates.
+81. **AJAX Availability Missing captchaRequestId** - Fixed:
+    `_fetch_availability_html()` now includes the `captchaRequestId` parameter
+    when available so the live `ajax_rechercher_creneau` endpoint returns slot
+    results even when CAPTCHA gating is active.
 
 ---
 

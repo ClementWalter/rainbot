@@ -510,6 +510,7 @@ class ParisTennisService:
                     facility_name=facility_name,
                     sel_in_out=sel_in_out,
                     sel_coating=sel_coating,
+                    captcha_request_id=captcha_request_id,
                 )
                 if not html:
                     continue
@@ -1009,6 +1010,7 @@ class ParisTennisService:
         facility_name: str,
         sel_in_out: list[str],
         sel_coating: list[str],
+        captcha_request_id: Optional[str] = None,
     ) -> Optional[str]:
         """Fetch available slots HTML for a facility via AJAX."""
         try:
@@ -1021,14 +1023,18 @@ class ParisTennisService:
                 const facilityName = arguments[2];
                 const selInOut = arguments[3] || [];
                 const selCoating = arguments[4] || [];
+                const captchaRequestId = arguments[5];
                 const params = new URLSearchParams();
                 params.append("hourRange", hourRange);
                 params.append("when", whenValue);
                 params.append("selWhereTennisName", facilityName);
                 selInOut.forEach((value) => params.append("selInOut[]", value));
                 selCoating.forEach((value) => params.append("selCoating[]", value));
+                if (captchaRequestId) {
+                    params.append("captchaRequestId", captchaRequestId);
+                }
 
-                fetch(arguments[5], {
+                fetch(arguments[6], {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
                     body: params.toString(),
@@ -1042,6 +1048,7 @@ class ParisTennisService:
                 facility_name,
                 sel_in_out,
                 sel_coating,
+                captcha_request_id,
                 ajax_url,
             )
             if not response or not response.get("ok"):
