@@ -1086,8 +1086,8 @@ class ParisTennisService:
                     params.append("hourRange", hourRange);
                     params.append("when", whenValue);
                     params.append("selWhereTennisName", facilityName);
-                    selInOut.forEach((value) => params.append("selInOut[]", value));
-                    selCoating.forEach((value) => params.append("selCoating[]", value));
+                    selInOut.forEach((value) => params.append("selInOut", value));
+                    selCoating.forEach((value) => params.append("selCoating", value));
                     if (captchaRequestId) {
                         params.append("captchaRequestId", captchaRequestId);
                     }

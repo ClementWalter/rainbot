@@ -1139,8 +1139,8 @@ class TestParisTennisService:
         assert html == "<html></html>"
         args = mock_driver.execute_async_script.call_args[0]
         script = args[0]
-        assert "selInOut[]" in script
-        assert "selCoating[]" in script
+        assert "selInOut" in script
+        assert "selCoating" in script
         assert "captchaRequestId" in script
         assert args[-2] == "CAPTCHA-123"
         assert args[-1] == (

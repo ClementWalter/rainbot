@@ -10,9 +10,10 @@ production-ready because Paris Tennis login/booking steps still need live-site
 validation, CAPTCHA edge cases and carnet selection remain unverified, and
 deployment/integration testing remains incomplete. AJAX slot scraping now falls
 back to DOM parsing to reduce false "no slots" results when the endpoint fails,
-but the fallback still needs live-site validation. Search result scraping now
-attempts to solve CAPTCHA gates before parsing availability, but still needs
-real-site verification.
+but the fallback still needs live-site validation. The AJAX slot fetch now uses
+live-site parameter names (`selInOut`, `selCoating`) to avoid empty results from
+misnamed filters. Search result scraping now attempts to solve CAPTCHA gates
+before parsing availability, but still needs real-site verification.
 
 ### What Exists
 
@@ -504,6 +505,10 @@ real-site verification.
 87. **AJAX Availability CAPTCHA Retry** - Fixed: When the AJAX slot endpoint
     returns CAPTCHA HTML, `_fetch_availability_html()` now detects the gate,
     attempts to solve the CAPTCHA, and retries once before giving up.
+88. **AJAX Filter Parameter Names** - Fixed: the availability fetch now uses
+    `selInOut` and `selCoating` parameter names (matching the live search AJAX
+    request) instead of `selInOut[]`/`selCoating[]`, preventing empty results
+    from misnamed filters.
 
 ---
 
