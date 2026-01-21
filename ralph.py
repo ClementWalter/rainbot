@@ -34,13 +34,34 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import IO, Any, Optional
 
 import typer  # pyright: ignore[reportMissingImports]
 
 DEFAULT_ITERATIONS = 50
 DEFAULT_NO_CHANGE_EXIT_AFTER = 10
 DEFAULT_PROMPT_FILE = "PROMPT.md"
+
+
+SubprocessFile = int | IO[Any] | None
+
+
+def _subprocess_stream_stdio() -> tuple[SubprocessFile, SubprocessFile]:
+    """
+    Best-effort passthrough so child output shows up live in this terminal.
+
+    Note: `subprocess.run()` already inherits stdout/stderr by default when you
+    don't pass `capture_output=True` or redirect streams. We still set it
+    explicitly when possible, but fall back safely if stdout/stderr don't expose
+    real file descriptors (e.g., some redirected/captured environments).
+    """
+
+    try:
+        sys.stdout.fileno()
+        sys.stderr.fileno()
+    except Exception:
+        return (None, None)
+    return (sys.stdout, sys.stderr)
 
 
 def _repo_dir() -> Path:
@@ -202,25 +223,25 @@ def _git_state_fingerprint(repo_dir: Path) -> str:
 
 
 def cli(
-    prompt: Optional[str] = typer.Argument(
+    prompt: Optional[str] = typer.Argument(  # noqa: B008
         None,
         help=f"Prompt to pass to agent. If omitted, reads {DEFAULT_PROMPT_FILE}.",
     ),
-    prompt_file: Path = typer.Option(
+    prompt_file: Path = typer.Option(  # noqa: B008
         Path(DEFAULT_PROMPT_FILE),
         "--prompt-file",
         "-f",
         help=f"Prompt file to read when PROMPT is omitted (default: {DEFAULT_PROMPT_FILE}).",
         show_default=True,
     ),
-    interactive: bool = typer.Option(
+    interactive: bool = typer.Option(  # noqa: B008
         False,
         "--interactive",
         "-i",
         help="Read prompt from stdin interactively (multi-line) before starting.",
         show_default=True,
     ),
-    iterations: int = typer.Option(
+    iterations: int = typer.Option(  # noqa: B008
         DEFAULT_ITERATIONS,
         "--iterations",
         "-n",
@@ -228,20 +249,20 @@ def cli(
         help="Maximum number of iterations.",
         show_default=True,
     ),
-    agent_bin: str = typer.Option(
+    agent_bin: str = typer.Option(  # noqa: B008
         "claude",
         "--agent-bin",
         envvar="AGENT_BIN",
         help='agent executable (default: "claude", or $AGENT_BIN).',
         show_default=True,
     ),
-    continue_on_error: bool = typer.Option(
+    continue_on_error: bool = typer.Option(  # noqa: B008
         True,
         "--continue-on-error/--stop-on-error",
         help="Keep looping even if agent exits non-zero.",
         show_default=True,
     ),
-    no_change_exit_after: int = typer.Option(
+    no_change_exit_after: int = typer.Option(  # noqa: B008
         DEFAULT_NO_CHANGE_EXIT_AFTER,
         "--no-change-exit-after",
         min=0,
@@ -268,15 +289,18 @@ def cli(
     previous_head = _head_sha(repo_dir) if no_change_exit_after else None
     previous_fingerprint = _git_state_fingerprint(repo_dir) if no_change_exit_after else ""
     no_change_streak = 0
+    stdout, stderr = _subprocess_stream_stdio()
 
     try:
-        for i in range(1, iterations + 1):
+        for _ in range(1, iterations + 1):
             try:
                 completed = (
                     subprocess.run(
                         [agent_bin, "--dangerously-skip-permissions", "-p", resolved_prompt],
                         cwd=repo_dir,
                         check=False,
+                        stdout=stdout,
+                        stderr=stderr,
                     )
                     if agent_bin == "claude"
                     else subprocess.run(
@@ -288,6 +312,8 @@ def cli(
                         ],
                         cwd=repo_dir,
                         check=False,
+                        stdout=stdout,
+                        stderr=stderr,
                     )
                 )
             except FileNotFoundError:
