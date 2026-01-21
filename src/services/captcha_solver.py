@@ -640,7 +640,15 @@ class CaptchaSolverService:
             logger.info("LiveIdentity invisible CAPTCHA detected; falling back to other solvers")
             return None
 
-        transaction = self._fetch_liveidentity_transaction(config)
+        # Get page URL for Origin/Referer headers
+        page_url = None
+        if driver is not None:
+            try:
+                page_url = driver.current_url
+            except WebDriverException:
+                pass
+
+        transaction = self._fetch_liveidentity_transaction(config, page_url=page_url)
         if not transaction:
             return CaptchaSolveResult(
                 success=False,
@@ -653,7 +661,7 @@ class CaptchaSolverService:
             )
             return None
 
-        challenge = self._fetch_liveidentity_challenge(config, transaction)
+        challenge = self._fetch_liveidentity_challenge(config, transaction, page_url=page_url)
         if not challenge:
             return CaptchaSolveResult(
                 success=False,
@@ -714,25 +722,45 @@ class CaptchaSolverService:
             transaction=transaction,
             answer=image_result.token,
             validation_url=challenge.get("captchaValidationUrl"),
+            page_url=page_url,
         )
         return validation
 
-    def _fetch_liveidentity_transaction(self, config: LiveIdentityConfig) -> Optional[dict]:
-        """Create a LiveIdentity transaction."""
+    def _fetch_liveidentity_transaction(
+        self, config: LiveIdentityConfig, page_url: Optional[str] = None
+    ) -> Optional[dict]:
+        """Create a fresh LiveIdentity transaction.
+
+        Note: We don't pass the antibot_id/request_id from the page config because
+        those IDs are only valid for the initial page load. Creating a new transaction
+        requires letting the server generate fresh IDs.
+        """
         try:
-            params = {}
-            if config.antibot_id:
-                params["antibotId"] = config.antibot_id
-            if config.request_id:
-                params["requestId"] = config.request_id
+            # Build headers with browser-like Origin and Referer
+            headers = {
+                "X-LI-sp-key": config.sp_key,
+                "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+            }
+            # Add Origin and Referer from page URL if available
+            if page_url:
+                parsed = urlparse(page_url)
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                headers["Origin"] = origin
+                headers["Referer"] = page_url
+
+            # Request body with captcha type and locale
+            body = f"type={config.captcha_type}&locale={config.locale}"
 
             response = requests.post(
                 f"{config.base_url}/public/frontend/api/v3/captchas/transaction",
-                params=params,
-                headers={
-                    "X-LI-sp-key": config.sp_key,
-                    "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
-                },
+                data=body,
+                headers=headers,
                 timeout=30,
             )
             response.raise_for_status()
@@ -747,6 +775,7 @@ class CaptchaSolverService:
         self,
         config: LiveIdentityConfig,
         transaction: dict,
+        page_url: Optional[str] = None,
     ) -> Optional[dict]:
         """Fetch a LiveIdentity CAPTCHA challenge."""
         antibot_id = transaction.get("antibotId")
@@ -755,17 +784,30 @@ class CaptchaSolverService:
             return None
 
         body = f"type={config.captcha_type}"
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-LI-sp-key": config.sp_key,
+            "X-LI-request-id": request_id,
+            "X-LI-antibot-id": antibot_id,
+            "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+        }
+        # Add Origin and Referer from page URL if available
+        if page_url:
+            parsed = urlparse(page_url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            headers["Origin"] = origin
+            headers["Referer"] = page_url
+
         try:
             response = requests.post(
                 f"{config.base_url}/public/frontend/api/v3/captchas",
                 data=body,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "X-LI-sp-key": config.sp_key,
-                    "X-LI-request-id": request_id,
-                    "X-LI-antibot-id": antibot_id,
-                    "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
-                },
+                headers=headers,
                 timeout=30,
             )
             response.raise_for_status()
@@ -784,6 +826,7 @@ class CaptchaSolverService:
         transaction: dict,
         answer: str,
         validation_url: Optional[str],
+        page_url: Optional[str] = None,
     ) -> CaptchaSolveResult:
         """Validate a LiveIdentity CAPTCHA answer."""
         if not validation_url:
@@ -795,11 +838,22 @@ class CaptchaSolverService:
             "Content-Type": "application/x-www-form-urlencoded",
             "X-LI-sp-key": config.sp_key,
             "X-LI-js-version": LIVEIDENTITY_JS_VERSION,
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
         }
         if request_id:
             headers["X-LI-request-id"] = request_id
         if antibot_id:
             headers["X-LI-antibot-id"] = antibot_id
+        # Add Origin and Referer from page URL if available
+        if page_url:
+            parsed = urlparse(page_url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            headers["Origin"] = origin
+            headers["Referer"] = page_url
 
         try:
             response = requests.post(

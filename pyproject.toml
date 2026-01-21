@@ -49,6 +49,12 @@ exclude = '''
 )
 '''
 
+[tool.pytest.ini_options]
+markers = [
+  "live: marks tests that run against the live Paris Tennis website (deselect with '-m \"not live\"')",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
 [tool.isort]
 profile = "black"
 atomic = true
