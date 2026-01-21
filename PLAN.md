@@ -492,6 +492,10 @@ real-site verification.
     values stored in `window.mapMarkers` (a Map whose values contain facility
     name keys on tennis.paris.fr). This prevents AJAX slot scraping from using
     `map*` keys that do not match real facility names.
+85. **Day-First AJAX Slot Dates Not Parsed** - Fixed: `_parse_slot_datetime()`
+    now accepts day-first date formats like `DD/MM/YYYY HH:MM(:SS)` (plus dash
+    variants), preventing Paris tennis AJAX slots from being dropped when the
+    site returns French-style dates.
 
 ---
 
