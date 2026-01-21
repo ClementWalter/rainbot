@@ -813,11 +813,13 @@ class TestParisTennisService:
         wait.until.return_value = True
 
         with patch.object(service, "_submit_search_form_if_present", return_value=True) as submit:
-            with patch.object(service, "_get_captcha_request_id", return_value="captcha-123"):
-                result = service._ensure_search_results_page(wait)
+            with patch.object(service, "_solve_captcha_if_present", return_value=False) as solve:
+                with patch.object(service, "_get_captcha_request_id", return_value="captcha-123"):
+                    result = service._ensure_search_results_page(wait)
 
         assert result == "captcha-123"
         submit.assert_called_once()
+        solve.assert_called_once_with(wait)
 
     def test_ensure_search_results_page_configures_form(self, service, mock_driver):
         """Test search results page configures the form before submission."""
@@ -831,14 +833,19 @@ class TestParisTennisService:
 
         with patch.object(service, "_configure_search_form") as configure:
             with patch.object(service, "_submit_search_form_if_present", return_value=True):
-                with patch.object(service, "_get_captcha_request_id", return_value="captcha-456"):
-                    result = service._ensure_search_results_page(
-                        wait,
-                        target_date=target_date,
-                        facility_names=["Jesse Owens"],
-                        hour_range="8-22",
-                        sel_in_out=["V"],
-                    )
+                with patch.object(
+                    service, "_solve_captcha_if_present", return_value=False
+                ) as solve:
+                    with patch.object(
+                        service, "_get_captcha_request_id", return_value="captcha-456"
+                    ):
+                        result = service._ensure_search_results_page(
+                            wait,
+                            target_date=target_date,
+                            facility_names=["Jesse Owens"],
+                            hour_range="8-22",
+                            sel_in_out=["V"],
+                        )
 
         assert result == "captcha-456"
         configure.assert_called_once_with(
@@ -847,6 +854,21 @@ class TestParisTennisService:
             hour_range="8-22",
             sel_in_out=["V"],
         )
+        solve.assert_called_once_with(wait)
+
+    def test_solve_captcha_if_present_submits_form(self, service):
+        """Test CAPTCHA solve attempts submit the form when successful."""
+        service._captcha_solver = MagicMock()
+        service._captcha_solver.solve_captcha_from_page.return_value = MagicMock(
+            success=True, token="token"
+        )
+
+        with patch.object(service, "_check_for_captcha", return_value=True):
+            with patch.object(service, "_submit_captcha_form_if_present") as submit:
+                result = service._solve_captcha_if_present()
+
+        assert result is True
+        submit.assert_called_once()
 
     def test_check_booking_success_true(self, service, mock_driver):
         """Test booking success detection when confirmed."""

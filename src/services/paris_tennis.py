@@ -550,6 +550,7 @@ class ParisTennisService:
             )
 
             if already_results and not any([target_date, facility_names, hour_range, sel_in_out]):
+                self._solve_captcha_if_present(wait)
                 return self._get_captcha_request_id()
 
             if self._submit_search_form_if_present():
@@ -557,6 +558,7 @@ class ParisTennisService:
                     wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
                 except TimeoutException:
                     pass
+                self._solve_captcha_if_present(wait)
                 time.sleep(1)
                 return self._get_captcha_request_id()
 
@@ -564,10 +566,38 @@ class ParisTennisService:
             search_button = wait.until(EC.element_to_be_clickable((By.ID, "rechercher")))
             search_button.click()
             wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
+            self._solve_captcha_if_present(wait)
             time.sleep(1)
             return self._get_captcha_request_id()
         except (TimeoutException, WebDriverException):
             return None
+
+    def _solve_captcha_if_present(self, wait: Optional[WebDriverWait] = None) -> bool:
+        """Solve CAPTCHA on the current page if detected."""
+        try:
+            if not self._check_for_captcha():
+                return False
+        except WebDriverException as e:
+            logger.debug("CAPTCHA check failed: %s", e)
+            return False
+
+        if not (self._captcha_solver or settings.captcha.api_key):
+            logger.warning("CAPTCHA detected but solver API key is not configured")
+            return False
+
+        logger.info("CAPTCHA detected - attempting to solve")
+        try:
+            captcha_result = self.captcha_solver.solve_captcha_from_page(self.driver, max_retries=3)
+        except ValueError as e:
+            logger.error("CAPTCHA solver not configured: %s", e)
+            return False
+
+        if not captcha_result.success:
+            logger.error("CAPTCHA solving failed: %s", captcha_result.error_message)
+            return False
+
+        self._submit_captcha_form_if_present(wait)
+        return True
 
     def _submit_search_form_if_present(self) -> bool:
         """Submit the hidden search form to reach the results context."""

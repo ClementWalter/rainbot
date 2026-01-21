@@ -10,7 +10,9 @@ production-ready because Paris Tennis login/booking steps still need live-site
 validation, CAPTCHA edge cases and carnet selection remain unverified, and
 deployment/integration testing remains incomplete. AJAX slot scraping now falls
 back to DOM parsing to reduce false "no slots" results when the endpoint fails,
-but the fallback still needs live-site validation.
+but the fallback still needs live-site validation. Search result scraping now
+attempts to solve CAPTCHA gates before parsing availability, but still needs
+real-site verification.
 
 ### What Exists
 
@@ -443,6 +445,10 @@ but the fallback still needs live-site validation.
     the hidden `select#selWhereTennisName`. The service now reads facility names
     from `mapMarkers.get('map')` and populates the select options so facility
     filtering works on tennis.paris.fr.
+75. **CAPTCHA Gate Before Availability Scrape** - Fixed: search result scraping
+    now detects and solves CAPTCHA challenges before parsing availability,
+    preventing the live site from returning empty slot results when anti-bot
+    challenges appear.
 
 ---
 
