@@ -37,8 +37,10 @@ COPY src/ ./src/
 # Copy built frontend
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Create non-root user
-RUN useradd -m -u 1000 rainbot && chown -R rainbot:rainbot /app
+# Create data directory for SQLite and non-root user
+RUN mkdir -p /app/data && \
+    useradd -m -u 1000 rainbot && \
+    chown -R rainbot:rainbot /app
 USER rainbot
 
 # Expose port

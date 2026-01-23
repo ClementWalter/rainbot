@@ -19,6 +19,7 @@ from src.services.paris_tennis import (
     CourtSlot,
     create_paris_tennis_session,
 )
+from src.services.requests_db import requests_service as requests_db_service
 from src.utils.timezone import now_paris
 
 logger = logging.getLogger(__name__)
@@ -64,8 +65,8 @@ async def _booking_job_async() -> None:
         sheets = sheets_service
         notification = get_notification_service()
 
-        # Get all active booking requests
-        active_requests = sheets.get_active_booking_requests()
+        # Get all active booking requests from SQLite
+        active_requests = requests_db_service.get_active_booking_requests()
         logger.info(f"Found {len(active_requests)} active booking requests")
 
         if not active_requests:

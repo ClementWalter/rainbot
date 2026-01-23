@@ -6,9 +6,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.api.deps import get_current_user_id, get_sheets_service
+from src.api.deps import get_current_user_id, get_requests_service
 from src.models.booking_request import BookingRequest, CourtType, DayOfWeek
-from src.services.google_sheets import GoogleSheetsService
+from src.services.requests_db import SQLiteRequestsService
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
@@ -76,10 +76,10 @@ class RequestResponse(BaseModel):
 @router.get("", response_model=list[RequestResponse])
 def list_requests(
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
 ) -> list[RequestResponse]:
     """List all booking requests for the current user."""
-    all_requests = sheets.get_all_booking_requests()
+    all_requests = requests_svc.get_all_booking_requests()
     user_requests = [r for r in all_requests if r.user_id == user_id]
     return [RequestResponse.from_model(r) for r in user_requests]
 
@@ -88,7 +88,7 @@ def list_requests(
 def create_request(
     data: RequestCreate,
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
 ) -> RequestResponse:
     """Create a new booking request."""
     # Map court type
@@ -112,7 +112,7 @@ def create_request(
         active=data.active,
     )
 
-    if not sheets.add_booking_request(request):
+    if not requests_svc.add_booking_request(request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create booking request",
@@ -126,14 +126,13 @@ def update_request(
     request_id: str,
     data: RequestUpdate,
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
 ) -> RequestResponse:
     """Update a booking request."""
     # Find the request
-    all_requests = sheets.get_all_booking_requests()
-    request = next((r for r in all_requests if r.id == request_id and r.user_id == user_id), None)
+    request = requests_svc.get_booking_request_by_id(request_id)
 
-    if not request:
+    if not request or request.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
     # Update fields
@@ -159,7 +158,7 @@ def update_request(
     if data.active is not None:
         request.active = data.active
 
-    if not sheets.update_booking_request(request):
+    if not requests_svc.update_booking_request(request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update booking request",
@@ -172,16 +171,15 @@ def update_request(
 def delete_request(
     request_id: str,
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
 ) -> None:
     """Delete a booking request."""
-    all_requests = sheets.get_all_booking_requests()
-    request = next((r for r in all_requests if r.id == request_id and r.user_id == user_id), None)
+    request = requests_svc.get_booking_request_by_id(request_id)
 
-    if not request:
+    if not request or request.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
-    if not sheets.delete_booking_request(request_id):
+    if not requests_svc.delete_booking_request(request_id):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete booking request",

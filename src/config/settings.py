@@ -51,6 +51,13 @@ class NotificationConfig:
 
 
 @dataclass
+class DatabaseConfig:
+    """SQLite database configuration."""
+
+    sqlite_db_path: str
+
+
+@dataclass
 class Settings:
     """Application settings."""
 
@@ -59,6 +66,7 @@ class Settings:
     google_sheets: GoogleSheetsConfig
     paris_tennis: ParisTennisConfig
     notification: NotificationConfig
+    database: DatabaseConfig
     debug: bool
 
 
@@ -95,6 +103,9 @@ def load_settings() -> Settings:
             smtp_user=os.getenv("SMTP_USER"),
             smtp_password=os.getenv("SMTP_PASSWORD"),
             from_email=os.getenv("FROM_EMAIL"),
+        ),
+        database=DatabaseConfig(
+            sqlite_db_path=os.getenv("SQLITE_DB_PATH", "data/rainbot.db"),
         ),
         debug=os.getenv("DEBUG", "false").lower() == "true",
     )

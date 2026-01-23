@@ -55,8 +55,9 @@ RUN playwright install firefox && \
 COPY src/ ./src/
 COPY main.py ./
 
-# Change ownership to non-root user
-RUN chown -R rainbot:rainbot /app /ms-playwright
+# Create data directory for SQLite and change ownership to non-root user
+RUN mkdir -p /app/data && \
+    chown -R rainbot:rainbot /app /ms-playwright
 
 # Switch to non-root user
 USER rainbot

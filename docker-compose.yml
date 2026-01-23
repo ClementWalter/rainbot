@@ -6,6 +6,8 @@ services:
       dockerfile: Dockerfile
     container_name: rainbot
     restart: unless-stopped
+    volumes:
+      - rainbot-data:/app/data
     environment:
       # Scheduler configuration
       - HOUR=${HOUR:-0}
@@ -31,6 +33,9 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - FROM_EMAIL=${FROM_EMAIL}
 
+      # SQLite database path
+      - SQLITE_DB_PATH=/app/data/rainbot.db
+
       # Optional debug mode
       - DEBUG=${DEBUG:-false}
     shm_size: "2gb"
@@ -49,6 +54,8 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    volumes:
+      - rainbot-data:/app/data
     environment:
       # JWT configuration
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-rainbot-secret-change-me}
@@ -59,8 +66,14 @@ services:
       # Google Sheets configuration
       - CLIENT_SECRET=${CLIENT_SECRET}
       - GOOGLE_SPREADSHEET_ID=${GOOGLE_SPREADSHEET_ID}
+
+      # SQLite database path
+      - SQLITE_DB_PATH=/app/data/rainbot.db
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  rainbot-data:
