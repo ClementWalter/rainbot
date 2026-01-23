@@ -28,14 +28,68 @@
   z-index: 1000;
 }
 
+.leaflet-popup-pane {
+  z-index: 700 !important;
+}
+
+.leaflet-popup {
+  position: absolute;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
 .leaflet-popup-content-wrapper {
   background: white;
   border-radius: 8px;
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
+  padding: 0;
 }
 
 .leaflet-popup-content {
   margin: 12px;
+  line-height: 1.4;
+}
+
+.leaflet-popup-tip-container {
+  width: 40px;
+  height: 20px;
+  position: absolute;
+  left: 50%;
+  margin-left: -20px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.leaflet-popup-tip {
+  width: 17px;
+  height: 17px;
+  padding: 1px;
+  margin: -10px auto 0;
+  transform: rotate(45deg);
+  background: white;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
+}
+
+.leaflet-popup-close-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 8px;
+  font:
+    16px/14px Tahoma,
+    Verdana,
+    sans-serif;
+  color: #757575;
+  text-decoration: none;
+  font-weight: bold;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #333;
 }
 
 :root {
