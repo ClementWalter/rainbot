@@ -41,6 +41,11 @@ export function RequestForm({
   const [partnerEmail, setPartnerEmail] = useState(
     request?.partner_email ?? "",
   );
+  const [facilitySearch, setFacilitySearch] = useState("");
+
+  const filteredFacilities = facilities.filter((f) =>
+    f.name.toLowerCase().includes(facilitySearch.toLowerCase()),
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,8 +175,15 @@ export function RequestForm({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Courts préférés (optionnel)
             </label>
+            <input
+              type="text"
+              placeholder="🔍 Rechercher un court..."
+              value={facilitySearch}
+              onChange={(e) => setFacilitySearch(e.target.value)}
+              className="input-field mb-2"
+            />
             <div className="max-h-40 overflow-y-auto border rounded-lg p-2 space-y-1">
-              {facilities.map((facility) => (
+              {filteredFacilities.map((facility) => (
                 <label
                   key={facility.code}
                   className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
@@ -185,6 +197,9 @@ export function RequestForm({
                   <span className="text-sm">{facility.name}</span>
                 </label>
               ))}
+              {filteredFacilities.length === 0 && facilitySearch && (
+                <p className="text-sm text-gray-500 p-2">Aucun court trouvé</p>
+              )}
             </div>
             {selectedFacilities.length === 0 && (
               <p className="text-xs text-gray-500 mt-1">

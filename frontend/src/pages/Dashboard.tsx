@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { RequestCard } from "../components/RequestCard";
 import { RequestForm } from "../components/RequestForm";
 import { BookingList } from "../components/BookingList";
+import { CourtsMap } from "../components/CourtsMap";
 import {
   getRequests,
   getUpcomingBookings,
@@ -22,6 +23,7 @@ export function Dashboard() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const [editingRequest, setEditingRequest] = useState<BookingRequest | null>(
     null,
   );
@@ -114,12 +116,21 @@ export function Dashboard() {
             <span className="text-2xl">🎾</span>
             <h1 className="text-xl font-bold">RainBot</h1>
           </div>
-          <button
-            onClick={logout}
-            className="text-green-200 hover:text-white text-sm"
-          >
-            Déconnexion
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowMap(true)}
+              className="text-green-200 hover:text-white text-xl"
+              title="Voir les courts"
+            >
+              🗺️
+            </button>
+            <button
+              onClick={logout}
+              className="text-green-200 hover:text-white text-sm"
+            >
+              Déconnexion
+            </button>
+          </div>
         </div>
       </header>
 
@@ -187,6 +198,9 @@ export function Dashboard() {
           onCancel={handleCancel}
         />
       )}
+
+      {/* Map modal */}
+      {showMap && <CourtsMap onClose={() => setShowMap(false)} />}
     </div>
   );
 }
