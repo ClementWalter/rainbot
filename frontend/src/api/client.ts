@@ -59,8 +59,8 @@ export interface Facility {
   code: string;
   name: string;
   address: string;
-  indoor_courts: number;
-  outdoor_courts: number;
+  latitude: number;
+  longitude: number;
 }
 
 // Token storage

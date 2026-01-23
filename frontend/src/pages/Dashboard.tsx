@@ -17,13 +17,15 @@ import {
   type BookingRequestCreate,
 } from "../api/client";
 
+type Tab = "alarms" | "map";
+
 export function Dashboard() {
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [showMap, setShowMap] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("alarms");
   const [editingRequest, setEditingRequest] = useState<BookingRequest | null>(
     null,
   );
@@ -108,86 +110,112 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* Header */}
-      <header className="bg-green-600 text-white px-4 py-4 sticky top-0 z-10 shadow-md">
-        <div className="max-w-lg mx-auto flex items-center justify-between">
+      <header className="bg-green-600 text-white px-4 py-4 shadow-md">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🎾</span>
             <h1 className="text-xl font-bold">RainBot</h1>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowMap(true)}
-              className="text-green-200 hover:text-white text-xl"
-              title="Voir les courts"
-            >
-              🗺️
-            </button>
-            <button
-              onClick={logout}
-              className="text-green-200 hover:text-white text-sm"
-            >
-              Déconnexion
-            </button>
-          </div>
+          <button
+            onClick={logout}
+            className="text-green-200 hover:text-white text-sm"
+          >
+            Déconnexion
+          </button>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-6">
-        {/* Requests section */}
-        <section className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Mes alarmes</h2>
-            <span className="text-sm text-gray-500">
-              {requests.filter((r) => r.active).length} active
-              {requests.filter((r) => r.active).length !== 1 ? "s" : ""}
-            </span>
-          </div>
-
-          {requests.length === 0 ? (
-            <div className="bg-white rounded-xl p-8 text-center shadow-sm">
-              <div className="text-4xl mb-3">🔔</div>
-              <p className="text-gray-600 mb-4">
-                Créez votre première alarme pour réserver automatiquement un
-                court de tennis.
-              </p>
-            </div>
-          ) : (
-            <div>
-              {requests.map((request) => (
-                <RequestCard
-                  key={request.id}
-                  request={request}
-                  onToggle={handleToggle}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Add button */}
+      {/* Tabs */}
+      <div className="bg-white border-b shadow-sm">
+        <div className="max-w-4xl mx-auto flex">
           <button
-            onClick={() => setShowForm(true)}
-            className="btn-primary w-full mt-4 flex items-center justify-center gap-2"
+            onClick={() => setActiveTab("alarms")}
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+              activeTab === "alarms"
+                ? "text-green-600 border-b-2 border-green-600"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
           >
-            <span className="text-xl">+</span>
-            Nouvelle alarme
+            🔔 Mes alarmes
           </button>
-        </section>
+          <button
+            onClick={() => setActiveTab("map")}
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+              activeTab === "map"
+                ? "text-green-600 border-b-2 border-green-600"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            🗺️ Carte des courts
+          </button>
+        </div>
+      </div>
 
-        {/* Upcoming bookings section */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-lg">📅</span>
-            <h2 className="text-lg font-semibold text-gray-900">
-              Prochaines réservations
-            </h2>
-          </div>
-          <BookingList bookings={bookings} />
-        </section>
-      </main>
+      {/* Content */}
+      {activeTab === "alarms" ? (
+        <main className="flex-1 max-w-lg mx-auto px-4 py-6 w-full">
+          {/* Requests section */}
+          <section className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Mes alarmes
+              </h2>
+              <span className="text-sm text-gray-500">
+                {requests.filter((r) => r.active).length} active
+                {requests.filter((r) => r.active).length !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            {requests.length === 0 ? (
+              <div className="bg-white rounded-xl p-8 text-center shadow-sm">
+                <div className="text-4xl mb-3">🔔</div>
+                <p className="text-gray-600 mb-4">
+                  Créez votre première alarme pour réserver automatiquement un
+                  court de tennis.
+                </p>
+              </div>
+            ) : (
+              <div>
+                {requests.map((request) => (
+                  <RequestCard
+                    key={request.id}
+                    request={request}
+                    onToggle={handleToggle}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Add button */}
+            <button
+              onClick={() => setShowForm(true)}
+              className="btn-primary w-full mt-4 flex items-center justify-center gap-2"
+            >
+              <span className="text-xl">+</span>
+              Nouvelle alarme
+            </button>
+          </section>
+
+          {/* Upcoming bookings section */}
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-lg">📅</span>
+              <h2 className="text-lg font-semibold text-gray-900">
+                Prochaines réservations
+              </h2>
+            </div>
+            <BookingList bookings={bookings} />
+          </section>
+        </main>
+      ) : (
+        <main className="flex-1 flex flex-col">
+          <CourtsMap facilities={facilities} />
+        </main>
+      )}
 
       {/* Form modal */}
       {showForm && (
@@ -198,9 +226,6 @@ export function Dashboard() {
           onCancel={handleCancel}
         />
       )}
-
-      {/* Map modal */}
-      {showMap && <CourtsMap onClose={() => setShowMap(false)} />}
     </div>
   );
 }
