@@ -26,8 +26,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-# Expected worksheet names in the spreadsheet
+# Users are stored in a separate spreadsheet
+USERS_SPREADSHEET_ID = "1oXsssBH_1jj_1NiWralBEpvXTT2a21mGMZqSGMV2Shc"
 USERS_SHEET = "Users"  # Source of truth for allowed users and credentials
+
+# Expected worksheet names in the main spreadsheet
 BOOKING_REQUESTS_SHEET = "Requests"  # Actual sheet name
 BOOKINGS_SHEET = "Historique"  # For booking history
 LOCKS_SHEET = "Locks"
@@ -115,19 +118,25 @@ class GoogleSheetsService:
         spreadsheet = self._get_spreadsheet()
         return spreadsheet.worksheet(name)
 
+    def _get_users_spreadsheet(self) -> gspread.Spreadsheet:
+        """Get the separate users spreadsheet."""
+        client = self._get_client()
+        return client.open_by_key(USERS_SPREADSHEET_ID)
+
     def get_all_users(self) -> list[User]:
         """
-        Fetch all users from the Users sheet (source of truth for allowed users).
+        Fetch all users from the Users spreadsheet (separate from main data).
 
-        Expected columns: id, name, email, paris_tennis_email, paris_tennis_password,
-                         subscription_active, carnet_balance, phone
+        Users spreadsheet columns: Username, Password, Photo, Prénom, Nom, Phone
 
         Returns:
             List of User objects with per-user credentials
 
         """
         try:
-            worksheet = self._get_worksheet(USERS_SHEET)
+            # Users are in a separate spreadsheet
+            users_spreadsheet = self._get_users_spreadsheet()
+            worksheet = users_spreadsheet.worksheet(USERS_SHEET)
             all_rows = worksheet.get_all_values()
             if len(all_rows) < 2:
                 return []
@@ -146,31 +155,32 @@ class GoogleSheetsService:
                     if i < len(row):
                         row_dict[header] = row[i].strip() if row[i] else ""
 
-                # Map common column name variations
+                # Map columns: Username, Password, Photo, Prénom, Nom, Phone
+                email = row_dict.get("username", "")
+                prenom = row_dict.get("prénom", "")
+                nom = row_dict.get("nom", "")
+                name = f"{prenom} {nom}".strip() if prenom or nom else email.split("@")[0]
+
                 user_data = {
-                    "id": row_dict.get("id") or row_dict.get("email", ""),
-                    "name": row_dict.get("name") or row_dict.get("nom", ""),
-                    "email": row_dict.get("email") or row_dict.get("mail", ""),
-                    "paris_tennis_email": row_dict.get("paris_tennis_email")
-                    or row_dict.get("email")
-                    or row_dict.get("mail", ""),
-                    "paris_tennis_password": row_dict.get("paris_tennis_password")
-                    or row_dict.get("password")
-                    or row_dict.get("mot_de_passe", ""),
-                    "subscription_active": row_dict.get("subscription_active", "true"),
-                    "carnet_balance": row_dict.get("carnet_balance") or row_dict.get("carnet", ""),
-                    "phone": row_dict.get("phone") or row_dict.get("telephone", ""),
+                    "id": email,
+                    "name": name,
+                    "email": email,
+                    "paris_tennis_email": email,
+                    "paris_tennis_password": row_dict.get("password", ""),
+                    "subscription_active": "true",  # All users in sheet are active
+                    "carnet_balance": "",
+                    "phone": row_dict.get("phone", ""),
                 }
 
-                # Only include users with valid email
-                if user_data["email"]:
+                # Only include users with valid email and password
+                if user_data["email"] and user_data["paris_tennis_password"]:
                     user = User.from_dict(user_data)
                     users.append(user)
 
-            logger.info(f"Loaded {len(users)} users from Users sheet")
+            logger.info(f"Loaded {len(users)} users from Users spreadsheet")
             return users
         except Exception as e:
-            logger.error(f"Failed to fetch users from Users sheet: {e}")
+            logger.error(f"Failed to fetch users from Users spreadsheet: {e}")
             return []
 
     def get_user_by_id(self, user_id: str) -> Optional[User]:
