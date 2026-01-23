@@ -182,6 +182,7 @@ export function Dashboard() {
                   <RequestCard
                     key={request.id}
                     request={request}
+                    facilities={facilities}
                     onToggle={handleToggle}
                     onEdit={handleEdit}
                     onDelete={handleDelete}

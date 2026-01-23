@@ -1,8 +1,9 @@
 import { Toggle } from "./Toggle";
-import type { BookingRequest } from "../api/client";
+import type { BookingRequest, Facility } from "../api/client";
 
 interface RequestCardProps {
   request: BookingRequest;
+  facilities: Facility[];
   onToggle: (id: string, active: boolean) => void;
   onEdit: (request: BookingRequest) => void;
   onDelete: (id: string) => void;
@@ -10,6 +11,7 @@ interface RequestCardProps {
 
 export function RequestCard({
   request,
+  facilities,
   onToggle,
   onEdit,
   onDelete,
@@ -27,9 +29,14 @@ export function RequestCard({
         ? "Découvert"
         : "Tous";
 
+  // Convert facility codes to names
+  const facilityNames = request.facility_preferences
+    .map((code) => facilities.find((f) => f.code === code)?.name ?? code)
+    .slice(0, 2);
+
   const facilitiesDisplay =
     request.facility_preferences.length > 0
-      ? request.facility_preferences.slice(0, 2).join(", ") +
+      ? facilityNames.join(", ") +
         (request.facility_preferences.length > 2 ? "..." : "")
       : "Tous les courts";
 
