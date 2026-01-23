@@ -2,7 +2,6 @@
 
 from datetime import date, datetime
 
-import pytest
 import pytz
 
 from src.utils.timezone import (

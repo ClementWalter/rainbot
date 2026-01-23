@@ -5,6 +5,7 @@ encountered on the Paris Tennis booking website.
 """
 
 import ast
+import asyncio
 import base64
 import json
 import logging
@@ -12,18 +13,32 @@ import re
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urljoin, urlparse
 
 import requests
-from selenium.common.exceptions import NoSuchElementException, WebDriverException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.remote.webdriver import WebDriver
 from twocaptcha import TwoCaptcha
 from twocaptcha.api import ApiException, NetworkException
 from twocaptcha.solver import TimeoutException
 
 from src.config.settings import settings
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page
+
+# Try to import Selenium, but make it optional for Playwright-only usage
+try:
+    from selenium.common.exceptions import NoSuchElementException, WebDriverException
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.remote.webdriver import WebDriver
+
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+    NoSuchElementException = Exception
+    WebDriverException = Exception
+    By = None
+    WebDriver = None
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +86,7 @@ class CaptchaSolverService:
 
         Args:
             api_key: 2Captcha API key. If not provided, uses settings.
+
         """
         self._api_key = api_key or settings.captcha.api_key
         self._solver: Optional[TwoCaptcha] = None
@@ -98,12 +114,27 @@ class CaptchaSolverService:
 
         Raises:
             ApiException: If API call fails.
+
         """
         try:
             return float(self.solver.balance())
         except (ApiException, NetworkException) as e:
             logger.error(f"Failed to get balance: {e}")
             raise
+
+    async def solve_recaptcha_v2_async(
+        self,
+        sitekey: str,
+        url: str,
+        invisible: bool = False,
+    ) -> CaptchaSolveResult:
+        """Async wrapper for solve_recaptcha_v2 that runs in a thread pool."""
+        return await asyncio.to_thread(
+            self.solve_recaptcha_v2,
+            sitekey,
+            url,
+            invisible,
+        )
 
     def solve_recaptcha_v2(
         self,
@@ -121,6 +152,7 @@ class CaptchaSolverService:
 
         Returns:
             CaptchaSolveResult with the token if successful.
+
         """
         try:
             logger.info(f"Solving reCAPTCHA v2 for {url}")
@@ -141,6 +173,22 @@ class CaptchaSolverService:
             logger.error(f"Network error during CAPTCHA solve: {e}")
             return CaptchaSolveResult(success=False, error_message=f"Network error: {e}")
 
+    async def solve_recaptcha_v3_async(
+        self,
+        sitekey: str,
+        url: str,
+        action: str = "verify",
+        min_score: float = 0.3,
+    ) -> CaptchaSolveResult:
+        """Async wrapper for solve_recaptcha_v3 that runs in a thread pool."""
+        return await asyncio.to_thread(
+            self.solve_recaptcha_v3,
+            sitekey,
+            url,
+            action,
+            min_score,
+        )
+
     def solve_recaptcha_v3(
         self,
         sitekey: str,
@@ -159,6 +207,7 @@ class CaptchaSolverService:
 
         Returns:
             CaptchaSolveResult with the token if successful.
+
         """
         try:
             logger.info(f"Solving reCAPTCHA v3 for {url}")
@@ -181,6 +230,24 @@ class CaptchaSolverService:
             logger.error(f"Network error during CAPTCHA solve: {e}")
             return CaptchaSolveResult(success=False, error_message=f"Network error: {e}")
 
+    async def solve_image_captcha_async(
+        self,
+        image_path: str,
+        case_sensitive: bool = False,
+        numeric: Optional[int] = None,
+        min_length: int = 0,
+        max_length: int = 0,
+    ) -> CaptchaSolveResult:
+        """Async wrapper for solve_image_captcha that runs in a thread pool."""
+        return await asyncio.to_thread(
+            self.solve_image_captcha,
+            image_path,
+            case_sensitive,
+            numeric,
+            min_length,
+            max_length,
+        )
+
     def solve_image_captcha(
         self,
         image_path: str,
@@ -201,6 +268,7 @@ class CaptchaSolverService:
 
         Returns:
             CaptchaSolveResult with the text answer if successful.
+
         """
         try:
             logger.info("Solving image CAPTCHA")
@@ -274,6 +342,7 @@ class CaptchaSolverService:
 
         Returns:
             CaptchaSolveResult with success status.
+
         """
         current_url = driver.current_url
         last_error: Optional[CaptchaSolveResult] = None
@@ -375,71 +444,111 @@ class CaptchaSolverService:
     def _solve_liveidentity_iframe_captcha(self, driver: WebDriver) -> Optional[CaptchaSolveResult]:
         """Extract and solve LiveIdentity captcha image from the iframe.
 
-        This is a fallback method when the API approach fails.
+        This method uses Selenium's native iframe switching and element screenshot
+        to bypass cross-origin restrictions that prevent JavaScript access.
         """
         try:
-            # Extract captcha image URL from the iframe
-            captcha_info = driver.execute_script("""
-                const liContainer = document.getElementById('li-antibot');
-                if (!liContainer) return null;
-
-                const iframe = liContainer.querySelector('iframe');
-                if (!iframe) return null;
-
-                try {
-                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    if (!iframeDoc) return null;
-
-                    // Find the captcha image
-                    const img = iframeDoc.querySelector('img');
-                    if (!img || !img.src) return null;
-
-                    // Also find the input field for the answer
-                    const input = iframeDoc.querySelector('input[type="text"]');
-
-                    return {
-                        imgSrc: img.src,
-                        inputId: input ? input.id : null,
-                        inputName: input ? input.name : null
-                    };
-                } catch(e) {
-                    return {error: e.toString()};
-                }
-                """)
-
-            if not captcha_info or not isinstance(captcha_info, dict):
-                logger.debug("Could not extract captcha info from LiveIdentity iframe")
+            # Find the iframe element in the main page
+            try:
+                iframe = driver.find_element(By.CSS_SELECTOR, "#li-antibot iframe")
+            except NoSuchElementException:
+                logger.debug("No LiveIdentity iframe found")
                 return None
 
-            if "error" in captcha_info:
-                logger.debug(f"Error extracting captcha from iframe: {captcha_info.get('error')}")
-                return None
+            logger.info("Found LiveIdentity iframe, switching to extract captcha image")
 
-            img_src = captcha_info.get("imgSrc")
-            if not img_src or not isinstance(img_src, str):
-                logger.debug("No captcha image found in LiveIdentity iframe")
-                return None
+            # Switch to the iframe context
+            driver.switch_to.frame(iframe)
 
-            logger.info("Found LiveIdentity captcha image in iframe, solving via 2captcha")
+            try:
+                # Find the captcha image inside the iframe
+                try:
+                    img = driver.find_element(By.CSS_SELECTOR, "img")
+                except NoSuchElementException:
+                    logger.debug("No captcha image found inside LiveIdentity iframe")
+                    return None
 
-            # First try to fetch image through browser context (preserves session cookies)
-            data_url = self._fetch_captcha_image_data_url(driver, img_src)
-            if data_url:
-                solve_result = self.solve_image_captcha(data_url)
-            else:
-                # Fallback to direct URL (may fail with 403 for protected images)
-                solve_result = self.solve_image_captcha(img_src)
-            if not solve_result.success:
+                # Take a screenshot of the image element (bypasses cross-origin restrictions)
+                img_base64 = img.screenshot_as_base64
+                if not img_base64:
+                    logger.debug("Failed to capture screenshot of captcha image")
+                    return None
+
+                logger.info(f"Captured captcha image screenshot ({len(img_base64)} bytes base64)")
+
+                # Solve the captcha using 2captcha
+                solve_result = self.solve_image_captcha(img_base64)
+                if not solve_result.success:
+                    logger.warning(f"Failed to solve captcha image: {solve_result.error_message}")
+                    return solve_result
+
+                # Enter the answer into the input field while still in iframe context
+                answer = solve_result.token
+                if answer:
+                    # Need to re-switch to iframe as the context might have changed
+                    driver.switch_to.default_content()
+                    time.sleep(0.5)
+                    iframe = driver.find_element(By.CSS_SELECTOR, "#li-antibot iframe")
+                    driver.switch_to.frame(iframe)
+
+                    try:
+                        # Use specific LiveIdentity input ID
+                        input_field = driver.find_element(By.CSS_SELECTOR, "#li-antibot-answer")
+                        input_field.clear()
+                        input_field.send_keys(answer)
+                        logger.info(f"Entered captcha answer: {answer}")
+
+                        # Click the validate button using specific ID
+                        try:
+                            validate_btn = driver.find_element(
+                                By.CSS_SELECTOR, "#li-antibot-validate"
+                            )
+                            validate_btn.click()
+                            logger.info("Clicked captcha validate button")
+                        except NoSuchElementException:
+                            # Fallback to generic button search
+                            buttons = driver.find_elements(
+                                By.CSS_SELECTOR, "button, input[type='submit']"
+                            )
+                            for btn in buttons:
+                                btn_text = (btn.text or btn.get_attribute("value") or "").lower()
+                                if any(
+                                    word in btn_text
+                                    for word in ("valid", "submit", "ok", "envoyer")
+                                ):
+                                    btn.click()
+                                    logger.info("Clicked captcha submit button")
+                                    break
+
+                    except NoSuchElementException:
+                        logger.warning("Could not find input field in captcha iframe")
+
+                # Switch back to main content to check for the token
+                driver.switch_to.default_content()
+
+                # Wait for the token to be populated after captcha submission
+                for _ in range(10):  # Wait up to 5 seconds
+                    time.sleep(0.5)
+                    token = self._read_liveidentity_token(driver)
+                    if self._is_liveidentity_token_valid(token):
+                        logger.info("LiveIdentity token obtained after captcha solve")
+                        return CaptchaSolveResult(success=True, token=token)
+
+                # Even if we don't have a token yet, the captcha was solved
+                logger.info("Captcha solved but token not yet populated")
                 return solve_result
 
-            # Enter the solution into the iframe input field
-            answer = solve_result.token
-            if answer:
-                self._enter_liveidentity_iframe_answer(driver, answer)
+            finally:
+                # Always switch back to the main content
+                driver.switch_to.default_content()
 
-            return solve_result
         except WebDriverException as e:
             logger.error(f"Error solving LiveIdentity iframe captcha: {e}")
+            # Make sure we're back in the main content even if there was an error
+            try:
+                driver.switch_to.default_content()
+            except WebDriverException:
+                pass
             return None
 
     def _enter_liveidentity_iframe_answer(self, driver: WebDriver, answer: str) -> bool:
@@ -1034,7 +1143,7 @@ class CaptchaSolverService:
         if not token:
             return CaptchaSolveResult(success=False, error_message="Invalid CAPTCHA response")
         token_str = str(token).strip()
-        if not token_str or token_str == "Invalid response." or is_invalid(token_str):
+        if not token_str or token_str == "Invalid response." or is_invalid(token_str):  # nosec B105
             return CaptchaSolveResult(success=False, error_message="Invalid CAPTCHA response")
 
         return CaptchaSolveResult(success=True, token=token_str)
@@ -1407,6 +1516,849 @@ class CaptchaSolverService:
 
             logger.warning("Could not find CAPTCHA input field")
         except WebDriverException as e:
+            logger.warning(f"Failed to fill CAPTCHA input: {e}")
+
+    # =========================================================================
+    # Async Playwright methods
+    # =========================================================================
+
+    async def solve_captcha_from_page_async(
+        self,
+        page: "Page",
+        max_retries: int = 3,
+    ) -> CaptchaSolveResult:
+        """
+        Detect and solve CAPTCHA on the current page using Playwright.
+
+        This method automatically detects the CAPTCHA type and solves it.
+
+        Args:
+            page: Playwright Page with the page loaded.
+            max_retries: Maximum number of solve attempts.
+
+        Returns:
+            CaptchaSolveResult with success status.
+
+        """
+        from playwright.async_api import Error as PlaywrightError
+
+        current_url = page.url
+        last_error: Optional[CaptchaSolveResult] = None
+
+        for attempt in range(1, max_retries + 1):
+            logger.info(f"CAPTCHA solve attempt {attempt}/{max_retries}")
+
+            # Try to detect image CAPTCHA FIRST (most common on Paris Tennis)
+            image_result = await self._detect_and_solve_image_captcha_async(page)
+            if image_result is not None:
+                if image_result.success:
+                    return image_result
+                last_error = image_result
+                await asyncio.sleep(2)
+                continue
+
+            # Try to detect reCAPTCHA
+            recaptcha_result = await self._detect_and_solve_recaptcha_async(page, current_url)
+            if recaptcha_result is not None:
+                if recaptcha_result.success:
+                    return recaptcha_result
+                last_error = recaptcha_result
+                await asyncio.sleep(2)
+                continue
+
+            # Try to detect LiveIdentity anti-bot CAPTCHA (usually invisible/background)
+            liveidentity_result = await self._detect_and_solve_liveidentity_antibot_async(page)
+            if liveidentity_result is not None:
+                if liveidentity_result.success:
+                    return liveidentity_result
+                last_error = liveidentity_result
+
+            # No CAPTCHA detected
+            if last_error is None:
+                logger.info("No CAPTCHA detected on page")
+                return CaptchaSolveResult(success=True, error_message="No CAPTCHA detected")
+            await asyncio.sleep(2)
+
+        if last_error is not None:
+            return last_error
+        return CaptchaSolveResult(
+            success=False,
+            error_message=f"Failed to solve CAPTCHA after {max_retries} attempts",
+        )
+
+    async def _detect_and_solve_liveidentity_antibot_async(
+        self,
+        page: "Page",
+    ) -> Optional[CaptchaSolveResult]:
+        """Detect and solve LiveIdentity anti-bot CAPTCHA if present (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            # Check for LiveIdentity iframe
+            iframe_locator = page.locator("#li-antibot-iframe")
+            if await iframe_locator.count() == 0:
+                # Check for li-antibot div
+                li_antibot = page.locator("#li-antibot")
+                if await li_antibot.count() == 0:
+                    return None
+                # Wait for iframe to appear
+                await asyncio.sleep(1)
+                if await iframe_locator.count() == 0:
+                    return None
+
+            logger.info("Found LiveIdentity iframe captcha")
+
+            # First try to solve via iframe directly
+            iframe_result = await self._solve_liveidentity_iframe_async(page)
+            if iframe_result and iframe_result.success:
+                return iframe_result
+
+            # Fallback to API-based solving
+            page_source = await page.content()
+            config = self._parse_liveidentity_config(page_source)
+            if config:
+                existing_token = await self._read_liveidentity_token_async(page)
+                if self._is_liveidentity_token_valid(existing_token):
+                    return CaptchaSolveResult(success=True, token=existing_token)
+
+                solve_result = self._solve_liveidentity_antibot(config)
+                if solve_result is not None and solve_result.success and solve_result.token:
+                    await self._inject_liveidentity_token_async(page, solve_result.token)
+                    return solve_result
+
+            return CaptchaSolveResult(
+                success=False,
+                error_message="LiveIdentity solve not successful",
+            )
+
+        except PlaywrightError as e:
+            logger.debug(f"Error detecting LiveIdentity captcha: {e}")
+            return None
+
+    async def _solve_liveidentity_iframe_async(
+        self,
+        page: "Page",
+    ) -> Optional[CaptchaSolveResult]:
+        """Solve LiveIdentity captcha by accessing the iframe directly."""
+        from playwright.async_api import Error as PlaywrightError
+
+        # Track captured token from network response
+        captured_token_data: dict = {"token": None, "code": None}
+
+        async def handle_response(response):
+            """Intercept LiveIdentity validation response to capture token."""
+            try:
+                url = response.url
+                if "liveidentity" in url and ("validate" in url or "captcha" in url):
+                    logger.debug(f"LiveIdentity response: {url} status={response.status}")
+                    if response.status == 200:
+                        try:
+                            data = await response.json()
+                            logger.debug(
+                                f"LiveIdentity response data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}"
+                            )
+                            if isinstance(data, dict):
+                                # Try various field names for token and code
+                                token = (
+                                    data.get("antibotToken")
+                                    or data.get("token")
+                                    or data.get("li-antibot-token")
+                                    or data.get("accessToken")
+                                )
+                                code = (
+                                    data.get("antibotTokenCode")
+                                    or data.get("code")
+                                    or data.get("li-antibot-token-code")
+                                    or data.get("tokenCode")
+                                )
+
+                                # Capture code from checkInvisibleCaptcha response (has 'code' field)
+                                if code and not captured_token_data.get("code"):
+                                    captured_token_data["code"] = code
+                                    logger.info(f"Captured code from network: {code}")
+
+                                # Capture token from /check response (has 'antibotToken' field)
+                                if token:
+                                    captured_token_data["token"] = token
+                                    logger.info(f"Captured token from network: {token[:30]}...")
+                                    if not captured_token_data.get("code"):
+                                        logger.warning(
+                                            f"Token captured but no code yet, full data: {data}"
+                                        )
+                        except Exception as e:
+                            logger.debug(f"Failed to parse LiveIdentity response: {e}")
+            except Exception as e:
+                logger.debug(f"Error handling response: {e}")
+
+        # Set up response interception
+        page.on("response", handle_response)
+
+        try:
+            iframe_locator = page.locator("#li-antibot-iframe")
+            if await iframe_locator.count() == 0:
+                return None
+
+            # Get the frame content
+            frame_handle = await iframe_locator.element_handle()
+            if not frame_handle:
+                return None
+
+            frame = await frame_handle.content_frame()
+            if not frame:
+                logger.warning("Could not access LiveIdentity iframe content")
+                return None
+
+            # Wait for content to load
+            await asyncio.sleep(1)
+
+            # Find the captcha image inside the iframe
+            imgs = frame.locator("img")
+            img_count = await imgs.count()
+            logger.debug(f"Found {img_count} images in LiveIdentity iframe")
+
+            captcha_img = None
+            img_src = None
+            for i in range(img_count):
+                img = imgs.nth(i)
+                src = await img.get_attribute("src")
+                if src and "captcha" in src.lower() and await img.is_visible():
+                    captcha_img = img
+                    img_src = src
+                    break
+
+            if not captcha_img or not img_src:
+                logger.warning("No captcha image found in LiveIdentity iframe")
+                return None
+
+            logger.info(f"Found LiveIdentity captcha image: {img_src[:60]}...")
+
+            # Take a screenshot of the captcha image element (bypasses cross-origin and session issues)
+            try:
+                img_bytes = await captcha_img.screenshot()
+                img_base64 = base64.b64encode(img_bytes).decode("ascii")
+                logger.info(f"Captured captcha image screenshot ({len(img_base64)} bytes)")
+            except PlaywrightError as e:
+                logger.warning(f"Failed to screenshot captcha image, falling back to URL: {e}")
+                img_base64 = None
+
+            # Solve the image captcha (use async version to avoid blocking event loop)
+            if img_base64:
+                result = await self.solve_image_captcha_async(img_base64)
+            else:
+                result = await self.solve_image_captcha_async(img_src)
+            if not result.success or not result.token:
+                logger.error(f"Failed to solve LiveIdentity image: {result.error_message}")
+                return result
+
+            logger.info(f"Solved LiveIdentity captcha: {result.token}")
+
+            # Set up postMessage listener on parent page BEFORE clicking validate
+            # This captures the token that the iframe sends back
+            await page.evaluate("""() => {
+                window.__liAntibotCapturedToken = null;
+                window.__liAntibotCapturedCode = null;
+                window.addEventListener('message', function liAntibotMsgHandler(event) {
+                    // LiveIdentity sends token via postMessage
+                    if (event.data && typeof event.data === 'object') {
+                        const data = event.data;
+                        if (data.antibotToken || data.token) {
+                            window.__liAntibotCapturedToken = data.antibotToken || data.token;
+                            window.__liAntibotCapturedCode = data.antibotTokenCode || data.code || '';
+                            console.log('Captured LiveIdentity token via postMessage:', window.__liAntibotCapturedToken);
+                        }
+                        // Also check for li-antibot specific message format
+                        if (data.type === 'li-antibot-token' || data.action === 'setToken') {
+                            window.__liAntibotCapturedToken = data.token || data.value;
+                            window.__liAntibotCapturedCode = data.code || '';
+                        }
+                    }
+                    // Some implementations send token as string
+                    if (typeof event.data === 'string' && event.data.length > 20) {
+                        // Could be a raw token
+                        if (!event.data.startsWith('{') && !event.data.startsWith('<')) {
+                            window.__liAntibotCapturedToken = event.data;
+                        }
+                    }
+                }, false);
+            }""")
+            logger.debug("Set up postMessage listener for token capture")
+
+            # Fill in the answer in the iframe
+            answer_input = frame.locator("#li-antibot-answer")
+            if await answer_input.count() > 0:
+                await answer_input.fill(result.token)
+                logger.debug("Filled captcha answer in iframe")
+
+                # Click validate button
+                validate_btn = frame.locator("#li-antibot-validate")
+                if await validate_btn.count() > 0:
+                    await validate_btn.click()
+                    logger.info("Clicked validate button in iframe")
+
+                    # Wait and poll for token from multiple sources
+                    for wait_attempt in range(8):  # 8 seconds total
+                        await asyncio.sleep(1)
+
+                        # Check for token captured via network interception (most reliable)
+                        if captured_token_data.get("token"):
+                            token = captured_token_data["token"]
+                            # Use the captcha answer as the code - this is what li-antibot-token-code expects
+                            code = result.token  # The captcha answer (e.g., "jmset")
+                            logger.info(f"Got token via network capture: {token[:30]}...")
+                            await self._inject_liveidentity_token_async(page, token)
+                            # Inject the captcha answer as the code into the form
+                            await page.evaluate(
+                                """(code) => {
+                                    // Find the form to append inputs to
+                                    const form = document.getElementById('formCaptcha')
+                                        || document.querySelector('form[action*="reservation"]')
+                                        || document.querySelector('form');
+
+                                    const codeInput = document.getElementById('li-antibot-token-code')
+                                        || document.querySelector("input[name='li-antibot-token-code']");
+                                    if (codeInput) {
+                                        codeInput.value = code;
+                                        console.log('Injected li-antibot-token-code:', code);
+                                    } else {
+                                        // Create the input if it doesn't exist - add to form
+                                        const input = document.createElement('input');
+                                        input.type = 'hidden';
+                                        input.name = 'li-antibot-token-code';
+                                        input.id = 'li-antibot-token-code';
+                                        input.value = code;
+                                        if (form) {
+                                            form.appendChild(input);
+                                            console.log('Created and injected li-antibot-token-code to form:', code);
+                                        } else {
+                                            document.body.appendChild(input);
+                                            console.log('Created and injected li-antibot-token-code to body:', code);
+                                        }
+                                    }
+                                }""",
+                                code,
+                            )
+                            logger.info(f"Injected li-antibot-token-code (captcha answer): {code}")
+
+                            # Trigger the LI_ANTIBOT callback to enable the submit button
+                            await page.evaluate(
+                                """(token) => {
+                                    console.log('Triggering LI_ANTIBOT callbacks...');
+                                    // Try various methods to trigger the validation success callback
+                                    if (typeof LI_ANTIBOT !== 'undefined') {
+                                        console.log('LI_ANTIBOT found, keys:', Object.keys(LI_ANTIBOT));
+                                        if (LI_ANTIBOT.onSuccess) {
+                                            LI_ANTIBOT.onSuccess(token);
+                                            console.log('Called LI_ANTIBOT.onSuccess');
+                                        }
+                                        if (LI_ANTIBOT.callback) {
+                                            LI_ANTIBOT.callback(token);
+                                            console.log('Called LI_ANTIBOT.callback');
+                                        }
+                                        if (LI_ANTIBOT.setToken) {
+                                            LI_ANTIBOT.setToken(token);
+                                            console.log('Called LI_ANTIBOT.setToken');
+                                        }
+                                        if (LI_ANTIBOT.setValidated) {
+                                            LI_ANTIBOT.setValidated(true);
+                                            console.log('Called LI_ANTIBOT.setValidated');
+                                        }
+                                    }
+                                    // Try to enable submit button directly
+                                    const submitBtn = document.getElementById('submitControle')
+                                        || document.querySelector('button[type="submit"]')
+                                        || document.querySelector('.btn-primary[type="submit"]')
+                                        || document.querySelector('button.btn-next');
+                                    if (submitBtn) {
+                                        submitBtn.disabled = false;
+                                        submitBtn.removeAttribute('disabled');
+                                        submitBtn.classList.remove('disabled');
+                                        console.log('Enabled submit button:', submitBtn.id || submitBtn.className);
+                                    }
+                                    // Dispatch events that might trigger UI updates
+                                    window.dispatchEvent(new CustomEvent('li-antibot-validated'));
+                                    window.dispatchEvent(new CustomEvent('li-antibot-success'));
+                                    document.dispatchEvent(new Event('captcha-success'));
+                                }""",
+                                token,
+                            )
+                            logger.info("Triggered LI_ANTIBOT callbacks")
+
+                            page.remove_listener("response", handle_response)
+                            return CaptchaSolveResult(success=True, token=token)
+
+                        # Check for captured token via postMessage
+                        captured = await page.evaluate("""() => {
+                            return {
+                                token: window.__liAntibotCapturedToken,
+                                code: window.__liAntibotCapturedCode
+                            };
+                        }""")
+                        if captured and captured.get("token"):
+                            logger.info(
+                                f"Got token via postMessage capture: {captured['token'][:20]}..."
+                            )
+                            # Inject the captured token into the form
+                            await self._inject_liveidentity_token_async(page, captured["token"])
+                            if captured.get("code"):
+                                await page.evaluate(
+                                    """(code) => {
+                                        const codeInput = document.getElementById('li-antibot-token-code')
+                                            || document.querySelector("input[name='li-antibot-token-code']");
+                                        if (codeInput) codeInput.value = code;
+                                    }""",
+                                    captured["code"],
+                                )
+                            page.remove_listener("response", handle_response)
+                            return CaptchaSolveResult(success=True, token=captured["token"])
+
+                        # Also check standard token input
+                        token_value = await self._read_liveidentity_token_async(page)
+                        if self._is_liveidentity_token_valid(token_value):
+                            logger.info("LiveIdentity captcha solved successfully via iframe")
+                            page.remove_listener("response", handle_response)
+                            return CaptchaSolveResult(success=True, token=token_value)
+
+                    # Token still not populated - try to trigger LI_ANTIBOT callback manually
+                    logger.debug("Trying to trigger LI_ANTIBOT callback manually")
+                    try:
+                        # Check if iframe shows success message
+                        success_indicators = frame.locator(
+                            ".li-antibot-success, .success, [class*='success']"
+                        )
+                        if await success_indicators.count() > 0:
+                            logger.info("Iframe shows success indicator")
+
+                        # Try to extract token from iframe's hidden inputs
+                        iframe_token = await frame.evaluate("""() => {
+                            const tokenInput = document.querySelector('input[name*="token"], input[type="hidden"]');
+                            return tokenInput ? tokenInput.value : null;
+                        }""")
+                        if iframe_token and len(str(iframe_token)) > 10:
+                            logger.info(
+                                f"Found token in iframe hidden input: {iframe_token[:20]}..."
+                            )
+                            await self._inject_liveidentity_token_async(page, iframe_token)
+                            return CaptchaSolveResult(success=True, token=iframe_token)
+
+                        # Try to trigger the callback with the solved answer
+                        await page.evaluate(
+                            """(answer) => {
+                                // Try various methods to trigger token population
+                                if (typeof LI_ANTIBOT !== 'undefined') {
+                                    console.log('LI_ANTIBOT object:', Object.keys(LI_ANTIBOT));
+                                    if (LI_ANTIBOT.validateAnswer) {
+                                        LI_ANTIBOT.validateAnswer(answer);
+                                    }
+                                    if (LI_ANTIBOT.onValidationSuccess) {
+                                        LI_ANTIBOT.onValidationSuccess();
+                                    }
+                                    if (LI_ANTIBOT.setValidated) {
+                                        LI_ANTIBOT.setValidated(true);
+                                    }
+                                }
+                                // Also try dispatching a custom event
+                                window.dispatchEvent(new CustomEvent('li-antibot-validated'));
+                                window.dispatchEvent(new CustomEvent('li-antibot-success'));
+                            }""",
+                            result.token,
+                        )
+                        await asyncio.sleep(1)
+
+                        # Final check for token
+                        token_value = await self._read_liveidentity_token_async(page)
+                        if self._is_liveidentity_token_valid(token_value):
+                            logger.info("LiveIdentity token obtained after manual trigger")
+                            page.remove_listener("response", handle_response)
+                            return CaptchaSolveResult(success=True, token=token_value)
+
+                        # Check network capture one more time
+                        if captured_token_data.get("token"):
+                            token = captured_token_data["token"]
+                            logger.info(
+                                f"Got token via network capture after trigger: {token[:30]}..."
+                            )
+                            await self._inject_liveidentity_token_async(page, token)
+                            page.remove_listener("response", handle_response)
+                            return CaptchaSolveResult(success=True, token=token)
+                    except PlaywrightError as e:
+                        logger.debug(f"Manual trigger failed: {e}")
+
+                    logger.warning("Token not populated after iframe solve")
+
+            # Clean up listener
+            page.remove_listener("response", handle_response)
+            return CaptchaSolveResult(success=True, token=result.token)
+
+        except PlaywrightError as e:
+            logger.error(f"Error solving LiveIdentity iframe captcha: {e}")
+            # Clean up listener on error
+            try:
+                page.remove_listener("response", handle_response)
+            except Exception:
+                pass
+            return None
+
+    async def _read_liveidentity_token_async(self, page: "Page") -> Optional[str]:
+        """Read the existing LiveIdentity token from the page (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            token_input = page.locator("input[name='li-antibot-token']")
+            if await token_input.count() > 0:
+                return await token_input.first.input_value() or None
+        except PlaywrightError:
+            pass
+        return None
+
+    async def _refresh_liveidentity_token_async(
+        self,
+        page: "Page",
+        config: LiveIdentityConfig,
+    ) -> Optional[str]:
+        """Try to refresh the LiveIdentity token via JS (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            await page.evaluate("""() => {
+                    if (typeof LI_ANTIBOT !== 'undefined' && LI_ANTIBOT.loadAntibot) {
+                        LI_ANTIBOT.loadAntibot();
+                    }
+                }""")
+            await asyncio.sleep(2)
+            return await self._read_liveidentity_token_async(page)
+        except PlaywrightError as e:
+            logger.debug(f"Failed to refresh LiveIdentity token: {e}")
+            return None
+
+    async def _inject_liveidentity_token_async(self, page: "Page", token: str) -> None:
+        """Inject the solved LiveIdentity token into the page (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            await page.evaluate(
+                """(token) => {
+                    // Find the form to append inputs to
+                    const form = document.getElementById('formCaptcha')
+                        || document.querySelector('form[action*="reservation"]')
+                        || document.querySelector('form');
+
+                    let tokenInput = document.querySelector('input[name="li-antibot-token"]');
+                    if (tokenInput) {
+                        tokenInput.value = token;
+                        console.log('Updated existing li-antibot-token');
+                    } else {
+                        // Create the input if it doesn't exist
+                        tokenInput = document.createElement('input');
+                        tokenInput.type = 'hidden';
+                        tokenInput.name = 'li-antibot-token';
+                        tokenInput.id = 'li-antibot-token';
+                        tokenInput.value = token;
+                        if (form) {
+                            form.appendChild(tokenInput);
+                            console.log('Created and injected li-antibot-token to form');
+                        } else {
+                            document.body.appendChild(tokenInput);
+                            console.log('Created and injected li-antibot-token to body');
+                        }
+                    }
+                    if (typeof LI_ANTIBOT !== 'undefined' && LI_ANTIBOT.setToken) {
+                        LI_ANTIBOT.setToken(token);
+                    }
+                }""",
+                token,
+            )
+            logger.info("LiveIdentity token injected")
+        except PlaywrightError as e:
+            logger.warning(f"Failed to inject LiveIdentity token: {e}")
+
+    async def _detect_and_solve_recaptcha_async(
+        self,
+        page: "Page",
+        current_url: str,
+    ) -> Optional[CaptchaSolveResult]:
+        """Detect and solve reCAPTCHA if present (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            page_source = await page.content()
+            sitekey = self._extract_recaptcha_sitekey(page_source)
+            if not sitekey:
+                return None
+
+            logger.info(f"reCAPTCHA detected with sitekey: {sitekey[:20]}...")
+
+            # Detect version
+            is_v3 = "grecaptcha.execute" in page_source or "recaptcha/api.js?render=" in page_source
+            action = self._extract_recaptcha_action(page_source) if is_v3 else None
+
+            if is_v3:
+                result = await self.solve_recaptcha_v3_async(
+                    sitekey, current_url, action=action or "verify"
+                )
+            else:
+                result = await self.solve_recaptcha_v2_async(sitekey, current_url)
+
+            if result.success and result.token:
+                await self._inject_recaptcha_token_async(page, result.token)
+
+            return result
+
+        except PlaywrightError as e:
+            logger.error(f"Error detecting reCAPTCHA: {e}")
+            return None
+
+    async def _inject_recaptcha_token_async(self, page: "Page", token: str) -> None:
+        """Inject the solved reCAPTCHA token into the page (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            await page.evaluate(
+                """(token) => {
+                    const textarea = document.querySelector('#g-recaptcha-response');
+                    if (textarea) {
+                        textarea.value = token;
+                        textarea.style.display = 'block';
+                    }
+                    const callback = window.___grecaptcha_cfg?.clients?.[0]?.callback;
+                    if (typeof callback === 'function') {
+                        callback(token);
+                    }
+                }""",
+                token,
+            )
+            logger.info("reCAPTCHA token injected")
+        except PlaywrightError as e:
+            logger.warning(f"Failed to inject reCAPTCHA token: {e}")
+
+    async def _detect_and_solve_image_captcha_async(
+        self,
+        page: "Page",
+    ) -> Optional[CaptchaSolveResult]:
+        """Detect and solve image CAPTCHA if present (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            # Look for common image CAPTCHA patterns
+            # Paris Tennis uses a box with "Vérification de sécurité" header
+            image_selectors = [
+                "#captcha img",
+                "#captchaImage",
+                ".captcha-image img",
+                "img[alt*='captcha']",
+                "img[alt*='Captcha']",
+                "img[src*='captcha']",
+                "img[src*='Captcha']",
+                "img[src*='JCaptcha']",
+                "img[src*='jcaptcha']",
+                ".security-verification img",
+                # Paris Tennis specific: the verification box contains an img
+                "fieldset img",
+                "form img[src*='Captcha']",
+                "form img[src*='captcha']",
+                # Look for any img inside a container with "sécurité" text nearby
+                ".verification-container img",
+                "[class*='captcha'] img",
+                "[class*='Captcha'] img",
+                # Generic: any img that might be a captcha
+                "#captcha > img",
+                ".captcha img",
+            ]
+
+            captcha_image = None
+            for selector in image_selectors:
+                try:
+                    locator = page.locator(selector)
+                    count = await locator.count()
+                    logger.debug(f"Checking selector '{selector}': found {count} elements")
+                    if count > 0:
+                        # Check if image is visible
+                        if await locator.first.is_visible():
+                            captcha_image = locator.first
+                            logger.info(f"Found captcha image with selector: {selector}")
+                            break
+                except PlaywrightError as e:
+                    logger.debug(f"Selector '{selector}' failed: {e}")
+                    continue
+
+            # Fallback: look for any visible img in the page that looks like a captcha
+            if captcha_image is None:
+                try:
+                    page_content = await page.content()
+                    if "sécurité" in page_content.lower() or "captcha" in page_content.lower():
+                        # Try to find any img that's visible and looks like a captcha
+                        all_imgs = page.locator("img:visible")
+                        img_count = await all_imgs.count()
+                        # Limit to first 20 images to avoid slow iteration
+                        max_images_to_check = min(img_count, 20)
+                        logger.debug(
+                            f"Fallback: checking {max_images_to_check} of {img_count} visible images"
+                        )
+                        for i in range(max_images_to_check):
+                            img = all_imgs.nth(i)
+                            try:
+                                # Use short timeout to avoid hanging
+                                src = (
+                                    await asyncio.wait_for(img.get_attribute("src"), timeout=2.0)
+                                    or ""
+                                )
+                                # Skip tracking pixels, icons, logos, and common non-captcha images
+                                skip_patterns = [
+                                    "logo",
+                                    "icon",
+                                    "pixel",
+                                    "tracking",
+                                    ".svg",
+                                    "favicon",
+                                    "mdp",
+                                    "paris.fr/tennis/jsp/site/images/",
+                                    "header",
+                                    "footer",
+                                    "banner",
+                                    "button",
+                                    "arrow",
+                                ]
+                                if any(skip in src.lower() for skip in skip_patterns):
+                                    continue  # Don't log every skip
+
+                                # Check if src contains captcha-related keywords
+                                captcha_keywords = ["captcha", "jcaptcha", "verify", "securit"]
+                                is_likely_captcha = any(
+                                    kw in src.lower() for kw in captcha_keywords
+                                )
+
+                                # Check image size with timeout - captcha images are usually larger than icons
+                                try:
+                                    box = await asyncio.wait_for(img.bounding_box(), timeout=2.0)
+                                except asyncio.TimeoutError:
+                                    continue
+                                if box and box["width"] > 80 and box["height"] > 25:
+                                    if is_likely_captcha or (
+                                        box["width"] < 300 and box["height"] < 100
+                                    ):
+                                        # Likely a captcha: right size range and/or contains keywords
+                                        captcha_image = img
+                                        logger.info(
+                                            f"Found captcha image via fallback: {src[:60]}..."
+                                        )
+                                        break
+                            except (PlaywrightError, asyncio.TimeoutError):
+                                continue
+                except PlaywrightError as e:
+                    logger.debug(f"Fallback image detection failed: {e}")
+
+            if captcha_image is None:
+                return None
+
+            # Get image source
+            img_src = await captcha_image.get_attribute("src")
+            if not img_src:
+                return None
+
+            logger.info(f"Detected image CAPTCHA: {img_src[:60]}...")
+
+            parsed_src = urlparse(img_src)
+            if not parsed_src.scheme:
+                img_src = urljoin(page.url, img_src)
+
+            # Fetch through the browser to include session cookies
+            data_url = await self._fetch_captcha_image_data_url_async(page, img_src)
+            if data_url:
+                result = await self.solve_image_captcha_async(data_url)
+            else:
+                result = await self.solve_image_captcha_async(img_src)
+
+            if result.success and result.token:
+                # Find and fill the input field
+                await self._fill_captcha_input_async(page, result.token)
+
+            return result
+
+        except PlaywrightError as e:
+            logger.error(f"Playwright error detecting image CAPTCHA: {e}")
+            return None
+
+    async def _fetch_captcha_image_data_url_async(
+        self,
+        page: "Page",
+        img_src: str,
+    ) -> Optional[str]:
+        """Fetch CAPTCHA image as a data URL using the browser context (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        if not img_src:
+            return None
+        if str(img_src).strip().lower().startswith("data:"):
+            return img_src
+        try:
+            data_url = await page.evaluate(
+                """async (src) => {
+                    try {
+                        const resp = await fetch(src, { credentials: 'include' });
+                        if (!resp.ok) return null;
+                        const blob = await resp.blob();
+                        return new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                    } catch {
+                        return null;
+                    }
+                }""",
+                img_src,
+            )
+            return data_url
+        except PlaywrightError as e:
+            logger.debug(f"Failed to fetch image data URL: {e}")
+            return None
+
+    async def _fill_captcha_input_async(self, page: "Page", answer: str) -> None:
+        """Fill the CAPTCHA answer into the input field (async)."""
+        from playwright.async_api import Error as PlaywrightError
+
+        try:
+            input_selectors = [
+                "#captcha-input",
+                "input[name='captcha']",
+                "input[name='captcha_response']",
+                "input[type='text'][id*='captcha']",
+                "input[type='text'][name*='captcha']",
+                ".captcha-answer",
+                "input.captcha-input",
+                # Paris Tennis specific
+                "input[name*='Captcha']",
+                "input[id*='Captcha']",
+                # Generic - look for text input in the same container as a captcha image
+                "fieldset input[type='text']",
+            ]
+
+            for selector in input_selectors:
+                try:
+                    locator = page.locator(selector)
+                    if await locator.count() > 0 and await locator.first.is_visible():
+                        await locator.first.fill(answer)
+                        logger.info(f"Filled CAPTCHA answer '{answer}' using selector: {selector}")
+                        return
+                except PlaywrightError:
+                    continue
+
+            # Fallback: look for any visible text input that's near/after an image
+            try:
+                inputs = page.locator("input[type='text']:visible")
+                count = await inputs.count()
+                for i in range(count):
+                    input_elem = inputs.nth(i)
+                    # Check if the input is empty (not prefilled)
+                    current_value = await input_elem.input_value()
+                    if not current_value or current_value.strip() == "":
+                        await input_elem.fill(answer)
+                        logger.info(f"Filled CAPTCHA answer '{answer}' using fallback input")
+                        return
+            except PlaywrightError:
+                pass
+
+            logger.warning("Could not find CAPTCHA input field")
+        except PlaywrightError as e:
             logger.warning(f"Failed to fill CAPTCHA input: {e}")
 
 

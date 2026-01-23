@@ -26,8 +26,12 @@ lint:
     - taplo@0.10.0
     - trivy@0.68.2
     - trufflehog@3.92.5
+  ignore:
+    - linters: [bandit]
+      paths:
+        - tests/**
+        - scripts/test_*
 actions:
-  disabled:
   enabled:
     - trunk-announce
     - trunk-check-pre-push

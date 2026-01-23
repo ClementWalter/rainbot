@@ -589,7 +589,7 @@ mid-loop.
 
 ## Architecture Overview
 
-```
+```text
 src/
 ├── __init__.py
 ├── config/

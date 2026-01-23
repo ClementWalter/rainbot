@@ -5,6 +5,7 @@ This module contains the main scheduled tasks:
 - send_reminder: Sends reminders to users and partners on match day
 """
 
+import asyncio
 import logging
 import uuid
 
@@ -36,7 +37,7 @@ DAY_OF_WEEK_FRENCH = {
 
 def booking_job() -> None:
     """
-    Main booking job that runs on a schedule.
+    Run the main booking job on a schedule.
 
     This job:
     1. Fetches all active booking requests from the data source
@@ -49,6 +50,11 @@ def booking_job() -> None:
        f. Sends confirmation notification on success
        g. Releases the lock
     """
+    asyncio.run(_booking_job_async())
+
+
+async def _booking_job_async() -> None:
+    """Async implementation of the booking job."""
     # Generate unique job ID for this execution to manage locks
     job_id = str(uuid.uuid4())
     logger.info(f"Starting booking job (job_id: {job_id})")
@@ -103,7 +109,7 @@ def booking_job() -> None:
                 # Process booking requests for this user until one succeeds
                 for request in user_requests:
                     logger.info(f"Processing booking request {request.id} for user {user.id}")
-                    if _process_booking_request(user, request, sheets, notification):
+                    if await _process_booking_request_async(user, request, sheets, notification):
                         logger.info(
                             f"Booking completed for user {user.id}, skipping remaining requests"
                         )
@@ -118,7 +124,7 @@ def booking_job() -> None:
     logger.info(f"Booking job completed (job_id: {job_id})")
 
 
-def _process_booking_request(
+async def _process_booking_request_async(
     user: User,
     request: BookingRequest,
     sheets: GoogleSheetsService,
@@ -135,12 +141,13 @@ def _process_booking_request(
 
     Returns:
         True if a booking was successfully completed, False otherwise.
+
     """
     try:
-        with create_paris_tennis_session() as tennis_service:
+        async with create_paris_tennis_session() as tennis_service:
             # Login to Paris Tennis
             logger.info(f"Logging in for user {user.email}")
-            login_success = tennis_service.login(
+            login_success = await tennis_service.login(
                 user.paris_tennis_email, user.paris_tennis_password
             )
 
@@ -155,7 +162,7 @@ def _process_booking_request(
 
             # Search for available courts
             logger.info(f"Searching for courts matching request {request.id}")
-            available_slots = tennis_service.search_available_courts(request)
+            available_slots = await tennis_service.search_available_courts(request)
 
             if not available_slots:
                 logger.info(f"No available slots found for request {request.id}")
@@ -201,7 +208,7 @@ def _process_booking_request(
                     f"court {slot.court_number} at {slot.time_start}"
                 )
 
-                result = tennis_service.book_court(
+                result = await tennis_service.book_court(
                     slot,
                     partner_name=request.partner_name,
                     partner_email=request.partner_email,
@@ -280,6 +287,7 @@ def _create_booking_from_result(
 
     Returns:
         Booking object ready to be saved
+
     """
     return Booking(
         id=str(uuid.uuid4()),

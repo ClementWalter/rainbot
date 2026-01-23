@@ -8,12 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.schedulers.cron_jobs import (
+from src.schedulers.cron_jobs import (  # noqa: E402
     booking_job,
     cleanup_old_notifications,
     send_reminder,
 )
-from src.utils.timezone import PARIS_TZ
+from src.utils.timezone import PARIS_TZ  # noqa: E402
 
 http.client._MAXHEADERS = 1000  # type: ignore
 logging.basicConfig(
@@ -22,51 +22,55 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logging.getLogger("apscheduler").setLevel(logging.ERROR)
+# Enable DEBUG for captcha solver to debug hanging issues
+logging.getLogger("src.services.captcha_solver").setLevel(logging.DEBUG)
 
-# Cron info
-HOUR = int(os.getenv("HOUR", 0))
-MINUTE = int(os.getenv("MINUTE", 0))
-SECOND = int(os.getenv("SECOND", 10))
+# Scheduler configuration
 JITTER = int(os.getenv("JITTER", 0))
 REMINDER_HOUR = int(os.getenv("REMINDER_HOUR", 8))
 REMINDER_MINUTE = int(os.getenv("REMINDER_MINUTE", 0))
 REMINDER_SECOND = int(os.getenv("REMINDER_SECOND", 0))
 
 
-def _normalize_interval(hours: int, minutes: int, seconds: int) -> tuple[int, int, int]:
-    """Normalize interval values to a positive schedule."""
-    if hours < 0 or minutes < 0 or seconds < 0:
-        logging.warning("Interval values must be non-negative; clamping to 0.")
-    hours = max(hours, 0)
-    minutes = max(minutes, 0)
-    seconds = max(seconds, 0)
-    if hours == 0 and minutes == 0 and seconds == 0:
-        logging.warning("Interval cannot be all zeros; defaulting to 10 seconds.")
-        seconds = 10
-    return hours, minutes, seconds
-
-
 def build_scheduler(scheduler_factory=BlockingScheduler) -> BlockingScheduler:
-    """Create and configure the APScheduler instance."""
-    interval_hours, interval_minutes, interval_seconds = _normalize_interval(HOUR, MINUTE, SECOND)
+    """Create and configure the APScheduler instance.
+
+    Two polling strategies:
+    1. Normal polling: every 30 seconds to check availability
+    2. Intensive polling around 8am Paris time: every 2 seconds from 7:59:50 to 8:00:30
+       (this is when the booking window opens for slots 6 days ahead)
+    """
     scheduler = scheduler_factory(timezone=PARIS_TZ)
+
+    # Strategy 1: Normal polling every 30 seconds
     scheduler.add_job(
         booking_job,
         "interval",
-        hours=interval_hours,
-        minutes=interval_minutes,
-        seconds=interval_seconds,
+        seconds=30,
         jitter=JITTER,
     )
-    # Schedule booking job at 8:00 AM Paris time (every 2 seconds for first 10 seconds)
-    for second in range(0, 10, 2):
+
+    # Strategy 2: Intensive polling around 8:00 AM Paris time
+    # From 7:59:50 to 8:00:30 (every 2 seconds = 20 polling attempts)
+
+    # 7:59:50 to 7:59:58 (5 jobs at seconds 50, 52, 54, 56, 58)
+    for second in range(50, 60, 2):
+        scheduler.add_job(
+            booking_job,
+            "cron",
+            hour=7,
+            minute=59,
+            second=second,
+        )
+
+    # 8:00:00 to 8:00:30 (16 jobs at seconds 0, 2, 4, ..., 30)
+    for second in range(0, 32, 2):
         scheduler.add_job(
             booking_job,
             "cron",
             hour=8,
             minute=0,
             second=second,
-            jitter=JITTER,
         )
     # Schedule reminder job in the morning of match day (configurable)
     scheduler.add_job(

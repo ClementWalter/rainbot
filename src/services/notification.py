@@ -91,6 +91,7 @@ class NotificationService:
             smtp_user: SMTP authentication username
             smtp_password: SMTP authentication password
             from_email: Email address to send from
+
         """
         self.smtp_host = smtp_host or settings.notification.smtp_host
         self.smtp_port = smtp_port or settings.notification.smtp_port or 587
@@ -135,6 +136,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         if not self.is_configured():
             logger.error("Notification service not configured")
@@ -199,6 +201,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         subject = f"🎾 RainBot - Réservation confirmée pour le {booking.date.strftime('%d/%m/%Y')}"
 
@@ -280,6 +283,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         if not booking.partner_email:
             return NotificationResult(
@@ -373,6 +377,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         # Escape user-provided data to prevent HTML injection
         safe_recipient_name = html.escape(recipient_name) if recipient_name else None
@@ -470,6 +475,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         subject = "🎾 RainBot - Échec de réservation"
 
@@ -540,6 +546,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         subject = "🎾 RainBot - Aucun créneau disponible"
 
@@ -614,6 +621,7 @@ class NotificationService:
 
         Returns:
             NotificationResult with success status
+
         """
         subject = "🎾 RainBot - Historique des reservations"
 

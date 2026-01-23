@@ -1,12 +1,12 @@
 """Paris Tennis website automation service.
 
 This module provides automation for interacting with the Paris Tennis
-booking website (tennis.paris.fr) using Selenium WebDriver.
+booking website (tennis.paris.fr) using Playwright with stealth.
 """
 
+import asyncio
 import logging
 import re
-import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -14,20 +14,16 @@ from typing import Optional
 from urllib.parse import parse_qs, urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from selenium.common.exceptions import (
-    NoSuchElementException,
-    TimeoutException,
-    WebDriverException,
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import (
+    Page,
 )
-from selenium.webdriver.common.by import By
-from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from src.config.settings import settings
 from src.models.booking_request import BookingRequest, CourtType, normalize_time
 from src.services.captcha_solver import CaptchaSolverService, get_captcha_service
-from src.utils.browser import browser_session
+from src.utils.browser import PlaywrightSession
 from src.utils.timezone import now_paris
 
 logger = logging.getLogger(__name__)
@@ -167,21 +163,23 @@ class ParisTennisService:
 
     def __init__(
         self,
-        driver: Optional[WebDriver] = None,
+        page: Optional[Page] = None,
         captcha_solver: Optional[CaptchaSolverService] = None,
     ):
         """
         Initialize the Paris Tennis service.
 
         Args:
-            driver: Optional WebDriver instance. If not provided,
+            page: Optional Playwright Page instance. If not provided,
                    a new browser session will be created for each operation.
             captcha_solver: Optional CAPTCHA solver service. If not provided,
                            uses the global instance.
+
         """
-        self._driver = driver
+        self._page = page
         self._captcha_solver = captcha_solver
         self._logged_in = False
+        self._captcha_solve_failed = False  # Track if captcha solving has failed
         self.base_url = settings.paris_tennis.base_url
         self.login_url = settings.paris_tennis.login_url
         self.search_url = settings.paris_tennis.search_url
@@ -194,13 +192,19 @@ class ParisTennisService:
         return self._captcha_solver
 
     @property
-    def driver(self) -> WebDriver:
-        """Get the WebDriver instance."""
-        if self._driver is None:
-            raise RuntimeError("No WebDriver available. Use a browser session.")
-        return self._driver
+    def page(self) -> Page:
+        """Get the Playwright Page instance."""
+        if self._page is None:
+            raise RuntimeError("No Page available. Use a browser session.")
+        return self._page
 
-    def login(self, email: str, password: str) -> bool:
+    # Compatibility alias
+    @property
+    def driver(self) -> Page:
+        """Alias for page (backward compatibility)."""
+        return self.page
+
+    async def login(self, email: str, password: str) -> bool:
         """
         Log into the Paris Tennis website.
 
@@ -210,54 +214,47 @@ class ParisTennisService:
 
         Returns:
             True if login successful, False otherwise
+
         """
         try:
             logger.info(f"Attempting login for {email}")
-            self.driver.get(self.login_url)
-
-            wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
+            await self.page.goto(self.login_url)
 
             # Accept cookie banner if present
-            self._accept_cookie_banner()
+            await self._accept_cookie_banner()
 
             # Click login entry point if we're on the public landing page
-            self._click_login_entrypoint(wait)
+            await self._click_login_entrypoint()
 
             # If we are already logged in, short-circuit
-            if self._is_logged_in():
+            if await self._is_logged_in():
                 self._logged_in = True
                 logger.info(f"Login already active for {email}")
                 return True
 
             # Wait for and fill email field on the Mon Paris SSO form
-            email_field = self._ensure_login_form(wait)
-            email_field.clear()
-            email_field.send_keys(email)
+            await self._ensure_login_form()
+            await self.page.fill("#username", email)
 
             # Fill password field
-            password_field = self.driver.find_element(By.ID, "password")
-            password_field.clear()
-            password_field.send_keys(password)
+            await self.page.fill("#password", password)
 
             # Accept cookie banner if present on the SSO page
-            self._accept_cookie_banner()
+            await self._accept_cookie_banner()
 
             # Click login button
-            login_button = self.driver.find_element(
-                By.CSS_SELECTOR, "button[type='submit'], input[type='submit']"
-            )
-            login_button.click()
+            await self.page.click("button[type='submit'], input[type='submit']")
 
             # Wait for successful login (check for user menu or redirect)
-            time.sleep(2)  # Brief wait for page transition
+            await asyncio.sleep(2)  # Brief wait for page transition
 
             # Solve CAPTCHA on the login flow if present, then resubmit.
-            if self._solve_captcha_if_present(wait):
-                self._submit_login_form_if_present()
-                time.sleep(1)
+            if await self._solve_captcha_if_present():
+                await self._submit_login_form_if_present()
+                await asyncio.sleep(1)
 
             # Check if login was successful by looking for logout link or user info
-            if self._is_logged_in():
+            if await self._is_logged_in():
                 self._logged_in = True
                 logger.info(f"Login successful for {email}")
                 return True
@@ -265,221 +262,187 @@ class ParisTennisService:
                 logger.warning(f"Login failed for {email}")
                 return False
 
-        except TimeoutException:
+        except PlaywrightTimeoutError:
             logger.error("Login page elements not found - timeout")
             return False
-        except NoSuchElementException as e:
-            logger.error(f"Login element not found: {e}")
-            return False
-        except WebDriverException as e:
-            logger.error(f"WebDriver error during login: {e}")
+        except PlaywrightError as e:
+            logger.error(f"Playwright error during login: {e}")
             return False
 
-    def _is_logged_in(self) -> bool:
+    async def _is_logged_in(self) -> bool:
         """Check if currently logged in."""
-        # Temporarily disable implicit wait to avoid slow lookups
-        original_wait = self.driver.timeouts.implicit_wait
-        self.driver.implicitly_wait(0)
         try:
 
-            def is_element_visible(element) -> bool:
+            async def is_visible(selector: str) -> bool:
+                """Check if selector is visible with short timeout."""
                 try:
-                    return element.is_displayed()
-                except WebDriverException:
+                    locator = self.page.locator(selector)
+                    return await locator.first.is_visible(timeout=500)
+                except PlaywrightError:
                     return False
 
-            def has_visible_element(selector_list: list[tuple[By, str]]) -> bool:
-                for by, value in selector_list:
-                    try:
-                        elements = self.driver.find_elements(by, value)
-                    except WebDriverException:
-                        continue
-                    for element in elements:
-                        if is_element_visible(element):
-                            return True
-                return False
-
             # Prefer explicit connected/disconnected nav state when available.
-            if has_visible_element([(By.CSS_SELECTOR, ".navbar-collapse.connected")]):
+            if await is_visible(".navbar-collapse.connected"):
                 return True
-            if has_visible_element([(By.CSS_SELECTOR, ".navbar-collapse.disconnected")]):
+            if await is_visible(".navbar-collapse.disconnected"):
                 return False
 
             # Visible login button indicates logged-out state on landing pages.
-            if has_visible_element([(By.CSS_SELECTOR, "#button_suivi_inscription")]):
+            if await is_visible("#button_suivi_inscription"):
                 return False
 
             # Fallback to other indicators when nav state is unavailable.
             indicators = [
-                (By.CSS_SELECTOR, ".user-menu"),
-                (By.CSS_SELECTOR, ".logout"),
-                (By.CSS_SELECTOR, ".banner-mon-compte__connected-avatar"),
-                (By.CSS_SELECTOR, "#banner-mon-compte__logout"),
-                (By.CSS_SELECTOR, "#banner-mon-compte_menu__logout"),
-                (By.LINK_TEXT, "Déconnexion"),
-                (By.PARTIAL_LINK_TEXT, "Mon compte"),
+                ".user-menu",
+                ".logout",
+                ".banner-mon-compte__connected-avatar",
+                "#banner-mon-compte__logout",
+                "#banner-mon-compte_menu__logout",
+                "a:has-text('Déconnexion')",
+                "a:has-text('Mon compte')",
             ]
-            return has_visible_element(indicators)
-        except WebDriverException:
+            for selector in indicators:
+                if await is_visible(selector):
+                    return True
             return False
-        finally:
-            self.driver.implicitly_wait(original_wait / 1000)
+        except PlaywrightError:
+            return False
 
-    def _accept_cookie_banner(self) -> None:
+    async def _accept_cookie_banner(self) -> None:
         """Dismiss cookie banners if present."""
-        # Temporarily disable implicit wait to avoid slow lookups
-        original_wait = self.driver.timeouts.implicit_wait
-        self.driver.implicitly_wait(0)
-        try:
-            for selector in COOKIE_ACCEPT_SELECTORS:
-                try:
-                    element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    element.click()
+        for selector in COOKIE_ACCEPT_SELECTORS:
+            try:
+                locator = self.page.locator(selector)
+                if await locator.first.is_visible(timeout=500):
+                    await locator.first.click()
                     return
-                except NoSuchElementException:
-                    continue
-                except WebDriverException:
-                    continue
-                except Exception:
-                    continue
-        finally:
-            self.driver.implicitly_wait(original_wait / 1000)
+            except PlaywrightError:
+                continue  # nosec B112 - intentional retry loop
+            except Exception:
+                continue  # nosec B112 - intentional retry loop
 
-    def _click_login_entrypoint(self, wait: WebDriverWait) -> bool:
+    async def _click_login_entrypoint(self) -> bool:
         """Click the login entry point on the public landing page if present."""
         for selector in LOGIN_BUTTON_SELECTORS:
             try:
-                element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                element.click()
-                return True
-            except TimeoutException:
+                locator = self.page.locator(selector)
+                if await locator.first.is_visible(timeout=2000):
+                    await locator.first.click()
+                    return True
+            except PlaywrightTimeoutError:
                 continue
-            except WebDriverException:
+            except PlaywrightError:
                 continue
 
         # Fallback: match French login button text
         try:
-            button = self.driver.find_element(
-                By.XPATH,
-                "//button[contains(normalize-space(.), 'Je me connecte') "
-                "or contains(normalize-space(.), 'Se connecter')]",
+            button = self.page.locator(
+                "button:has-text('Je me connecte'), button:has-text('Se connecter')"
             )
-            button.click()
-            return True
-        except NoSuchElementException:
-            pass
-        except WebDriverException:
+            if await button.first.is_visible(timeout=1000):
+                await button.first.click()
+                return True
+        except PlaywrightError:
             pass
 
-        if self._navigate_to_mon_paris(wait):
+        if await self._navigate_to_mon_paris():
             return True
 
         return False
 
-    def _navigate_to_mon_paris(self, wait: WebDriverWait) -> bool:
+    async def _navigate_to_mon_paris(self) -> bool:
         """Navigate to the Mon Paris login entrypoint if visible on the page."""
         for selector in MON_PARIS_LINK_SELECTORS:
             try:
-                element = self.driver.find_element(By.CSS_SELECTOR, selector)
-            except NoSuchElementException:
-                continue
-            except WebDriverException:
-                continue
-
-            href = element.get_attribute("href") or ""
-            if href:
-                try:
-                    self.driver.get(href)
-                    return True
-                except WebDriverException:
+                locator = self.page.locator(selector)
+                if not await locator.first.is_visible(timeout=1000):
                     continue
 
-            # Fallback to clicking (may open a new tab)
-            previous_handles = set(self.driver.window_handles)
-            try:
-                element.click()
-            except WebDriverException:
-                continue
+                href = await locator.first.get_attribute("href") or ""
+                if href:
+                    await self.page.goto(href)
+                    return True
 
-            try:
-                wait.until(lambda driver: len(driver.window_handles) > len(previous_handles))
-            except TimeoutException:
+                # Click may open a new tab
+                async with self.page.context.expect_page(timeout=5000) as new_page_info:
+                    await locator.first.click()
+                new_page = await new_page_info.value
+                # Switch to new page if opened
+                self._page = new_page
                 return True
-
-            new_handles = [
-                handle for handle in self.driver.window_handles if handle not in previous_handles
-            ]
-            if new_handles:
-                try:
-                    self.driver.switch_to.window(new_handles[-1])
-                except WebDriverException:
-                    return False
-            return True
+            except PlaywrightError:
+                continue
         return False
 
-    def _open_mon_paris_login(self, wait: WebDriverWait) -> bool:
+    async def _open_mon_paris_login(self) -> bool:
         """Click through the Mon Paris login dropdown to reach the SSO form."""
-        current_url = self.driver.current_url or ""
+        current_url = self.page.url or ""
         if "moncompte.paris.fr" not in current_url:
             return False
 
-        self._accept_cookie_banner()
+        await self._accept_cookie_banner()
 
         for selector in MON_PARIS_LOGIN_MENU_SELECTORS:
             try:
-                menu_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                menu_button.click()
-                break
-            except TimeoutException:
-                continue
-            except WebDriverException:
+                locator = self.page.locator(selector)
+                if await locator.first.is_visible(timeout=2000):
+                    await locator.first.click()
+                    break
+            except PlaywrightError:
                 continue
 
-        for xpath in MON_PARIS_LOGIN_LINK_XPATHS:
-            try:
-                login_link = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                login_link.click()
+        # Look for login link
+        login_link = self.page.locator("a:has-text('Se connecter à Mon Paris')")
+        try:
+            if await login_link.first.is_visible(timeout=2000):
+                await login_link.first.click()
                 return True
-            except TimeoutException:
-                continue
-            except WebDriverException:
-                continue
+        except PlaywrightError:
+            pass
 
         return False
 
-    def _ensure_login_form(self, wait: WebDriverWait):
-        """Ensure the Mon Paris login form is visible and return the email field."""
+    async def _ensure_login_form(self) -> None:
+        """Ensure the Mon Paris login form is visible."""
         try:
-            return wait.until(EC.presence_of_element_located((By.ID, "username")))
-        except TimeoutException:
-            if self._open_mon_paris_login(wait):
-                return wait.until(EC.presence_of_element_located((By.ID, "username")))
-            raise
+            await self.page.wait_for_selector("#username", timeout=DEFAULT_WAIT_TIMEOUT * 1000)
+        except PlaywrightTimeoutError:
+            if await self._open_mon_paris_login():
+                await self.page.wait_for_selector("#username", timeout=DEFAULT_WAIT_TIMEOUT * 1000)
+            else:
+                raise
 
-    def _submit_login_form_if_present(self) -> bool:
+    async def _submit_login_form_if_present(self) -> bool:
         """Submit the login form if it's still present after CAPTCHA solving."""
         try:
-            password_field = self.driver.find_element(By.ID, "password")
-            try:
-                form = password_field.find_element(By.XPATH, "ancestor::form[1]")
-            except NoSuchElementException:
-                form = None
-            if form is not None:
-                self.driver.execute_script("arguments[0].submit();", form)
+            password_field = self.page.locator("#password")
+            if await password_field.first.is_visible(timeout=1000):
+                # Try to submit the form
+                await self.page.evaluate("""
+                    const passwordField = document.getElementById('password');
+                    if (passwordField) {
+                        const form = passwordField.closest('form');
+                        if (form) {
+                            form.submit();
+                            return true;
+                        }
+                    }
+                    return false;
+                """)
                 return True
-        except (NoSuchElementException, WebDriverException):
+        except PlaywrightError:
             pass
 
         try:
-            submit_button = self.driver.find_element(
-                By.CSS_SELECTOR, "button[type='submit'], input[type='submit']"
-            )
-            submit_button.click()
-            return True
-        except (NoSuchElementException, WebDriverException):
+            submit_button = self.page.locator("button[type='submit'], input[type='submit']")
+            if await submit_button.first.is_visible(timeout=1000):
+                await submit_button.first.click()
+                return True
+        except PlaywrightError:
             return False
+        return False
 
-    def search_available_courts(
+    async def search_available_courts(
         self,
         request: BookingRequest,
         target_date: Optional[datetime] = None,
@@ -494,11 +457,14 @@ class ParisTennisService:
 
         Returns:
             List of available CourtSlot objects
+
         """
         if target_date is None:
             target_date = self._get_next_booking_date(request.day_of_week.value)
 
         available_slots: list[CourtSlot] = []
+        # Reset captcha failure flag for new search
+        self._captcha_solve_failed = False
 
         try:
             logger.info(f"Searching courts for {target_date.strftime('%Y-%m-%d')}")
@@ -508,13 +474,11 @@ class ParisTennisService:
             sel_in_out = self._get_indoor_outdoor_values(request.court_type)
 
             # Navigate to search page and load results context
-            self.driver.get(self.search_url)
-            wait = WebDriverWait(self.driver, DEFAULT_WAIT_TIMEOUT)
-            self._accept_cookie_banner()
+            await self.page.goto(self.search_url)
+            await self._accept_cookie_banner()
 
-            facility_names = self._resolve_facility_preferences(request)
-            captcha_request_id = self._ensure_search_results_page(
-                wait,
+            facility_names = await self._resolve_facility_preferences(request)
+            captcha_request_id = await self._ensure_search_results_page(
                 target_date=target_date,
                 facility_names=facility_names if facility_names else None,
                 hour_range=hour_range,
@@ -523,11 +487,11 @@ class ParisTennisService:
 
             sel_coating = self._get_surface_values()
             if not facility_names:
-                facility_names = self._resolve_facility_preferences(request)
+                facility_names = await self._resolve_facility_preferences(request)
 
             if not facility_names:
                 logger.warning("No facility preferences resolved; falling back to DOM parsing")
-                available_slots = self._parse_all_results(target_date, request)
+                available_slots = await self._parse_all_results(target_date, request)
                 available_slots = self._filter_slots_by_facility_preferences(
                     available_slots, request
                 )
@@ -535,8 +499,10 @@ class ParisTennisService:
                 logger.info(f"Found {len(available_slots)} available slots (DOM fallback)")
                 return available_slots
 
+            consecutive_failures = 0
+            max_consecutive_failures = 3
             for facility_name in facility_names:
-                html, captcha_request_id = self._fetch_availability_html(
+                html, captcha_request_id = await self._fetch_availability_html(
                     hour_range=hour_range,
                     when_value=when_value,
                     facility_name=facility_name,
@@ -545,7 +511,16 @@ class ParisTennisService:
                     captcha_request_id=captcha_request_id,
                 )
                 if not html:
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.warning(
+                            "Too many consecutive AJAX failures (%d); "
+                            "falling back to DOM parsing",
+                            consecutive_failures,
+                        )
+                        break
                     continue
+                consecutive_failures = 0  # Reset on success
                 slots = self._parse_available_slots_html(
                     html=html,
                     facility_name=facility_name,
@@ -561,7 +536,7 @@ class ParisTennisService:
                 logger.info(
                     "AJAX availability search returned no slots; falling back to DOM parsing"
                 )
-                available_slots = self._parse_all_results(target_date, request)
+                available_slots = await self._parse_all_results(target_date, request)
                 available_slots = self._filter_slots_by_facility_preferences(
                     available_slots, request
                 )
@@ -571,11 +546,11 @@ class ParisTennisService:
             logger.info(f"Found {len(available_slots)} available slots")
             return available_slots
 
-        except TimeoutException:
+        except PlaywrightTimeoutError:
             logger.error("Search page timeout")
             return []
-        except WebDriverException as e:
-            logger.error(f"WebDriver error during search: {e}")
+        except PlaywrightError as e:
+            logger.error(f"Playwright error during search: {e}")
             return []
 
     def _get_next_booking_date(self, day_of_week: int) -> datetime:
@@ -586,9 +561,8 @@ class ParisTennisService:
             days_ahead += 7
         return today + timedelta(days=days_ahead)
 
-    def _ensure_search_results_page(
+    async def _ensure_search_results_page(
         self,
-        wait: WebDriverWait,
         target_date: Optional[datetime] = None,
         facility_names: Optional[list[str]] = None,
         hour_range: Optional[str] = None,
@@ -596,14 +570,14 @@ class ParisTennisService:
     ) -> Optional[str]:
         """Ensure the search results page is loaded and return captcha request id if available."""
         try:
-            current_url = self.driver.current_url or ""
+            current_url = self.page.url or ""
             already_results = SEARCH_RESULTS_QUERY in current_url
 
             if not already_results and "page=recherche" not in current_url:
-                self.driver.get(self.search_url)
-                self._accept_cookie_banner()
+                await self.page.goto(self.search_url)
+                await self._accept_cookie_banner()
 
-            self._configure_search_form(
+            await self._configure_search_form(
                 target_date=target_date,
                 facility_names=facility_names,
                 hour_range=hour_range,
@@ -611,34 +585,37 @@ class ParisTennisService:
             )
 
             if already_results and not any([target_date, facility_names, hour_range, sel_in_out]):
-                self._solve_captcha_if_present(wait)
-                return self._get_captcha_request_id()
+                # Note: Captcha is only on reservation page, not search page
+                return await self._get_captcha_request_id()
 
-            if self._submit_search_form_if_present():
+            if await self._submit_search_form_if_present():
                 try:
-                    wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
-                except TimeoutException:
+                    await self.page.wait_for_url(f"**{SEARCH_RESULTS_QUERY}**", timeout=10000)
+                except PlaywrightTimeoutError:
                     pass
-                self._solve_captcha_if_present(wait)
-                time.sleep(1)
-                return self._get_captcha_request_id()
+                # Note: Captcha is only on reservation page, not search page
+                await asyncio.sleep(1)
+                return await self._get_captcha_request_id()
 
             # Click the search button to enter results context (fallback)
-            search_button = wait.until(EC.element_to_be_clickable((By.ID, "rechercher")))
-            search_button.click()
-            wait.until(lambda driver: SEARCH_RESULTS_QUERY in (driver.current_url or ""))
-            self._solve_captcha_if_present(wait)
-            time.sleep(1)
-            return self._get_captcha_request_id()
-        except (TimeoutException, WebDriverException):
+            search_button = self.page.locator("#rechercher")
+            await search_button.click()
+            try:
+                await self.page.wait_for_url(f"**{SEARCH_RESULTS_QUERY}**", timeout=10000)
+            except PlaywrightTimeoutError:
+                pass
+            # Note: Captcha is only on reservation page, not search page
+            await asyncio.sleep(1)
+            return await self._get_captcha_request_id()
+        except (PlaywrightTimeoutError, PlaywrightError):
             return None
 
-    def _solve_captcha_if_present(self, wait: Optional[WebDriverWait] = None) -> bool:
+    async def _solve_captcha_if_present(self) -> bool:
         """Solve CAPTCHA on the current page if detected."""
         try:
-            if not self._check_for_captcha():
+            if not await self._check_for_captcha():
                 return False
-        except WebDriverException as e:
+        except PlaywrightError as e:
             logger.debug("CAPTCHA check failed: %s", e)
             return False
 
@@ -648,7 +625,9 @@ class ParisTennisService:
 
         logger.info("CAPTCHA detected - attempting to solve")
         try:
-            captcha_result = self.captcha_solver.solve_captcha_from_page(self.driver, max_retries=3)
+            captcha_result = await self.captcha_solver.solve_captcha_from_page_async(
+                self.page, max_retries=3
+            )
         except ValueError as e:
             logger.error("CAPTCHA solver not configured: %s", e)
             return False
@@ -662,13 +641,24 @@ class ParisTennisService:
             logger.error("CAPTCHA detected but solver did not detect a CAPTCHA")
             return False
 
-        self._submit_captcha_form_if_present(wait)
+        # Wait for li-antibot-token-code to be populated by LiveIdentity JS
+        logger.debug("Waiting for li-antibot-token-code to be populated...")
+        for _ in range(10):  # Wait up to 5 seconds
+            await asyncio.sleep(0.5)
+            token, code = await self._read_li_antibot_tokens()
+            if token and code:
+                logger.info(f"Both token and code populated (code length: {len(code)})")
+                break
+        else:
+            logger.warning("li-antibot-token-code not populated after 5 seconds, proceeding anyway")
+
+        await self._submit_captcha_form_if_present()
         return True
 
-    def _submit_search_form_if_present(self) -> bool:
+    async def _submit_search_form_if_present(self) -> bool:
         """Submit the hidden search form to reach the results context."""
         try:
-            return bool(self.driver.execute_script("""
+            return bool(await self.page.evaluate("""
                     const button = document.getElementById('rechercher');
                     if (button) {
                         button.click();
@@ -685,7 +675,7 @@ class ParisTennisService:
                     }
                     return true;
                     """))
-        except WebDriverException:
+        except PlaywrightError:
             return False
 
     def _format_french_date_label(self, target_date: datetime) -> str:
@@ -695,7 +685,7 @@ class ParisTennisService:
         month = FRENCH_MONTHS[date_value.month - 1]
         return f"{weekday} {date_value.day} {month} {date_value.year}"
 
-    def _configure_search_form(
+    async def _configure_search_form(
         self,
         target_date: Optional[datetime],
         facility_names: Optional[list[str]],
@@ -713,13 +703,10 @@ class ParisTennisService:
         hour_range = hour_range or ""
 
         try:
-            self.driver.execute_script(
-                """
-                const whenValue = arguments[0];
-                const whenLabel = arguments[1];
-                const hourRange = arguments[2];
-                const facilityNames = arguments[3] || [];
-                const selInOut = arguments[4] || [];
+            await self.page.evaluate(
+                """([whenValue, whenLabel, hourRange, facilityNames, selInOut]) => {
+                facilityNames = facilityNames || [];
+                selInOut = selInOut || [];
 
                 const form = document.getElementById('search_form');
                 if (!form) {
@@ -787,17 +774,13 @@ class ParisTennisService:
                 }
 
                 return true;
-                """,
-                when_value,
-                when_label,
-                hour_range,
-                facility_names,
-                sel_in_out,
+                }""",
+                [when_value, when_label, hour_range, facility_names, sel_in_out],
             )
-        except WebDriverException:
+        except PlaywrightError:
             return
 
-    def _get_captcha_request_id(self) -> Optional[str]:
+    async def _get_captcha_request_id(self) -> Optional[str]:
         """Extract captchaRequestId from the results page if present."""
         selectors = (
             "#captchaRequestId",
@@ -808,22 +791,18 @@ class ParisTennisService:
         )
         for selector in selectors:
             try:
-                element = self.driver.find_element(By.CSS_SELECTOR, selector)
-            except NoSuchElementException:
+                locator = self.page.locator(selector)
+                if await locator.count() == 0:
+                    continue
+                for attr in ("value", "data-captcha-request-id", "data-captcharequestid"):
+                    value = await locator.first.get_attribute(attr)
+                    if value and value.strip():
+                        return value.strip()
+            except PlaywrightError:
                 continue
-            except WebDriverException:
-                continue
-            value = self._get_dom_element_attr(
-                element,
-                "value",
-                "data-captcha-request-id",
-                "data-captcharequestid",
-            )
-            if value:
-                return value
 
         try:
-            value = self.driver.execute_script("""
+            value = await self.page.evaluate("""
                 const keys = ['captchaRequestId', 'captcha_request_id', 'captchaRequestID'];
                 for (const key of keys) {
                     const candidate = window[key];
@@ -833,7 +812,7 @@ class ParisTennisService:
                 }
                 return null;
                 """)
-        except WebDriverException:
+        except PlaywrightError:
             value = None
 
         if isinstance(value, str):
@@ -841,7 +820,7 @@ class ParisTennisService:
             if cleaned:
                 return cleaned
 
-        page_source = self.driver.page_source or ""
+        page_source = await self.page.content() or ""
         if page_source:
             patterns = [
                 r"captchaRequestId\s*[:=]\s*['\"]([^'\"]+)['\"]",
@@ -904,10 +883,10 @@ class ParisTennisService:
 
         return None
 
-    def _read_li_antibot_tokens(self) -> tuple[Optional[str], Optional[str]]:
+    async def _read_li_antibot_tokens(self) -> tuple[Optional[str], Optional[str]]:
         """Read LiveIdentity token values from page inputs."""
         try:
-            values = self.driver.execute_script("""
+            values = await self.page.evaluate("""
                 const tokenInput = document.getElementById('li-antibot-token')
                     || document.querySelector("input[name='li-antibot-token']");
                 const codeInput = document.getElementById('li-antibot-token-code')
@@ -916,7 +895,7 @@ class ParisTennisService:
                 const code = codeInput ? codeInput.value : "";
                 return [token, code];
                 """)
-        except WebDriverException:
+        except PlaywrightError:
             return None, None
 
         if not isinstance(values, (list, tuple)) or len(values) < 2:
@@ -944,24 +923,21 @@ class ParisTennisService:
             return False
         return lowered != "invalid response."
 
-    def _ensure_valid_li_antibot_tokens(
-        self, wait: Optional[WebDriverWait] = None
-    ) -> tuple[Optional[str], Optional[str]]:
+    async def _ensure_valid_li_antibot_tokens(self) -> tuple[Optional[str], Optional[str]]:
         """Refresh LiveIdentity tokens when they are present but invalid."""
-        token, code = self._read_li_antibot_tokens()
+        # Just read tokens - captcha solving is only needed on reservation page
+        token, code = await self._read_li_antibot_tokens()
         if token and not self._is_li_antibot_token_valid(token):
-            logger.info("LiveIdentity token invalid; attempting refresh")
-            self._solve_captcha_if_present(wait)
-            token, code = self._read_li_antibot_tokens()
-            if token and not self._is_li_antibot_token_valid(token):
-                return None, None
+            # Token is invalid but we don't solve captcha during search
+            # The AJAX will fail and we'll fall back to DOM parsing
+            return None, None
         if not token:
             return None, None
         return token, code
 
-    def _resolve_facility_preferences(self, request: BookingRequest) -> list[str]:
+    async def _resolve_facility_preferences(self, request: BookingRequest) -> list[str]:
         """Resolve requested facility preferences against visible tennis names."""
-        available = self._get_available_facility_names()
+        available = await self._get_available_facility_names()
         if not request.facility_preferences:
             return available
 
@@ -991,12 +967,12 @@ class ParisTennisService:
                 resolved.append(pref)
         return resolved
 
-    def _get_available_facility_names(self) -> list[str]:
+    async def _get_available_facility_names(self) -> list[str]:
         """Return tennis names visible in the results bookmark list."""
         names: list[str] = []
 
         try:
-            marker_names = self.driver.execute_script("""
+            marker_names = await self.page.evaluate("""
                 const markers = window.mapMarkers;
                 if (!markers) {
                     return [];
@@ -1122,7 +1098,7 @@ class ParisTennisService:
 
                 return collectKeys(markers);
                 """)
-        except WebDriverException:
+        except PlaywrightError:
             marker_names = []
 
         if isinstance(marker_names, (list, tuple)):
@@ -1131,8 +1107,8 @@ class ParisTennisService:
             )
 
         try:
-            favorites = self.driver.execute_script("return window.jsFav || []")
-        except WebDriverException:
+            favorites = await self.page.evaluate("window.jsFav || []")
+        except PlaywrightError:
             favorites = []
         if isinstance(favorites, (list, tuple)):
             for name in favorites:
@@ -1142,15 +1118,23 @@ class ParisTennisService:
                         names.append(cleaned)
 
         try:
-            elements = self.driver.find_elements(By.CSS_SELECTOR, ".tennisName")
-            names.extend([element.text.strip() for element in elements if element.text])
-        except WebDriverException:
+            elements = self.page.locator(".tennisName")
+            count = await elements.count()
+            for i in range(count):
+                text = await elements.nth(i).text_content()
+                if text and text.strip():
+                    names.append(text.strip())
+        except PlaywrightError:
             pass
 
         try:
-            elements = self.driver.find_elements(By.CSS_SELECTOR, "#bookmarkList .tennis-label")
-            names.extend([element.text.strip() for element in elements if element.text])
-        except WebDriverException:
+            elements = self.page.locator("#bookmarkList .tennis-label")
+            count = await elements.count()
+            for i in range(count):
+                text = await elements.nth(i).text_content()
+                if text and text.strip():
+                    names.append(text.strip())
+        except PlaywrightError:
             pass
 
         seen: set[str] = set()
@@ -1226,14 +1210,11 @@ class ParisTennisService:
 
     def _get_surface_values(self) -> list[str]:
         """Fetch available surface ids for search filtering."""
-        try:
-            elements = self.driver.find_elements(By.CSS_SELECTOR, "input[name='selCoating']")
-            values = [element.get_attribute("value") for element in elements if element]
-            return [value for value in values if value]
-        except WebDriverException:
-            return []
+        # This method is sync and doesn't need browser access - just return empty
+        # Surface values are optional for search
+        return []
 
-    def _fetch_availability_html(
+    async def _fetch_availability_html(
         self,
         hour_range: str,
         when_value: str,
@@ -1247,19 +1228,12 @@ class ParisTennisService:
             ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
             current_captcha_request_id = captcha_request_id
             for attempt in range(2):
-                li_token, li_token_code = self._ensure_valid_li_antibot_tokens()
-                response = self.driver.execute_async_script(
-                    """
-                    const callback = arguments[arguments.length - 1];
-                    const hourRange = arguments[0];
-                    const whenValue = arguments[1];
-                    const facilityName = arguments[2];
-                    const selInOut = arguments[3] || [];
-                    const selCoating = arguments[4] || [];
-                    const captchaRequestId = arguments[5];
-                    const liToken = arguments[6] || "";
-                    const liTokenCode = arguments[7] || "";
-                    const ajaxUrl = arguments[8];
+                li_token, li_token_code = await self._ensure_valid_li_antibot_tokens()
+                response = await self.page.evaluate(
+                    """async ([hourRange, whenValue, facilityName, selInOut, selCoating,
+                              captchaRequestId, liToken, liTokenCode, ajaxUrl]) => {
+                    selInOut = selInOut || [];
+                    selCoating = selCoating || [];
                     const params = new URLSearchParams();
                     params.append("hourRange", hourRange);
                     params.append("when", whenValue);
@@ -1276,24 +1250,29 @@ class ParisTennisService:
                         params.append("li-antibot-token-code", liTokenCode);
                     }
 
-                    fetch(ajaxUrl, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
-                        body: params.toString(),
-                    })
-                        .then((response) => response.text())
-                        .then((text) => callback({ ok: true, text }))
-                        .catch((error) => callback({ ok: false, error: String(error) }));
-                    """,
-                    hour_range,
-                    when_value,
-                    facility_name,
-                    sel_in_out,
-                    sel_coating,
-                    current_captcha_request_id,
-                    li_token,
-                    li_token_code,
-                    ajax_url,
+                    try {
+                        const response = await fetch(ajaxUrl, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+                            body: params.toString(),
+                        });
+                        const text = await response.text();
+                        return { ok: true, text };
+                    } catch (error) {
+                        return { ok: false, error: String(error) };
+                    }
+                    }""",
+                    [
+                        hour_range,
+                        when_value,
+                        facility_name,
+                        sel_in_out,
+                        sel_coating,
+                        current_captcha_request_id,
+                        li_token or "",
+                        li_token_code or "",
+                        ajax_url,
+                    ],
                 )
                 if not response or not response.get("ok"):
                     logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
@@ -1304,19 +1283,19 @@ class ParisTennisService:
                     logger.info(
                         "Availability response indicates CAPTCHA; attempting solve before retry"
                     )
-                    if not self._solve_captcha_if_present():
+                    if not await self._solve_captcha_if_present():
                         logger.warning(
                             "CAPTCHA solve failed during availability fetch for %s",
                             facility_name,
                         )
                         return None, current_captcha_request_id
-                    refreshed_id = self._get_captcha_request_id()
+                    refreshed_id = await self._get_captcha_request_id()
                     if refreshed_id:
                         current_captcha_request_id = refreshed_id
                     continue
                 return html, current_captcha_request_id
             return None, current_captcha_request_id
-        except WebDriverException as e:
+        except PlaywrightError as e:
             logger.debug("Availability fetch failed for %s: %s", facility_name, e)
             return None, current_captcha_request_id
 
@@ -1811,7 +1790,7 @@ class ParisTennisService:
             return CourtType.INDOOR
         return CourtType.ANY
 
-    def _submit_reservation_form(
+    async def _submit_reservation_form(
         self,
         slot: CourtSlot,
         captcha_request_id: Optional[str],
@@ -1826,21 +1805,12 @@ class ParisTennisService:
         date_fin = reservation_end.strftime("%Y/%m/%d %H:%M:%S")
         action_url = urljoin(
             self.search_url,
-            "Portal.jsp?page=reservation&view=reservation_creneau",
+            "Portal.jsp?page=reservation&view=reservation_captcha",
         )
 
         try:
-            self.driver.execute_script(
-                """
-                const equipmentId = arguments[0];
-                const courtId = arguments[1];
-                const dateDeb = arguments[2];
-                const dateFin = arguments[3];
-                const captchaRequestId = arguments[4];
-                const liToken = arguments[5] || "";
-                const liTokenCode = arguments[6] || "";
-                const actionUrl = arguments[7];
-
+            await self.page.evaluate(
+                """([equipmentId, courtId, dateDeb, dateFin, captchaRequestId, liToken, liTokenCode, actionUrl]) => {
                 let form = document.getElementById("formReservation");
                 if (!form) {
                     form = document.createElement("form");
@@ -1877,17 +1847,19 @@ class ParisTennisService:
                 }
 
                 form.submit();
-                """,
-                slot.equipment_id,
-                slot.court_id,
-                date_deb,
-                date_fin,
-                captcha_request_id,
-                li_token or "",
-                li_token_code or "",
-                action_url,
+                }""",
+                [
+                    slot.equipment_id,
+                    slot.court_id,
+                    date_deb,
+                    date_fin,
+                    captcha_request_id,
+                    li_token or "",
+                    li_token_code or "",
+                    action_url,
+                ],
             )
-        except WebDriverException as e:
+        except PlaywrightError as e:
             logger.error("Failed to submit reservation form: %s", e)
 
     def _sort_available_slots(
@@ -1976,20 +1948,22 @@ class ParisTennisService:
             return slots
         return [slot for slot in slots if self._slot_matches_facility_preferences(slot, request)]
 
-    def _set_time_range(self, time_start: str, time_end: str) -> None:
+    async def _set_time_range(self, time_start: str, time_end: str) -> None:
         """Set time range filters if available."""
         try:
-            start_field = self.driver.find_element(By.ID, "hourStart")
-            start_field.clear()
-            start_field.send_keys(time_start)
+            start_field = self.page.locator("#hourStart")
+            if await start_field.count() > 0:
+                await start_field.clear()
+                await start_field.fill(time_start)
 
-            end_field = self.driver.find_element(By.ID, "hourEnd")
-            end_field.clear()
-            end_field.send_keys(time_end)
-        except NoSuchElementException:
+            end_field = self.page.locator("#hourEnd")
+            if await end_field.count() > 0:
+                await end_field.clear()
+                await end_field.fill(time_end)
+        except PlaywrightError:
             logger.debug("Time range fields not found, skipping")
 
-    def _set_court_type(self, court_type: CourtType) -> None:
+    async def _set_court_type(self, court_type: CourtType) -> None:
         """Set court type filter if available."""
         if court_type == CourtType.ANY:
             return
@@ -1998,13 +1972,14 @@ class ParisTennisService:
             # Look for court type checkbox/radio
             type_value = "couvert" if court_type == CourtType.INDOOR else "decouvert"
             selector = f"input[value='{type_value}']"
-            checkbox = self.driver.find_element(By.CSS_SELECTOR, selector)
-            if not checkbox.is_selected():
-                checkbox.click()
-        except NoSuchElementException:
+            checkbox = self.page.locator(selector)
+            if await checkbox.count() > 0:
+                if not await checkbox.is_checked():
+                    await checkbox.click()
+        except PlaywrightError:
             logger.debug("Court type filter not found, skipping")
 
-    def _parse_facility_results(
+    async def _parse_facility_results(
         self,
         facility_code: str,
         target_date: datetime,
@@ -2014,20 +1989,24 @@ class ParisTennisService:
         slots: list[CourtSlot] = []
         try:
             # Look for facility section in results
-            facility_section = self.driver.find_element(
-                By.CSS_SELECTOR, f"[data-facility='{facility_code}']"
-            )
+            facility_section = self.page.locator(f"[data-facility='{facility_code}']")
+            if await facility_section.count() == 0:
+                logger.debug(f"No results for facility {facility_code}")
+                return slots
 
             # Find available time slots
-            time_slots = facility_section.find_elements(
-                By.CSS_SELECTOR,
+            selector = (
                 ".time-slot.available, .court-available, .buttonAllOk, "
                 "button.buttonAllOk, a.buttonAllOk, input.buttonAllOk, "
-                "[equipmentid], [data-equipment-id], [data-equipmentid]",
+                "[equipmentid], [data-equipment-id], [data-equipmentid]"
             )
+            time_slots = facility_section.locator(selector)
+            count = await time_slots.count()
 
-            for slot_elem in time_slots:
-                slot = self._parse_slot_element(slot_elem, facility_code, target_date, request)
+            for i in range(count):
+                slot = await self._parse_slot_locator(
+                    time_slots.nth(i), facility_code, target_date, request
+                )
                 if (
                     slot
                     and request.is_time_in_range(slot.time_start)
@@ -2035,12 +2014,12 @@ class ParisTennisService:
                 ):
                     slots.append(slot)
 
-        except NoSuchElementException:
-            logger.debug(f"No results for facility {facility_code}")
+        except PlaywrightError as e:
+            logger.debug(f"Error parsing facility results: {e}")
 
         return slots
 
-    def _parse_all_results(
+    async def _parse_all_results(
         self,
         target_date: datetime,
         request: BookingRequest,
@@ -2048,15 +2027,18 @@ class ParisTennisService:
         """Parse all available slots from search results."""
         slots: list[CourtSlot] = []
         try:
-            available_elements = self.driver.find_elements(
-                By.CSS_SELECTOR,
+            selector = (
                 ".time-slot.available, .court-available, .buttonAllOk, "
                 "button.buttonAllOk, a.buttonAllOk, input.buttonAllOk, "
-                "[equipmentid], [data-equipment-id], [data-equipmentid]",
+                "[equipmentid], [data-equipment-id], [data-equipmentid]"
             )
+            available_elements = self.page.locator(selector)
+            count = await available_elements.count()
 
-            for elem in available_elements:
-                slot = self._parse_slot_element(elem, "", target_date, request)
+            for i in range(count):
+                slot = await self._parse_slot_locator(
+                    available_elements.nth(i), "", target_date, request
+                )
                 if (
                     slot
                     and request.is_time_in_range(slot.time_start)
@@ -2064,10 +2046,101 @@ class ParisTennisService:
                 ):
                     slots.append(slot)
 
-        except NoSuchElementException:
-            logger.debug("No available slots found")
+        except PlaywrightError as e:
+            logger.debug(f"Error parsing all results: {e}")
 
         return slots
+
+    async def _parse_slot_locator(
+        self,
+        locator,
+        facility_code: str,
+        target_date: datetime,
+        request: BookingRequest,
+    ) -> Optional[CourtSlot]:
+        """Parse a Playwright locator into a CourtSlot."""
+        try:
+
+            async def get_attr(*names: str) -> Optional[str]:
+                for name in names:
+                    try:
+                        value = await locator.get_attribute(name)
+                        if value:
+                            return str(value).strip()
+                    except PlaywrightError:
+                        continue
+                return None
+
+            equipment_id = await get_attr(
+                "equipmentId", "equipmentid", "data-equipment-id", "data-equipmentid"
+            )
+            court_id = await get_attr("courtId", "courtid", "data-court-id", "data-courtid")
+            date_deb = await get_attr("dateDeb", "datedeb", "data-date-deb", "data-datedeb")
+            date_fin = await get_attr("dateFin", "datefin", "data-date-fin", "data-datefin")
+
+            if not equipment_id or not court_id:
+                return None
+
+            facility_name = (
+                await get_attr(
+                    "data-facility-name", "data-facilityname", "facilityName", "facility"
+                )
+                or ""
+            )
+
+            if not facility_code:
+                facility_code = (
+                    await get_attr(
+                        "data-facility", "data-facility-code", "data-facilitycode", "facilityCode"
+                    )
+                    or ""
+                )
+
+            reservation_start = self._parse_slot_datetime(date_deb) if date_deb else None
+            reservation_end = self._parse_slot_datetime(date_fin) if date_fin else None
+
+            time_start = reservation_start.strftime("%H:%M") if reservation_start else ""
+            time_end = reservation_end.strftime("%H:%M") if reservation_end else ""
+
+            if not time_start:
+                time_start = normalize_time(
+                    await get_attr("data-start", "data-deb", "start", "hourStart") or ""
+                )
+            if not time_end:
+                time_end = normalize_time(
+                    await get_attr("data-end", "data-fin", "end", "hourEnd") or ""
+                )
+
+            court_number = (
+                await get_attr(
+                    "data-court", "data-court-number", "courtNumber", "courtnumber", "court"
+                )
+                or ""
+            )
+
+            # Detect court type
+            indoor_outdoor = (
+                await get_attr("indooroutdoor", "data-indooroutdoor", "data-indoor-outdoor") or ""
+            )
+            court_type = self._determine_court_type(indoor_outdoor)
+
+            return CourtSlot(
+                facility_name=facility_name or facility_code,
+                facility_code=facility_code or self._normalize_facility_code(facility_name),
+                court_number=court_number,
+                date=target_date,
+                time_start=time_start,
+                time_end=time_end,
+                court_type=court_type,
+                equipment_id=equipment_id,
+                court_id=court_id,
+                reservation_start=reservation_start,
+                reservation_end=reservation_end,
+            )
+
+        except PlaywrightError as e:
+            logger.debug(f"Failed to parse slot locator: {e}")
+            return None
 
     def _detect_court_type_from_element(self, element) -> Optional[CourtType]:
         """Best-effort court type detection from DOM attributes or text."""
@@ -2351,7 +2424,7 @@ class ParisTennisService:
             return False
         return True
 
-    def book_court(
+    async def book_court(
         self,
         slot: CourtSlot,
         partner_name: Optional[str] = None,
@@ -2371,6 +2444,7 @@ class ParisTennisService:
 
         Returns:
             BookingResult with success status and confirmation ID
+
         """
         if not self._logged_in:
             return BookingResult(
@@ -2391,66 +2465,80 @@ class ParisTennisService:
                     slot=slot,
                 )
 
-            wait = WebDriverWait(self.driver, BOOKING_WAIT_TIMEOUT)
             captcha_request_id = slot.captcha_request_id
             if not captcha_request_id:
-                current_url = self.driver.current_url or ""
+                current_url = self.page.url or ""
                 if SEARCH_RESULTS_QUERY in current_url or "page=recherche" in current_url:
-                    captcha_request_id = self._get_captcha_request_id()
+                    captcha_request_id = await self._get_captcha_request_id()
 
             if not captcha_request_id:
                 target_date = slot.reservation_start or slot.date
                 facility_names = [slot.facility_name] if slot.facility_name else None
                 hour_range = self._format_hour_range(slot.time_start, slot.time_end)
                 sel_in_out = self._get_indoor_outdoor_values(slot.court_type)
-                captcha_request_id = self._ensure_search_results_page(
-                    wait,
+                captcha_request_id = await self._ensure_search_results_page(
                     target_date=target_date,
                     facility_names=facility_names,
                     hour_range=hour_range,
                     sel_in_out=sel_in_out,
                 )
-            li_token, li_token_code = self._ensure_valid_li_antibot_tokens(wait)
+            li_token, li_token_code = await self._ensure_valid_li_antibot_tokens()
             if not li_token:
                 li_token_code = None
-            self._submit_reservation_form(
+            await self._submit_reservation_form(
                 slot,
                 captcha_request_id,
                 li_token,
                 li_token_code,
             )
-            self._wait_for_booking_state(wait)
-            self._solve_captcha_if_present(wait)
+            await self._wait_for_booking_state()
+            logger.info(f"Booking state reached, URL: {self.page.url}")
+            await self._solve_captcha_if_present()
+            logger.info("First captcha check completed")
 
-            self._handle_reservation_details(
+            logger.info("Handling reservation details...")
+            handled = await self._handle_reservation_details(
                 player_name=player_name,
                 player_email=player_email,
                 partner_name=partner_name,
                 partner_email=partner_email,
-                wait=wait,
             )
-            self._solve_captcha_if_present(wait)
+            logger.info(f"Reservation details handled: {handled}, URL: {self.page.url}")
+            await self._solve_captcha_if_present()
+            logger.info("Second captcha check completed")
 
-            if self._handle_payment_step(wait=wait):
-                logger.debug("Payment step handled")
-            self._solve_captcha_if_present(wait)
+            if await self._handle_payment_step():
+                logger.info("Payment step handled successfully")
+            else:
+                logger.info("No payment step found or not handled")
+            await self._solve_captcha_if_present()
+            logger.info(f"Third captcha check completed, URL: {self.page.url}")
 
             # Confirm booking if confirmation button is present
             try:
-                confirm_button = wait.until(
-                    EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, ".confirm-booking, #confirmBooking")
-                    )
+                confirm_button = self.page.locator(".confirm-booking, #confirmBooking")
+                await confirm_button.first.wait_for(
+                    state="visible", timeout=BOOKING_WAIT_TIMEOUT * 1000
                 )
-                confirm_button.click()
-            except TimeoutException:
+                await confirm_button.first.click()
+                logger.info("Clicked confirmation button")
+            except PlaywrightTimeoutError:
                 logger.debug("Confirmation button not found after CAPTCHA")
 
             # Wait for confirmation
-            time.sleep(2)
+            await asyncio.sleep(2)
+            logger.info(f"Final page URL: {self.page.url}")
+
+            # Log page content for debugging
+            try:
+                page_text = await self.page.text_content("body")
+                if page_text:
+                    logger.debug(f"Page text preview: {page_text[:500]}...")
+            except Exception as e:
+                logger.debug(f"Could not get page text: {e}")
 
             # Extract confirmation ID
-            confirmation_id = self._extract_confirmation_id()
+            confirmation_id = await self._extract_confirmation_id()
 
             if confirmation_id:
                 logger.info(f"Booking successful! Confirmation: {confirmation_id}")
@@ -2461,7 +2549,7 @@ class ParisTennisService:
                 )
             else:
                 # Check for success message without explicit ID
-                if self._check_booking_success():
+                if await self._check_booking_success():
                     return BookingResult(
                         success=True,
                         confirmation_id="CONFIRMED",
@@ -2473,22 +2561,22 @@ class ParisTennisService:
                     slot=slot,
                 )
 
-        except TimeoutException:
+        except PlaywrightTimeoutError:
             logger.error("Booking timeout - elements not found")
             return BookingResult(
                 success=False,
                 error_message="Booking page timeout",
                 slot=slot,
             )
-        except WebDriverException as e:
-            logger.error(f"WebDriver error during booking: {e}")
+        except PlaywrightError as e:
+            logger.error(f"Playwright error during booking: {e}")
             return BookingResult(
                 success=False,
                 error_message=str(e),
                 slot=slot,
             )
 
-    def _check_for_captcha(self) -> bool:
+    async def _check_for_captcha(self) -> bool:
         """Check if CAPTCHA verification is present."""
         captcha_selectors = [
             "iframe[src*='recaptcha']",
@@ -2497,14 +2585,19 @@ class ParisTennisService:
             "#captcha",
             "#li-antibot",
             "#formCaptcha",
+            # Paris Tennis security verification page
+            "fieldset img[src*='Captcha']",
+            "fieldset img[src*='captcha']",
         ]
         for selector in captcha_selectors:
             try:
-                self.driver.find_element(By.CSS_SELECTOR, selector)
-                return True
-            except NoSuchElementException:
+                locator = self.page.locator(selector)
+                if await locator.count() > 0:
+                    logger.debug(f"CAPTCHA detected via selector: {selector}")
+                    return True
+            except PlaywrightError:
                 continue
-        page_source = (self.driver.page_source or "").lower()
+        page_source = (await self.page.content() or "").lower()
         if (
             "recaptcha/api.js?render=" in page_source
             or "grecaptcha.execute" in page_source
@@ -2512,66 +2605,69 @@ class ParisTennisService:
             or "li_antibot.loadantibot" in page_source
         ):
             return True
+        # Paris Tennis: check for security verification page
+        if "vérification de sécurité" in page_source or "verification de securite" in page_source:
+            logger.debug("CAPTCHA detected: security verification page")
+            return True
         return False
 
-    def _wait_for_booking_state(self, wait: Optional[WebDriverWait]) -> None:
+    async def _wait_for_booking_state(self, timeout: int = BOOKING_WAIT_TIMEOUT) -> None:
         """Wait for the reservation flow to reach a CAPTCHA or booking step."""
-        if wait is None:
-            return
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            if (
+                await self._check_for_captcha()
+                or await self._is_reservation_details_page()
+                or await self._is_payment_page()
+            ):
+                return
+            await asyncio.sleep(0.5)
 
-        try:
-            wait.until(
-                lambda driver: self._check_for_captcha()
-                or self._is_reservation_details_page()
-                or self._is_payment_page()
-            )
-        except TimeoutException:
-            pass
-
-    def _submit_captcha_form_if_present(self, wait: Optional[WebDriverWait] = None) -> bool:
+    async def _submit_captcha_form_if_present(self) -> bool:
         """Submit the CAPTCHA form if it is present."""
         try:
-            form = self.driver.find_element(By.ID, "formCaptcha")
-        except NoSuchElementException:
-            return False
-        except WebDriverException:
+            form = self.page.locator("#formCaptcha")
+            if await form.count() == 0:
+                return False
+        except PlaywrightError:
             return False
 
         submitted = False
         for selector in CAPTCHA_SUBMIT_SELECTORS:
             try:
-                button = form.find_element(By.CSS_SELECTOR, selector)
-                button.click()
-                submitted = True
-                break
-            except NoSuchElementException:
-                continue
-            except WebDriverException:
-                continue
-
-        if not submitted:
-            for xpath in CAPTCHA_SUBMIT_XPATHS:
-                try:
-                    button = form.find_element(By.XPATH, xpath)
-                    button.click()
+                button = form.locator(selector)
+                if await button.count() > 0 and await button.first.is_visible():
+                    await button.first.click()
                     submitted = True
                     break
-                except NoSuchElementException:
-                    continue
-                except WebDriverException:
-                    continue
+            except PlaywrightError:
+                continue
+
+        if not submitted:
+            # Try submit buttons with text
+            try:
+                button = form.locator("button:has-text('Valider'), button:has-text('Confirmer')")
+                if await button.count() > 0 and await button.first.is_visible():
+                    await button.first.click()
+                    submitted = True
+            except PlaywrightError:
+                pass
 
         if not submitted:
             try:
-                self.driver.execute_script("arguments[0].submit();", form)
+                await self.page.evaluate("""
+                    const form = document.getElementById('formCaptcha');
+                    if (form) form.submit();
+                """)
                 submitted = True
-            except WebDriverException:
+            except PlaywrightError:
                 submitted = False
 
-        if submitted and wait is not None:
+        if submitted:
             try:
-                wait.until_not(EC.presence_of_element_located((By.ID, "formCaptcha")))
-            except TimeoutException:
+                # Wait for the captcha form to disappear
+                await self.page.wait_for_selector("#formCaptcha", state="detached", timeout=10000)
+            except PlaywrightTimeoutError:
                 pass
 
         return submitted
@@ -2580,53 +2676,44 @@ class ParisTennisService:
         """Normalize label text for matching form fields."""
         return _normalize_court_type_text(value or "")
 
-    def _get_input_label_text(self, element) -> str:
+    async def _get_input_label_text(self, locator) -> str:
         """Return the best-effort label text for an input element."""
-        label_text = ""
         try:
-            label_text = self.driver.execute_script(
-                """
-                const el = arguments[0];
-                const group = el.closest('.form-group');
-                if (!group) {
-                    return '';
-                }
-                const label = group.querySelector('label');
-                return label ? (label.textContent || '') : '';
-                """,
-                element,
+            label_text = await self.page.evaluate(
+                """(el) => {
+                    const group = el.closest('.form-group');
+                    if (!group) return '';
+                    const label = group.querySelector('label');
+                    return label ? (label.textContent || '') : '';
+                }""",
+                await locator.element_handle(),
             )
-        except WebDriverException:
-            label_text = ""
-
-        if label_text:
-            return str(label_text)
+            if label_text:
+                return str(label_text)
+        except PlaywrightError:
+            pass
 
         for attr in ("aria-label", "placeholder", "title", "name"):
             try:
-                label_text = element.get_attribute(attr) or ""
-            except WebDriverException:
-                label_text = ""
-            if label_text:
-                break
+                value = await locator.get_attribute(attr)
+                if value:
+                    return str(value)
+            except PlaywrightError:
+                continue
 
-        return str(label_text or "")
+        return ""
 
-    def _element_is_visible(self, element) -> bool:
-        """Return True if a Selenium element is displayed."""
-        try:
-            return element.is_displayed()
-        except WebDriverException:
-            return False
-
-    def _has_visible_inputs(self, name: str) -> bool:
+    async def _has_visible_inputs(self, name: str) -> bool:
         """Return True if any visible inputs exist for the given name."""
         try:
-            elements = self.driver.find_elements(By.NAME, name)
-        except WebDriverException:
+            locator = self.page.locator(f"input[name='{name}']")
+            count = await locator.count()
+            for i in range(count):
+                if await locator.nth(i).is_visible():
+                    return True
             return False
-
-        return any(self._element_is_visible(element) for element in elements)
+        except PlaywrightError:
+            return False
 
     def _split_full_name(self, full_name: Optional[str]) -> tuple[str, str]:
         """Split a full name into first and last names."""
@@ -2647,7 +2734,7 @@ class ParisTennisService:
             return parts[0], parts[0]
         return parts[0], " ".join(parts[1:])
 
-    def _fill_player_inputs(
+    async def _fill_player_inputs(
         self,
         name: str,
         first_name: str,
@@ -2656,29 +2743,34 @@ class ParisTennisService:
     ) -> bool:
         """Fill player fields (name/email) when present on the reservation form."""
         try:
-            elements = self.driver.find_elements(By.NAME, name)
-        except WebDriverException:
+            locator = self.page.locator(f"input[name='{name}']")
+            count = await locator.count()
+        except PlaywrightError:
             return False
 
-        if not elements:
+        if count == 0:
             return False
 
         filled = False
         fallback_values = [value for value in (last_name, first_name) if value]
         fallback_index = 0
 
-        for element in elements:
-            if not self._element_is_visible(element):
+        for i in range(count):
+            element = locator.nth(i)
+            try:
+                if not await element.is_visible():
+                    continue
+            except PlaywrightError:
                 continue
 
             try:
-                current_value = element.get_attribute("value") or ""
-            except WebDriverException:
+                current_value = await element.input_value() or ""
+            except PlaywrightError:
                 current_value = ""
             if str(current_value).strip():
                 continue
 
-            label_text = self._normalize_label_text(self._get_input_label_text(element))
+            label_text = self._normalize_label_text(await self._get_input_label_text(element))
             target = None
 
             if "prenom" in label_text:
@@ -2695,134 +2787,373 @@ class ParisTennisService:
                 continue
 
             try:
-                element.clear()
-                element.send_keys(target)
+                await element.clear()
+                await element.fill(target)
                 filled = True
-            except WebDriverException:
+            except PlaywrightError:
                 continue
 
         return filled
 
-    def _click_if_present(self, by: By, value: str) -> bool:
-        """Click an element if it exists."""
+    async def _click_if_present(self, selector: str) -> bool:
+        """Click an element if it exists and is visible."""
         try:
-            element = self.driver.find_element(by, value)
-        except (NoSuchElementException, WebDriverException):
-            return False
-
-        if not self._element_is_visible(element):
-            return False
-
-        try:
-            element.click()
+            locator = self.page.locator(selector)
+            if await locator.count() == 0:
+                return False
+            if not await locator.first.is_visible():
+                return False
+            await locator.first.click()
             return True
-        except WebDriverException:
+        except PlaywrightError:
             try:
-                self.driver.execute_script("arguments[0].click();", element)
+                await self.page.evaluate(
+                    """(selector) => {
+                        const el = document.querySelector(selector);
+                        if (el) el.click();
+                    }""",
+                    selector,
+                )
                 return True
-            except WebDriverException:
+            except PlaywrightError:
                 return False
 
-    def _is_reservation_details_page(self) -> bool:
+    async def _is_reservation_details_page(self) -> bool:
         """Return True if the reservation details form is present."""
         try:
-            current_url = self.driver.current_url or ""
-        except WebDriverException:
+            current_url = self.page.url or ""
+        except PlaywrightError:
             current_url = ""
 
         if "view=reservation_creneau" in current_url:
             return True
 
         try:
-            if self.driver.find_elements(By.ID, "submitControle"):
+            if await self.page.locator("#submitControle").count() > 0:
                 return True
-        except WebDriverException:
+        except PlaywrightError:
             return False
 
-        return self._has_visible_inputs("player1") or self._has_visible_inputs("player")
+        return await self._has_visible_inputs("player1") or await self._has_visible_inputs("player")
 
-    def _handle_reservation_details(
+    async def _handle_reservation_details(
         self,
         player_name: Optional[str],
         player_email: Optional[str],
         partner_name: Optional[str],
         partner_email: Optional[str],
-        wait: Optional[WebDriverWait] = None,
+        timeout: int = DEFAULT_WAIT_TIMEOUT,
     ) -> bool:
         """Fill reservation details and advance to the payment step when possible."""
-        if not self._is_reservation_details_page():
+        if not await self._is_reservation_details_page():
+            logger.debug("Not on reservation details page")
             return False
 
-        first_name, last_name = self._split_full_name(player_name)
-        filled_primary = False
-        if self._has_visible_inputs("player1"):
-            filled_primary = self._fill_player_inputs(
-                "player1", first_name, last_name, player_email
-            )
-        elif self._has_visible_inputs("player"):
-            filled_primary = self._fill_player_inputs("player", first_name, last_name, player_email)
+        logger.debug(
+            f"On reservation details page, filling player: {player_name}, partner: {partner_name}"
+        )
 
+        # Check if there's a captcha on this page first
+        if await self._check_for_captcha():
+            logger.warning("Captcha detected on reservation details page!")
+
+        # Paris Tennis form asks for PARTNER details, not the primary player
+        # The logged-in user is automatically the primary player (booking owner)
+        # We only need to fill in partner/guest information
+        filled_partner = False
         if partner_name:
-            if not self._has_visible_inputs("player2"):
-                self._click_if_present(By.CSS_SELECTOR, ".addPlayer")
-                time.sleep(0.5)
             partner_first, partner_last = self._split_full_name(partner_name)
-            self._fill_player_inputs("player2", partner_first, partner_last, partner_email)
+            logger.debug(f"Split partner name: first={partner_first}, last={partner_last}")
+            # Fill player1 (first row) with partner info
+            if await self._has_visible_inputs("player1"):
+                logger.debug("Found player1 inputs - filling with partner info")
+                filled_partner = await self._fill_player_inputs(
+                    "player1", partner_first, partner_last, partner_email
+                )
+                logger.debug(f"Filled player1 with partner: {filled_partner}")
+            elif await self._has_visible_inputs("player"):
+                logger.debug("Found player inputs - filling with partner info")
+                filled_partner = await self._fill_player_inputs(
+                    "player", partner_first, partner_last, partner_email
+                )
+                logger.debug(f"Filled player with partner: {filled_partner}")
+        else:
+            logger.debug("No partner name provided, skipping partner form filling")
 
-        if self._click_if_present(By.ID, "submitControle"):
-            if wait is not None:
+        # Check if button exists before clicking
+        submit_button = self.page.locator("#submitControle")
+        button_count = await submit_button.count()
+        logger.info(f"Found {button_count} #submitControle button(s)")
+
+        # Log form state before submit
+        try:
+            form_state = await self.page.evaluate("""() => {
+                const form = document.querySelector('form');
+                if (!form) return {formFound: false};
+                const inputs = form.querySelectorAll('input');
+                const fields = [];
+                inputs.forEach(i => {
+                    fields.push({name: i.name, id: i.id, type: i.type, hasValue: !!i.value, valuePreview: i.value ? i.value.slice(0, 30) : ''});
+                });
+                // Check specifically for captcha/token fields
+                const tokenInput = document.querySelector('input[name="li-antibot-token"]');
+                const codeInput = document.querySelector('input[name="li-antibot-token-code"]');
+                return {
+                    formFound: true,
+                    formId: form.id,
+                    formAction: form.action,
+                    fieldCount: inputs.length,
+                    fields: fields,
+                    hasLiToken: !!tokenInput,
+                    liTokenValue: tokenInput ? (tokenInput.value ? tokenInput.value.slice(0, 30) + '...' : 'EMPTY') : 'NOT_FOUND',
+                    hasLiCode: !!codeInput,
+                    liCodeValue: codeInput ? (codeInput.value || 'EMPTY') : 'NOT_FOUND'
+                };
+            }""")
+            logger.info(
+                f"Form state before submit: formId={form_state.get('formId')}, fields={form_state.get('fieldCount')}, liToken={form_state.get('liTokenValue')}, liCode={form_state.get('liCodeValue')}"
+            )
+            logger.debug(f"Full form state: {form_state}")
+        except Exception as e:
+            logger.debug(f"Failed to get form state: {e}")
+
+        # Check if submit button is disabled and try to enable it
+        try:
+            button_state = await self.page.evaluate("""() => {
+                // Try multiple selectors for the submit button
+                const selectors = [
+                    '#submitControle',
+                    'button.btn-next',
+                    'button[type="submit"]',
+                    '.btn-primary:not(.btn-prev)',
+                    'a.btn-primary:not(.btn-prev)'
+                ];
+                for (const sel of selectors) {
+                    const btn = document.querySelector(sel);
+                    if (btn && (btn.textContent || '').toLowerCase().includes('suivante')) {
+                        const isDisabled = btn.disabled || btn.classList.contains('disabled') || btn.hasAttribute('disabled');
+                        return {
+                            found: true,
+                            selector: sel,
+                            text: btn.textContent.trim().slice(0, 50),
+                            disabled: isDisabled,
+                            tagName: btn.tagName
+                        };
+                    }
+                }
+                // Fallback to #submitControle
+                const btn = document.querySelector('#submitControle');
+                if (btn) {
+                    return {
+                        found: true,
+                        selector: '#submitControle',
+                        text: btn.textContent ? btn.textContent.trim().slice(0, 50) : '',
+                        disabled: btn.disabled || btn.classList.contains('disabled'),
+                        tagName: btn.tagName
+                    };
+                }
+                return {found: false};
+            }""")
+            logger.info(f"Submit button state: {button_state}")
+
+            if button_state.get("disabled"):
+                logger.warning("Submit button is DISABLED, attempting to enable...")
+                # Try to enable the button and trigger LI_ANTIBOT callback
+                await self.page.evaluate("""() => {
+                    // Find all potential submit buttons
+                    const buttons = document.querySelectorAll('#submitControle, button.btn-next, button[type="submit"], .btn-primary');
+                    buttons.forEach(btn => {
+                        btn.disabled = false;
+                        btn.removeAttribute('disabled');
+                        btn.classList.remove('disabled');
+                    });
+                    // Try to trigger LI_ANTIBOT callbacks
+                    if (typeof LI_ANTIBOT !== 'undefined') {
+                        console.log('LI_ANTIBOT found:', Object.keys(LI_ANTIBOT));
+                        if (LI_ANTIBOT.isValid) {
+                            LI_ANTIBOT.isValid = () => true;
+                        }
+                    }
+                    // Trigger form validation
+                    const form = document.querySelector('form');
+                    if (form && form.checkValidity) {
+                        form.checkValidity();
+                    }
+                }""")
+                await asyncio.sleep(0.5)
+                logger.info("Attempted to enable submit button")
+        except Exception as e:
+            logger.debug(f"Failed to check/enable button state: {e}")
+
+        clicked = await self._click_if_present("#submitControle")
+        if not clicked:
+            # Try alternative selectors for the submit button
+            for selector in [
+                "button.btn-next",
+                ".btn-primary:not(.btn-prev)",
+                "button:has-text('Etape suivante')",
+            ]:
+                clicked = await self._click_if_present(selector)
+                if clicked:
+                    logger.info(f"Clicked {selector} instead of #submitControle")
+                    break
+
+        if not clicked:
+            # Last resort: try to submit the form directly via JavaScript
+            logger.warning("Could not click button, trying form.submit() directly")
+            try:
+                await self.page.evaluate("""() => {
+                    const form = document.querySelector('form');
+                    if (form) {
+                        // Trigger submit event
+                        const event = new Event('submit', {bubbles: true, cancelable: true});
+                        if (form.dispatchEvent(event)) {
+                            form.submit();
+                        }
+                        return true;
+                    }
+                    return false;
+                }""")
+                clicked = True
+                logger.info("Submitted form via JavaScript")
+            except Exception as e:
+                logger.debug(f"Form submit failed: {e}")
+
+        if clicked:
+            logger.info("Clicked submit button, waiting for payment page...")
+            try:
+                await self.page.wait_for_url("**/view=methode_paiement**", timeout=timeout * 1000)
+                logger.info("Navigated to payment page")
+            except PlaywrightTimeoutError:
+                logger.warning(f"Timeout waiting for payment page, current URL: {self.page.url}")
+                # Take a screenshot for debugging
                 try:
-                    wait.until(lambda driver: "view=methode_paiement" in (driver.current_url or ""))
-                except TimeoutException:
-                    pass
+                    screenshot_path = "/tmp/reservation_submit_failed.png"
+                    await self.page.screenshot(path=screenshot_path, full_page=True)
+                    logger.warning(f"Screenshot saved to {screenshot_path}")
+                except Exception as e:
+                    logger.debug(f"Failed to take screenshot: {e}")
+                # Check for error messages on the page
+                try:
+                    # Paris Tennis specific error selectors
+                    error_selectors = [
+                        ".error",
+                        ".alert-danger",
+                        ".portlet-msg-error",
+                        ".alert",
+                        ".message-error",
+                        ".msg-erreur",
+                        ".erreur",
+                        ".alert-error",
+                        ".ui-messages-error",
+                        ".ui-message-error",
+                        "[class*='error']",
+                        "[class*='erreur']",
+                    ]
+                    for selector in error_selectors:
+                        try:
+                            locator = self.page.locator(selector)
+                            if await locator.count() > 0:
+                                error_text = await locator.first.text_content()
+                                if error_text and error_text.strip():
+                                    logger.warning(
+                                        f"Error message ({selector}): {error_text.strip()[:500]}"
+                                    )
+                        except Exception:
+                            continue
+                except Exception as e:
+                    logger.debug(f"Error checking for messages: {e}")
+                # Log page text to understand what's visible - extract lines with error keywords
+                try:
+                    body_text = await self.page.text_content("body")
+                    if body_text:
+                        # Look for keywords indicating an error or captcha
+                        lower_text = body_text.lower()
+                        if "captcha" in lower_text or "vérification" in lower_text:
+                            logger.warning("Page appears to have a captcha/verification challenge")
+                        if "erreur" in lower_text or "error" in lower_text:
+                            logger.warning("Page appears to have an error")
+                            # Extract lines containing error keywords
+                            lines = body_text.split("\n")
+                            for line in lines:
+                                line = line.strip()
+                                if line and (
+                                    "erreur" in line.lower()
+                                    or "error" in line.lower()
+                                    or "invalid" in line.lower()
+                                ):
+                                    logger.warning(f"Error line: {line[:300]}")
+                        # Log first 1500 chars for debugging
+                        logger.info(f"Page body text preview: {body_text[:1500]}")
+                except Exception as e:
+                    logger.debug(f"Error getting body text: {e}")
+                # Also check for captcha fields on this form
+                try:
+                    captcha_fields = await self.page.evaluate("""() => {
+                        const form = document.querySelector('form');
+                        if (!form) return {formFound: false};
+                        const inputs = form.querySelectorAll('input');
+                        const fields = [];
+                        inputs.forEach(i => {
+                            fields.push({name: i.name, id: i.id, type: i.type, value: i.value ? i.value.slice(0, 50) : ''});
+                        });
+                        return {formFound: true, formId: form.id, formAction: form.action, fieldCount: inputs.length, fields: fields};
+                    }""")
+                    logger.info(f"Form state after submit: {captcha_fields}")
+                except Exception as e:
+                    logger.debug(f"Failed to get form state: {e}")
             return True
+        else:
+            logger.warning("#submitControle button not found or not clickable")
 
-        return filled_primary
+        return filled_partner
 
-    def _is_payment_page(self) -> bool:
+    async def _is_payment_page(self) -> bool:
         """Return True if the payment selection form is present."""
         try:
-            current_url = self.driver.current_url or ""
-        except WebDriverException:
+            current_url = self.page.url or ""
+        except PlaywrightError:
             current_url = ""
 
         if "view=methode_paiement" in current_url:
             return True
 
         try:
-            if self.driver.find_elements(By.ID, "order_select_payment_form"):
+            if await self.page.locator("#order_select_payment_form").count() > 0:
                 return True
-            if self.driver.find_elements(By.ID, "paymentMode"):
+            if await self.page.locator("#paymentMode").count() > 0:
                 return True
-        except WebDriverException:
+        except PlaywrightError:
             return False
 
         return False
 
-    def _handle_payment_step(self, wait: Optional[WebDriverWait] = None) -> bool:
+    async def _handle_payment_step(self, timeout: int = DEFAULT_WAIT_TIMEOUT) -> bool:
         """Select carnet payment on the payment page and advance."""
-        if not self._is_payment_page():
+        if not await self._is_payment_page():
             return False
 
-        selected = self._select_carnet_payment_if_present()
+        selected = await self._select_carnet_payment_if_present()
         if selected:
-            if not self._click_if_present(By.ID, "submit"):
-                self._click_if_present(By.ID, "envoyer")
-            if wait is not None:
-                try:
-                    wait.until(
-                        lambda driver: "view=methode_paiement" not in (driver.current_url or "")
-                    )
-                except TimeoutException:
-                    pass
+            if not await self._click_if_present("#submit"):
+                await self._click_if_present("#envoyer")
+            try:
+                # Wait for URL to change away from payment page
+                await self.page.wait_for_function(
+                    """() => !window.location.href.includes('view=methode_paiement')""",
+                    timeout=timeout * 1000,
+                )
+            except PlaywrightTimeoutError:
+                pass
         return selected
 
-    def _select_carnet_payment_if_present(self) -> bool:
+    async def _select_carnet_payment_if_present(self) -> bool:
         """
         Attempt to select a carnet payment option if one is present.
 
         Returns:
             True if a carnet option was found/selected, False otherwise.
+
         """
         try:
             input_selectors = [
@@ -2836,26 +3167,29 @@ class ParisTennisService:
             ]
 
             for selector in input_selectors:
-                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                for element in elements:
+                locator = self.page.locator(selector)
+                count = await locator.count()
+                for i in range(count):
+                    elem = locator.nth(i)
                     try:
-                        if hasattr(element, "is_selected") and element.is_selected():
+                        if await elem.is_checked():
                             return True
-                        element.click()
+                        await elem.click()
                         return True
-                    except WebDriverException:
+                    except PlaywrightError:
                         continue
 
-            label_xpath = (
-                "//label[contains(translate(normalize-space(.), "
-                "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'carnet')]"
-            )
-            labels = self.driver.find_elements(By.XPATH, label_xpath)
-            for label in labels:
+            # Try labels containing "carnet"
+            labels = self.page.locator("label")
+            count = await labels.count()
+            for i in range(count):
+                label = labels.nth(i)
                 try:
-                    label.click()
-                    return True
-                except WebDriverException:
+                    text = (await label.text_content() or "").strip().lower()
+                    if "carnet" in text:
+                        await label.click()
+                        return True
+                except PlaywrightError:
                     continue
 
             price_selectors = [
@@ -2864,35 +3198,41 @@ class ParisTennisService:
                 ".price-item",
             ]
             for selector in price_selectors:
-                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                for element in elements:
+                locator = self.page.locator(selector)
+                count = await locator.count()
+                for i in range(count):
+                    elem = locator.nth(i)
                     try:
-                        text = (element.text or "").strip().lower()
-                    except WebDriverException:
+                        text = (await elem.text_content() or "").strip().lower()
+                    except PlaywrightError:
                         text = ""
                     if "carnet" in text or "ticket" in text:
-                        element.click()
+                        await elem.click()
                         return True
 
-            selects = self.driver.find_elements(By.TAG_NAME, "select")
-            for select in selects:
-                try:
-                    options = select.find_elements(By.TAG_NAME, "option")
-                except WebDriverException:
-                    continue
-                for option in options:
-                    text = (option.text or "").strip().lower()
-                    value = (option.get_attribute("value") or "").strip().lower()
-                    if "carnet" in text or "carnet" in value:
-                        option.click()
-                        return True
+            selects = self.page.locator("select")
+            select_count = await selects.count()
+            for i in range(select_count):
+                select = selects.nth(i)
+                options = select.locator("option")
+                option_count = await options.count()
+                for j in range(option_count):
+                    option = options.nth(j)
+                    try:
+                        text = (await option.text_content() or "").strip().lower()
+                        value = (await option.get_attribute("value") or "").strip().lower()
+                        if "carnet" in text or "carnet" in value:
+                            await select.select_option(value=await option.get_attribute("value"))
+                            return True
+                    except PlaywrightError:
+                        continue
 
             return False
-        except WebDriverException as e:
+        except PlaywrightError as e:
             logger.debug(f"Failed to select carnet payment option: {e}")
             return False
 
-    def _extract_confirmation_id(self) -> Optional[str]:
+    async def _extract_confirmation_id(self) -> Optional[str]:
         """Extract booking confirmation ID from page."""
         try:
             # Look for confirmation ID in various places
@@ -2903,17 +3243,20 @@ class ParisTennisService:
             ]
             for selector in selectors:
                 try:
-                    elem = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    text = elem.text or elem.get_attribute("data-confirmation-id")
-                    if text:
-                        return text.strip()
-                except NoSuchElementException:
+                    locator = self.page.locator(selector)
+                    if await locator.count() > 0:
+                        text = await locator.first.text_content()
+                        if not text:
+                            text = await locator.first.get_attribute("data-confirmation-id")
+                        if text:
+                            return text.strip()
+                except PlaywrightError:
                     continue
             return None
-        except WebDriverException:
+        except PlaywrightError:
             return None
 
-    def _check_booking_success(self) -> bool:
+    async def _check_booking_success(self) -> bool:
         """Check for booking success indicators."""
         success_indicators = [
             "réservation confirmée",
@@ -2921,52 +3264,64 @@ class ParisTennisService:
             "succès",
             "success",
         ]
-        page_text = self.driver.page_source.lower()
+        page_text = (await self.page.content()).lower()
         return any(indicator in page_text for indicator in success_indicators)
 
-    def logout(self) -> bool:
+    async def logout(self) -> bool:
         """Log out of the Paris Tennis website."""
         try:
-            logout_link = None
             for selector in PARIS_TENNIS_LOGOUT_SELECTORS:
                 try:
-                    logout_link = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    break
-                except NoSuchElementException:
+                    locator = self.page.locator(selector)
+                    if await locator.count() > 0 and await locator.first.is_visible():
+                        await locator.first.click()
+                        self._logged_in = False
+                        logger.info("Logged out successfully")
+                        return True
+                except PlaywrightError:
                     continue
 
-            if logout_link is None:
-                logout_link = self.driver.find_element(By.PARTIAL_LINK_TEXT, "Déconnexion")
+            # Fallback: try link with "Déconnexion" text
+            logout_link = self.page.locator("a:has-text('Déconnexion')")
+            if await logout_link.count() > 0:
+                await logout_link.first.click()
+                self._logged_in = False
+                logger.info("Logged out successfully")
+                return True
 
-            logout_link.click()
-            self._logged_in = False
-            logger.info("Logged out successfully")
-            return True
-        except NoSuchElementException:
+            logger.warning("Logout link not found")
+            return False
+        except PlaywrightError:
             logger.warning("Logout link not found")
             return False
 
 
-def create_paris_tennis_session():
+def create_paris_tennis_session(headless: Optional[bool] = None):
     """
-    Context manager for Paris Tennis service with browser session.
+    Async context manager for Paris Tennis service with browser session.
 
     Usage:
-        with create_paris_tennis_session() as service:
-            if service.login(email, password):
-                slots = service.search_available_courts(request)
+        async with create_paris_tennis_session() as service:
+            if await service.login(email, password):
+                slots = await service.search_available_courts(request)
     """
-    return _ParisTennisSession()
+    return _ParisTennisSession(headless=headless)
 
 
 class _ParisTennisSession:
-    """Context manager wrapper for ParisTennisService with browser."""
+    """Async context manager wrapper for ParisTennisService with browser."""
 
-    def __enter__(self) -> ParisTennisService:
-        self._browser_context = browser_session()
-        driver = self._browser_context.__enter__()
-        self._service = ParisTennisService(driver=driver)
+    def __init__(self, headless: Optional[bool] = None):
+        self._headless = headless
+        self._session: Optional[PlaywrightSession] = None
+        self._service: Optional[ParisTennisService] = None
+
+    async def __aenter__(self) -> ParisTennisService:
+        self._session = PlaywrightSession(headless=self._headless)
+        await self._session.start()
+        self._service = ParisTennisService(page=self._session.page)
         return self._service
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return self._browser_context.__exit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._session:
+            await self._session.close()

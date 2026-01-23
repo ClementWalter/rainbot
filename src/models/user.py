@@ -27,6 +27,7 @@ class User:
         subscription_active: Whether the user has an active RainBot subscription
         carnet_balance: Remaining tickets in the user's Paris Tennis carnet
         phone: Optional phone number for SMS notifications
+
     """
 
     id: str
@@ -62,6 +63,7 @@ class User:
 
         Returns:
             User instance
+
         """
         # Parse subscription_active - handle common truthy representations (case-insensitive)
         subscription_value = data.get("subscription_active", True)

@@ -1,146 +1,227 @@
-"""Browser utility for Selenium WebDriver management."""
+"""Browser utility for Playwright management with stealth anti-detection.
 
+This module provides Playwright browser instances with stealth capabilities
+to bypass bot detection systems like LiveIdentity.
+"""
+
+import asyncio
 import logging
-from contextlib import contextmanager
-from typing import Generator, Optional
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Optional
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.remote.webdriver import WebDriver
-from webdriver_manager.chrome import ChromeDriverManager
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    Playwright,
+    async_playwright,
+)
+from playwright_stealth import Stealth
 
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# Default timeouts (in seconds)
-DEFAULT_IMPLICIT_WAIT = 10
-DEFAULT_PAGE_LOAD_TIMEOUT = 30
+# Default timeouts (in milliseconds for Playwright)
+DEFAULT_TIMEOUT = 30000  # 30 seconds
+DEFAULT_NAVIGATION_TIMEOUT = 60000  # 60 seconds
 
 
-def create_chrome_options(headless: bool = True) -> ChromeOptions:
-    """
-    Create Chrome options for the WebDriver.
-
-    Args:
-        headless: Whether to run Chrome in headless mode
-
-    Returns:
-        Configured ChromeOptions instance
-    """
-    options = ChromeOptions()
-
-    if headless:
-        options.add_argument("--headless=new")
-
-    # Common options for stability
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-
-    # Reduce detection as automation
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-
-    # Set a realistic user agent
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
-
-    return options
-
-
-def create_browser(
+async def create_browser_context(
+    playwright: Playwright,
     headless: Optional[bool] = None,
-    implicit_wait: int = DEFAULT_IMPLICIT_WAIT,
-    page_load_timeout: int = DEFAULT_PAGE_LOAD_TIMEOUT,
-) -> WebDriver:
+    timeout: int = DEFAULT_TIMEOUT,
+) -> tuple[Browser, BrowserContext]:
     """
-    Create a new Chrome WebDriver instance.
+    Create a new Firefox browser with stealth context.
 
     Args:
+        playwright: Playwright instance
         headless: Whether to run headless (defaults to not debug mode)
-        implicit_wait: Implicit wait timeout in seconds
-        page_load_timeout: Page load timeout in seconds
+        timeout: Default timeout in milliseconds
 
     Returns:
-        Configured WebDriver instance
+        Tuple of (Browser, BrowserContext)
     """
     if headless is None:
         headless = not settings.debug
 
-    options = create_chrome_options(headless=headless)
-    service = ChromeService(ChromeDriverManager().install())
-
-    driver = webdriver.Chrome(service=service, options=options)
-    driver.implicitly_wait(implicit_wait)
-    driver.set_page_load_timeout(page_load_timeout)
-
-    # Execute script to mask webdriver property
-    driver.execute_cdp_cmd(
-        "Page.addScriptToEvaluateOnNewDocument",
-        {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                })
-            """
+    # Launch Firefox (better fingerprint evasion than Chrome)
+    browser = await playwright.firefox.launch(
+        headless=headless,
+        firefox_user_prefs={
+            # Disable telemetry
+            "toolkit.telemetry.enabled": False,
+            "toolkit.telemetry.unified": False,
+            # Disable safe browsing (can leak info)
+            "browser.safebrowsing.enabled": False,
+            # Use French locale
+            "intl.accept_languages": "fr-FR, fr, en-US, en",
         },
     )
 
-    logger.info(f"Created Chrome browser (headless={headless})")
-    return driver
+    # Create context with realistic settings
+    context = await browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        locale="fr-FR",
+        timezone_id="Europe/Paris",
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) " "Gecko/20100101 Firefox/134.0"
+        ),
+        # Accept French and English
+        extra_http_headers={
+            "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
+    )
+
+    context.set_default_timeout(timeout)
+    context.set_default_navigation_timeout(DEFAULT_NAVIGATION_TIMEOUT)
+
+    logger.info(f"Created Firefox browser with stealth (headless={headless})")
+    return browser, context
 
 
-def close_browser(driver: WebDriver) -> None:
+async def create_stealth_page(context: BrowserContext) -> Page:
     """
-    Safely close a WebDriver instance.
+    Create a new page in the context.
 
     Args:
-        driver: The WebDriver to close
+        context: Browser context
+
+    Returns:
+        New Page instance
+    """
+    page = await context.new_page()
+    return page
+
+
+async def close_browser(browser: Browser) -> None:
+    """
+    Safely close a browser instance.
+
+    Args:
+        browser: The Browser to close
     """
     try:
-        driver.quit()
+        await browser.close()
         logger.info("Browser closed")
     except Exception as e:
         logger.warning(f"Error closing browser: {e}")
 
 
-@contextmanager
-def browser_session(
+@asynccontextmanager
+async def browser_session(
     headless: Optional[bool] = None,
-    implicit_wait: int = DEFAULT_IMPLICIT_WAIT,
-    page_load_timeout: int = DEFAULT_PAGE_LOAD_TIMEOUT,
-) -> Generator[WebDriver, None, None]:
+    timeout: int = DEFAULT_TIMEOUT,
+) -> AsyncGenerator[tuple[BrowserContext, Page], None]:
     """
-    Context manager for browser sessions.
+    Async context manager for stealth browser sessions.
 
     Ensures the browser is properly closed even if an exception occurs.
+    Uses playwright-stealth to bypass bot detection.
 
     Args:
         headless: Whether to run headless (defaults to not debug mode)
-        implicit_wait: Implicit wait timeout in seconds
-        page_load_timeout: Page load timeout in seconds
+        timeout: Default timeout in milliseconds
 
     Yields:
-        Configured WebDriver instance
+        Tuple of (BrowserContext, Page) - the context and initial page
 
     Example:
-        with browser_session() as browser:
-            browser.get("https://example.com")
+        async with browser_session() as (context, page):
+            await page.goto("https://example.com")
             # ... do work ...
         # Browser is automatically closed
     """
-    driver = create_browser(
-        headless=headless,
-        implicit_wait=implicit_wait,
-        page_load_timeout=page_load_timeout,
-    )
+    async with Stealth().use_async(async_playwright()) as playwright:
+        browser, context = await create_browser_context(
+            playwright,
+            headless=headless,
+            timeout=timeout,
+        )
+        try:
+            page = await create_stealth_page(context)
+            yield context, page
+        finally:
+            await close_browser(browser)
+
+
+# Synchronous wrapper for compatibility with existing code
+def run_async(coro):
+    """Run an async coroutine synchronously."""
     try:
-        yield driver
-    finally:
-        close_browser(driver)
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We're already in an async context, create a new thread
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        return asyncio.run(coro)
+
+
+class PlaywrightSession:
+    """
+    Wrapper class for managing a Playwright browser session.
+
+    Provides a more object-oriented interface for browser automation.
+    """
+
+    def __init__(
+        self,
+        headless: Optional[bool] = None,
+        timeout: int = DEFAULT_TIMEOUT,
+    ):
+        self.headless = headless
+        self.timeout = timeout
+        self._playwright: Optional[Playwright] = None
+        self._browser: Optional[Browser] = None
+        self._context: Optional[BrowserContext] = None
+        self._page: Optional[Page] = None
+        self._stealth_context = None  # The async context manager
+
+    async def start(self) -> Page:
+        """Start the browser session and return the page."""
+        stealth = Stealth()
+        self._stealth_context = stealth.use_async(async_playwright())
+        self._playwright = await self._stealth_context.__aenter__()
+        self._browser, self._context = await create_browser_context(
+            self._playwright,
+            headless=self.headless,
+            timeout=self.timeout,
+        )
+        self._page = await create_stealth_page(self._context)
+        return self._page
+
+    async def close(self) -> None:
+        """Close the browser session."""
+        if self._browser:
+            await close_browser(self._browser)
+        if self._stealth_context:
+            await self._stealth_context.__aexit__(None, None, None)
+
+    @property
+    def page(self) -> Page:
+        """Get the current page."""
+        if self._page is None:
+            raise RuntimeError("Session not started. Call start() first.")
+        return self._page
+
+    @property
+    def context(self) -> BrowserContext:
+        """Get the browser context."""
+        if self._context is None:
+            raise RuntimeError("Session not started. Call start() first.")
+        return self._context
+
+    async def __aenter__(self) -> "PlaywrightSession":
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()

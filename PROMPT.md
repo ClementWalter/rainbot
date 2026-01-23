@@ -1,3 +1,5 @@
+# Rainbot Development Instructions
+
 There is a PRD.md file in the root of the repository. This file describe the
 target product that you need to implement. There is a PLAN.md file in the root
 of the repository. This file describe the current status and the plan for the
@@ -15,7 +17,7 @@ The source code is in the src directory. The tests are in the tests directory.
 4. Pick the most important feature or bug to implement first, and fix it.
    Scrapping the real paris tennis website and passing the captcha are the most
    important features.
-5. For login, use email=clement0walter@gmail.com and password=Rainbot456
+5. For login, use `email=clement0walter@gmail.com` and `password=Rainbot456`
 6. Run the tests to ensure the changes are working, add tests for the new
    feature or bug if needed.
 7. You need to fix all failing tests, not only your tests.

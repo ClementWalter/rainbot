@@ -1,15 +1,17 @@
 # RainBot Dockerfile
 # Automated tennis court booking service for Paris Tennis
+# Uses Playwright with Firefox for browser automation
 
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Install Chrome and dependencies
+# Install system dependencies for Playwright/Firefox
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
@@ -32,39 +34,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
+    # Firefox dependencies
+    libdbus-glib-1-2 \
+    libxt6 \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Google Chrome
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-archive-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set Chrome binary location for webdriver-manager
-ENV CHROME_BIN=/usr/bin/google-chrome
 
 # Create non-root user for security
 RUN useradd -m -u 1000 rainbot
 WORKDIR /app
 
 # Copy requirements and install dependencies
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir .
+
+# Install Playwright browsers (Firefox for stealth)
+RUN playwright install firefox && \
+    playwright install-deps firefox
 
 # Copy application code
 COPY src/ ./src/
 COPY main.py ./
 
 # Change ownership to non-root user
-RUN chown -R rainbot:rainbot /app
+RUN chown -R rainbot:rainbot /app /ms-playwright
 
 # Switch to non-root user
 USER rainbot
 
-# Health check - verify Python and Chrome are working
+# Health check - verify Python and Playwright are working
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import src; print('OK')" && google-chrome --version
+    CMD python -c "from playwright.sync_api import sync_playwright; print('OK')"
 
 # Run the application
 CMD ["python", "main.py"]

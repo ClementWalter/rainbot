@@ -1,6 +1,8 @@
 """Google Sheets service for reading/writing user and booking data."""
 
+import json
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -25,11 +27,22 @@ SCOPES = [
 ]
 
 # Expected worksheet names in the spreadsheet
-USERS_SHEET = "Users"
-BOOKING_REQUESTS_SHEET = "BookingRequests"
-BOOKINGS_SHEET = "Bookings"
+USERS_SHEET = "Users"  # Not used - users derived from Requests
+BOOKING_REQUESTS_SHEET = "Requests"  # Actual sheet name
+BOOKINGS_SHEET = "Historique"  # For booking history
 LOCKS_SHEET = "Locks"
 NO_SLOTS_NOTIFICATIONS_SHEET = "NoSlotsNotifications"
+
+# French day name mapping
+FRENCH_DAYS = {
+    "Lundi": 0,  # Monday
+    "Mardi": 1,  # Tuesday
+    "Mercredi": 2,  # Wednesday
+    "Jeudi": 3,  # Thursday
+    "Vendredi": 4,  # Friday
+    "Samedi": 5,  # Saturday
+    "Dimanche": 6,  # Sunday
+}
 
 # Lock configuration
 LOCK_TIMEOUT_SECONDS = 300  # 5 minutes - locks expire after this time
@@ -60,6 +73,7 @@ class GoogleSheetsService:
         Args:
             credentials_file: Path to Google service account credentials JSON
             spreadsheet_id: ID of the Google Spreadsheet to use
+
         """
         self.credentials_file = credentials_file or settings.google_sheets.credentials_file
         self.spreadsheet_id = spreadsheet_id or settings.google_sheets.spreadsheet_id
@@ -69,9 +83,23 @@ class GoogleSheetsService:
     def _get_client(self) -> gspread.Client:
         """Get or create the gspread client."""
         if self._client is None:
-            credentials = ServiceAccountCredentials.from_json_keyfile_name(
-                self.credentials_file, SCOPES
-            )
+            # Try loading credentials from CLIENT_SECRET env var (JSON string) first
+            client_secret = os.getenv("CLIENT_SECRET")
+            if client_secret:
+                try:
+                    creds_dict = json.loads(client_secret)
+                    credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+                        creds_dict, SCOPES
+                    )
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.warning(f"Failed to parse CLIENT_SECRET: {e}, falling back to file")
+                    credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                        self.credentials_file, SCOPES
+                    )
+            else:
+                credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                    self.credentials_file, SCOPES
+                )
             self._client = gspread.authorize(credentials)
         return self._client
 
@@ -89,21 +117,38 @@ class GoogleSheetsService:
 
     def get_all_users(self) -> list[User]:
         """
-        Fetch all users from the Users sheet.
+        Fetch all users by extracting unique usernames from the Requests sheet.
 
         Returns:
-            List of User objects
+            List of User objects (derived from Requests sheet usernames)
+
         """
         try:
-            worksheet = self._get_worksheet(USERS_SHEET)
-            records = worksheet.get_all_records()
+            worksheet = self._get_worksheet(BOOKING_REQUESTS_SHEET)
+            all_rows = worksheet.get_all_values()
+            if len(all_rows) < 2:
+                return []
+
+            # Extract unique usernames (emails) from first column
+            usernames = set()
+            for row in all_rows[1:]:
+                if row and row[0]:
+                    usernames.add(row[0].strip())
+
+            # Create User objects - email is both the id and paris_tennis_email
+            # Password comes from environment variables
             users = []
-            for record in records:
-                try:
-                    user = User.from_dict(record)
-                    users.append(user)
-                except Exception as e:
-                    logger.warning(f"Failed to parse user record: {record}, error: {e}")
+            for email in sorted(usernames):
+                user = User(
+                    id=email,
+                    name=email.split("@")[0],
+                    email=email,
+                    paris_tennis_email=email,
+                    paris_tennis_password=os.getenv("PARIS_TENNIS_PASSWORD", ""),
+                    subscription_active=True,
+                    carnet_balance=10,  # Default
+                )
+                users.append(user)
             return users
         except Exception as e:
             logger.error(f"Failed to fetch users: {e}")
@@ -118,6 +163,7 @@ class GoogleSheetsService:
 
         Returns:
             User object or None if not found
+
         """
         users = self.get_all_users()
         for user in users:
@@ -135,6 +181,7 @@ class GoogleSheetsService:
 
         Returns:
             True if the balance was updated, False otherwise
+
         """
         try:
             worksheet = self._get_worksheet(USERS_SHEET)
@@ -174,15 +221,28 @@ class GoogleSheetsService:
 
         Returns:
             List of eligible User objects (active subscription, valid credentials)
+
         """
         return [user for user in self.get_all_users() if user.is_eligible()]
 
     def get_all_booking_requests(self) -> list[BookingRequest]:
         """
-        Fetch all booking requests from the BookingRequests sheet.
+        Fetch all booking requests from the Requests sheet.
+
+        Maps actual sheet columns to BookingRequest fields:
+        - Username -> user_id
+        - MatchDay -> day_of_week (French day names supported)
+        - HourFrom -> time_start (converted to HH:00)
+        - HourTo -> time_end (converted to HH:00)
+        - InOut -> court_type (Couvert=indoor, Découvert=outdoor)
+        - Active -> active
+        - RowID -> id
+        - Court_0..Court_4 -> facility_preferences
+        - Partenaire/full name -> partner_name
 
         Returns:
             List of BookingRequest objects
+
         """
         try:
             worksheet = self._get_worksheet(BOOKING_REQUESTS_SHEET)
@@ -190,7 +250,43 @@ class GoogleSheetsService:
             requests = []
             for record in records:
                 try:
-                    request = BookingRequest.from_dict(record)
+                    # Map actual column names to expected BookingRequest fields
+                    hour_from = record.get("HourFrom", "8")
+                    hour_to = record.get("HourTo", "22")
+
+                    # Convert hour numbers to HH:00 format
+                    time_start = f"{int(hour_from):02d}:00" if hour_from else "08:00"
+                    time_end = f"{int(hour_to):02d}:00" if hour_to else "22:00"
+
+                    # Map InOut to court_type
+                    in_out = str(record.get("InOut", "")).strip().lower()
+                    if "couvert" in in_out and "découvert" not in in_out:
+                        court_type = "indoor"
+                    elif "découvert" in in_out or "decouvert" in in_out:
+                        court_type = "outdoor"
+                    else:
+                        court_type = "any"
+
+                    # Collect facility preferences from Court_0 to Court_4
+                    facilities = []
+                    for i in range(5):
+                        facility = record.get(f"Court_{i}", "")
+                        if facility and str(facility).strip():
+                            facilities.append(str(facility).strip())
+
+                    mapped_record = {
+                        "id": record.get("RowID", ""),
+                        "user_id": record.get("Username", ""),
+                        "day_of_week": record.get("MatchDay", ""),
+                        "time_start": time_start,
+                        "time_end": time_end,
+                        "court_type": court_type,
+                        "facility_preferences": facilities,
+                        "partner_name": record.get("Partenaire/full name", ""),
+                        "active": record.get("Active", False),
+                    }
+
+                    request = BookingRequest.from_dict(mapped_record)
                     requests.append(request)
                 except Exception as e:
                     logger.warning(f"Failed to parse booking request: {record}, error: {e}")
@@ -205,6 +301,7 @@ class GoogleSheetsService:
 
         Returns:
             List of active BookingRequest objects
+
         """
         return [req for req in self.get_all_booking_requests() if req.active]
 
@@ -217,6 +314,7 @@ class GoogleSheetsService:
 
         Returns:
             List of BookingRequest objects for the user
+
         """
         return [req for req in self.get_all_booking_requests() if req.user_id == user_id]
 
@@ -226,6 +324,7 @@ class GoogleSheetsService:
 
         Returns:
             List of Booking objects
+
         """
         try:
             worksheet = self._get_worksheet(BOOKINGS_SHEET)
@@ -251,6 +350,7 @@ class GoogleSheetsService:
 
         Returns:
             List of Booking objects for the user
+
         """
         return [b for b in self.get_all_bookings() if b.user_id == user_id]
 
@@ -268,6 +368,7 @@ class GoogleSheetsService:
 
         Returns:
             CSV string with headers and rows.
+
         """
         if user_id:
             bookings = self.get_bookings_for_user(user_id)
@@ -281,6 +382,7 @@ class GoogleSheetsService:
 
         Returns:
             List of Booking objects for today
+
         """
         return [b for b in self.get_all_bookings() if b.is_today()]
 
@@ -293,6 +395,7 @@ class GoogleSheetsService:
 
         Returns:
             True if successful, False otherwise
+
         """
         try:
             worksheet = self._get_worksheet(BOOKINGS_SHEET)
@@ -336,6 +439,7 @@ class GoogleSheetsService:
 
         Returns:
             True if user has a pending booking, False otherwise
+
         """
         today = today_paris()
         now = now_paris()
@@ -368,6 +472,7 @@ class GoogleSheetsService:
 
         Returns:
             The Locks worksheet
+
         """
         spreadsheet = self._get_spreadsheet()
         try:
@@ -392,6 +497,7 @@ class GoogleSheetsService:
 
         Returns:
             True if lock was acquired, False if user is already locked
+
         """
         try:
             worksheet = self._ensure_locks_sheet()
@@ -457,6 +563,7 @@ class GoogleSheetsService:
 
         Returns:
             True if lock was released, False otherwise
+
         """
         try:
             worksheet = self._ensure_locks_sheet()
@@ -493,6 +600,7 @@ class GoogleSheetsService:
 
         Returns:
             The NoSlotsNotifications worksheet
+
         """
         spreadsheet = self._get_spreadsheet()
         try:
@@ -519,6 +627,7 @@ class GoogleSheetsService:
 
         Returns:
             True if notification was already sent, False otherwise
+
         """
         try:
             worksheet = self._ensure_no_slots_notifications_sheet()
@@ -548,6 +657,7 @@ class GoogleSheetsService:
 
         Returns:
             True if successfully recorded, False otherwise
+
         """
         try:
             worksheet = self._ensure_no_slots_notifications_sheet()
@@ -572,6 +682,7 @@ class GoogleSheetsService:
 
         Returns:
             Number of records deleted
+
         """
         try:
             worksheet = self._ensure_no_slots_notifications_sheet()

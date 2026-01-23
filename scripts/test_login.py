@@ -7,7 +7,6 @@ Run with: python scripts/test_login.py
 import logging
 import os
 import sys
-import time
 
 # Add the project root to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,8 +16,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from src.services.paris_tennis import ParisTennisService
-from src.utils.browser import browser_session
+from src.services.paris_tennis import ParisTennisService  # noqa: E402
+from src.utils.browser import browser_session  # noqa: E402
 
 # Set up logging
 logging.basicConfig(
@@ -44,19 +43,11 @@ def test_login():
         if result:
             logger.info("✓ Login successful!")
             logger.info(f"Current URL: {driver.current_url}")
-
-            # Keep browser open for inspection
-            logger.info("Keeping browser open for 30 seconds for inspection...")
-            time.sleep(30)
         else:
             logger.error("✗ Login failed!")
             logger.info(f"Current URL: {driver.current_url}")
             driver.save_screenshot("/tmp/login_debug.png")
             logger.info("Screenshot saved to /tmp/login_debug.png")
-
-            # Keep browser open for inspection
-            logger.info("Keeping browser open for 60 seconds for debugging...")
-            time.sleep(60)
 
         return result
 

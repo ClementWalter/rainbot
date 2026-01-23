@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.models import Booking, BookingRequest, DayOfWeek, User
+from src.models import Booking, DayOfWeek
 from src.services.google_sheets import GoogleSheetsService
 from src.utils.timezone import now_paris
 
@@ -18,7 +18,7 @@ class TestGoogleSheetsService:
     @pytest.fixture
     def mock_service(self):
         """Create a GoogleSheetsService with mocked gspread client."""
-        with patch("src.services.google_sheets.ServiceAccountCredentials") as mock_creds:
+        with patch("src.services.google_sheets.ServiceAccountCredentials"):
             with patch("src.services.google_sheets.gspread") as mock_gspread:
                 service = GoogleSheetsService(
                     credentials_file="test_creds.json",
@@ -521,7 +521,7 @@ class TestUserLocking:
     @pytest.fixture
     def mock_service(self):
         """Create a GoogleSheetsService with mocked gspread client."""
-        with patch("src.services.google_sheets.ServiceAccountCredentials") as mock_creds:
+        with patch("src.services.google_sheets.ServiceAccountCredentials"):
             with patch("src.services.google_sheets.gspread") as mock_gspread:
                 service = GoogleSheetsService(
                     credentials_file="test_creds.json",
@@ -656,7 +656,6 @@ class TestUserLocking:
 
     def test_ensure_locks_sheet_creates_sheet_if_not_found(self):
         """Test that _ensure_locks_sheet creates the sheet if it doesn't exist."""
-        import gspread
         from gspread.exceptions import WorksheetNotFound
 
         # Create a fresh service without patching gspread module completely
@@ -692,7 +691,7 @@ class TestNoSlotsNotificationTracking:
     @pytest.fixture
     def mock_service(self):
         """Create a GoogleSheetsService with mocked gspread client."""
-        with patch("src.services.google_sheets.ServiceAccountCredentials") as mock_creds:
+        with patch("src.services.google_sheets.ServiceAccountCredentials"):
             with patch("src.services.google_sheets.gspread") as mock_gspread:
                 service = GoogleSheetsService(
                     credentials_file="test_creds.json",

@@ -11,16 +11,17 @@ Run with: pytest tests/test_live_paris_tennis.py -v -s -m live
 import os
 
 import pytest
+import pytest_asyncio
 from dotenv import load_dotenv
 
-from src.services.paris_tennis import ParisTennisService, create_paris_tennis_session
-from src.utils.browser import browser_session
+from src.services.paris_tennis import ParisTennisService
+from src.utils.browser import PlaywrightSession
 
 # Load environment variables
 load_dotenv()
 
 # Mark all tests as live tests (skipped by default unless -m live is passed)
-pytestmark = pytest.mark.live
+pytestmark = [pytest.mark.live, pytest.mark.asyncio]
 
 
 class TestLiveLogin:
@@ -35,22 +36,22 @@ class TestLiveLogin:
             pytest.skip("Paris Tennis credentials not configured")
         return email, password
 
-    def test_login_live(self, credentials):
+    async def test_login_live(self, credentials):
         """Test that login works against the live site."""
         email, password = credentials
 
-        with browser_session(headless=False) as driver:
-            service = ParisTennisService(driver=driver)
+        async with PlaywrightSession(headless=False) as session:
+            service = ParisTennisService(page=session.page)
 
             # Navigate to login page and attempt login
-            result = service.login(email, password)
+            result = await service.login(email, password)
 
             if not result:
                 # Take a screenshot for debugging
-                driver.save_screenshot("/tmp/login_failed.png")
-                print(f"Login failed. Screenshot saved to /tmp/login_failed.png")
-                print(f"Current URL: {driver.current_url}")
-                print(f"Page title: {driver.title}")
+                await session.page.screenshot(path="/tmp/login_failed.png")
+                print("Login failed. Screenshot saved to /tmp/login_failed.png")
+                print(f"Current URL: {session.page.url}")
+                print(f"Page title: {await session.page.title()}")
 
             assert result, f"Login failed for {email}"
 
@@ -67,7 +68,7 @@ class TestLiveSearch:
             pytest.skip("Paris Tennis credentials not configured")
         return email, password
 
-    def test_search_available_courts_live(self, credentials):
+    async def test_search_available_courts_live(self, credentials):
         """Test that search returns results from the live site."""
         from datetime import datetime, timedelta
 
@@ -75,13 +76,13 @@ class TestLiveSearch:
 
         email, password = credentials
 
-        with browser_session(headless=False) as driver:
-            service = ParisTennisService(driver=driver)
+        async with PlaywrightSession(headless=False) as session:
+            service = ParisTennisService(page=session.page)
 
             # Login first
-            login_result = service.login(email, password)
+            login_result = await service.login(email, password)
             if not login_result:
-                driver.save_screenshot("/tmp/search_login_failed.png")
+                await session.page.screenshot(path="/tmp/search_login_failed.png")
                 pytest.skip("Could not log in")
 
             # Create a booking request for testing
@@ -100,7 +101,7 @@ class TestLiveSearch:
             )
 
             # Search for available courts
-            slots = service.search_available_courts(request, target_date=tomorrow)
+            slots = await service.search_available_courts(request, target_date=tomorrow)
 
             print(f"\nFound {len(slots)} available slots:")
             for slot in slots[:5]:  # Show first 5

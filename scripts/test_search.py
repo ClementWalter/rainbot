@@ -7,7 +7,6 @@ Run with: python scripts/test_search.py
 import logging
 import os
 import sys
-import time
 from datetime import datetime, timedelta
 
 # Add the project root to the path
@@ -18,9 +17,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from src.models.booking_request import BookingRequest, CourtType, DayOfWeek
-from src.services.paris_tennis import ParisTennisService
-from src.utils.browser import browser_session
+from src.models.booking_request import (  # noqa: E402
+    BookingRequest,
+    CourtType,
+    DayOfWeek,
+)
+from src.services.paris_tennis import ParisTennisService  # noqa: E402
+from src.utils.browser import browser_session  # noqa: E402
 
 # Set up logging
 logging.basicConfig(
@@ -82,10 +85,6 @@ def test_search():
             logger.warning("✗ No slots found!")
             driver.save_screenshot("/tmp/search_no_slots.png")
             logger.info("Screenshot saved to /tmp/search_no_slots.png")
-
-        # Keep browser open for inspection
-        logger.info("\nKeeping browser open for 30 seconds for inspection...")
-        time.sleep(30)
 
         return len(slots) > 0
 

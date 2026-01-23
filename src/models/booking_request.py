@@ -25,6 +25,7 @@ def normalize_time(time_str: str) -> str:
 
     Returns:
         Time string in HH:MM format, or empty string if invalid
+
     """
     if time_str is None:
         return ""
@@ -115,6 +116,7 @@ class BookingRequest:
         partner_name: Name of the playing partner
         partner_email: Email of the partner for notifications
         active: Whether this request is currently active
+
     """
 
     id: str
@@ -145,6 +147,7 @@ class BookingRequest:
         Returns:
             True if time is within [time_start, time_end], False otherwise.
             Returns False if time_str is invalid or cannot be normalized.
+
         """
         normalized = normalize_time(time_str)
         if not normalized:
@@ -162,6 +165,7 @@ class BookingRequest:
 
         Returns:
             Validated time string in HH:MM format, clamped to valid booking hours
+
         """
         if not time_str:
             return default
@@ -189,6 +193,7 @@ class BookingRequest:
 
         Returns:
             BookingRequest instance
+
         """
         # Parse day of week
         day_value = data.get("day_of_week", 0)

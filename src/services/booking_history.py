@@ -70,6 +70,7 @@ def export_booking_history_csv(
 
     Returns:
         CSV string with headers and rows.
+
     """
     output = StringIO()
     writer = csv.DictWriter(

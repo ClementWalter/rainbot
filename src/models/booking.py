@@ -49,6 +49,7 @@ class Booking:
         confirmation_id: Confirmation ID from Paris Tennis
         facility_address: Address of the tennis facility
         created_at: When this booking was made
+
     """
 
     id: str
@@ -80,6 +81,7 @@ class Booking:
 
         Returns:
             Booking instance
+
         """
         # Parse date
         date_value = data.get("date")

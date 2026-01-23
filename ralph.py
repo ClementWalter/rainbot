@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import IO, Any, Optional
@@ -120,7 +120,7 @@ def _load_prompt_interactive() -> str:
 
 def _git_bytes(repo_dir: Path, *args: str) -> bytes:
     try:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603 B607
             ["git", *args],
             cwd=repo_dir,
             check=False,
@@ -151,7 +151,7 @@ def _ensure_git_repo(repo_dir: Path) -> None:
 
 def _head_sha(repo_dir: Path) -> Optional[str]:
     try:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603 B607
             ["git", "rev-parse", "--verify", "HEAD"],
             cwd=repo_dir,
             check=False,
@@ -295,7 +295,7 @@ def cli(
         for _ in range(1, iterations + 1):
             try:
                 completed = (
-                    subprocess.run(
+                    subprocess.run(  # nosec B603 - trusted input from CLI args
                         [agent_bin, "--dangerously-skip-permissions", "-p", resolved_prompt],
                         cwd=repo_dir,
                         check=False,
@@ -303,7 +303,7 @@ def cli(
                         stderr=stderr,
                     )
                     if agent_bin == "claude"
-                    else subprocess.run(
+                    else subprocess.run(  # nosec B603 - trusted input from CLI args
                         [
                             agent_bin,
                             "exec",
