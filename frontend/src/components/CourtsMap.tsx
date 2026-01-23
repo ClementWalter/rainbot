@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import type { Facility } from "../api/client";
 
 // Custom tennis ball icon
@@ -57,12 +56,11 @@ export function CourtsMap({ facilities }: CourtsMapProps) {
       </div>
 
       {/* Map */}
-      <div
-        style={{ flex: 1, minHeight: "400px", height: "calc(100vh - 180px)" }}
-      >
+      <div className="flex-1 relative" style={{ minHeight: "500px" }}>
         <MapContainer
           center={center}
           zoom={12}
+          className="absolute inset-0"
           style={{ height: "100%", width: "100%" }}
         >
           <TileLayer
