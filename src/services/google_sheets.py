@@ -27,7 +27,7 @@ SCOPES = [
 ]
 
 # Expected worksheet names in the spreadsheet
-USERS_SHEET = "Users"  # Not used - users derived from Requests
+USERS_SHEET = "Users"  # Source of truth for allowed users and credentials
 BOOKING_REQUESTS_SHEET = "Requests"  # Actual sheet name
 BOOKINGS_SHEET = "Historique"  # For booking history
 LOCKS_SHEET = "Locks"
@@ -117,41 +117,60 @@ class GoogleSheetsService:
 
     def get_all_users(self) -> list[User]:
         """
-        Fetch all users by extracting unique usernames from the Requests sheet.
+        Fetch all users from the Users sheet (source of truth for allowed users).
+
+        Expected columns: id, name, email, paris_tennis_email, paris_tennis_password,
+                         subscription_active, carnet_balance, phone
 
         Returns:
-            List of User objects (derived from Requests sheet usernames)
+            List of User objects with per-user credentials
 
         """
         try:
-            worksheet = self._get_worksheet(BOOKING_REQUESTS_SHEET)
+            worksheet = self._get_worksheet(USERS_SHEET)
             all_rows = worksheet.get_all_values()
             if len(all_rows) < 2:
                 return []
 
-            # Extract unique usernames (emails) from first column
-            usernames = set()
-            for row in all_rows[1:]:
-                if row and row[0]:
-                    usernames.add(row[0].strip())
+            # Get header row to map column names
+            headers = [h.strip().lower().replace(" ", "_") for h in all_rows[0]]
 
-            # Create User objects - email is both the id and paris_tennis_email
-            # Password comes from environment variables
             users = []
-            for email in sorted(usernames):
-                user = User(
-                    id=email,
-                    name=email.split("@")[0],
-                    email=email,
-                    paris_tennis_email=email,
-                    paris_tennis_password=os.getenv("PARIS_TENNIS_PASSWORD", ""),
-                    subscription_active=True,
-                    carnet_balance=10,  # Default
-                )
-                users.append(user)
+            for row in all_rows[1:]:
+                if not row or not any(cell.strip() for cell in row):
+                    continue  # Skip empty rows
+
+                # Create dict from row using headers
+                row_dict = {}
+                for i, header in enumerate(headers):
+                    if i < len(row):
+                        row_dict[header] = row[i].strip() if row[i] else ""
+
+                # Map common column name variations
+                user_data = {
+                    "id": row_dict.get("id") or row_dict.get("email", ""),
+                    "name": row_dict.get("name") or row_dict.get("nom", ""),
+                    "email": row_dict.get("email") or row_dict.get("mail", ""),
+                    "paris_tennis_email": row_dict.get("paris_tennis_email")
+                    or row_dict.get("email")
+                    or row_dict.get("mail", ""),
+                    "paris_tennis_password": row_dict.get("paris_tennis_password")
+                    or row_dict.get("password")
+                    or row_dict.get("mot_de_passe", ""),
+                    "subscription_active": row_dict.get("subscription_active", "true"),
+                    "carnet_balance": row_dict.get("carnet_balance") or row_dict.get("carnet", ""),
+                    "phone": row_dict.get("phone") or row_dict.get("telephone", ""),
+                }
+
+                # Only include users with valid email
+                if user_data["email"]:
+                    user = User.from_dict(user_data)
+                    users.append(user)
+
+            logger.info(f"Loaded {len(users)} users from Users sheet")
             return users
         except Exception as e:
-            logger.error(f"Failed to fetch users: {e}")
+            logger.error(f"Failed to fetch users from Users sheet: {e}")
             return []
 
     def get_user_by_id(self, user_id: str) -> Optional[User]:

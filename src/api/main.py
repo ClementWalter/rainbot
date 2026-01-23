@@ -1,7 +1,6 @@
 """RainBot Web API - FastAPI Application."""
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -69,26 +68,27 @@ class UserInfo(BaseModel):
 @app.post("/api/auth/login", response_model=Token)
 async def login(credentials: LoginRequest) -> Token:
     """
-    Authenticate user with Paris Tennis credentials.
+    Authenticate user with their Paris Tennis credentials.
 
-    For now, we validate against users in the Google Sheet.
-    In the future, we could validate directly against Paris Tennis.
+    Users must be registered in the Users sheet (source of truth).
+    Each user has their own paris_tennis_password stored in the sheet.
     """
-    # Get all users from sheets
+    # Get all users from the Users sheet (source of truth)
     users = sheets_service.get_all_users()
 
-    # Find user by email
+    # Find user by email (case-insensitive)
     user = next((u for u in users if u.email.lower() == credentials.email.lower()), None)
 
     if not user:
+        logger.warning(f"Login attempt for unknown email: {credentials.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
-    # Check password (currently all users share the same Paris Tennis password from env)
-    expected_password = os.getenv("PARIS_TENNIS_PASSWORD", "")
-    if credentials.password != expected_password:
+    # Validate against user's individual password from the sheet
+    if credentials.password != user.paris_tennis_password:
+        logger.warning(f"Invalid password attempt for user: {credentials.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -101,6 +101,7 @@ async def login(credentials: LoginRequest) -> Token:
         name=user.name,
     )
 
+    logger.info(f"User logged in successfully: {credentials.email}")
     return Token(access_token=token)
 
 
