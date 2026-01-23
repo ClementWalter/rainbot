@@ -57,7 +57,9 @@ export function CourtsMap({ facilities }: CourtsMapProps) {
       </div>
 
       {/* Map */}
-      <div className="flex-1">
+      <div
+        style={{ flex: 1, minHeight: "400px", height: "calc(100vh - 180px)" }}
+      >
         <MapContainer
           center={center}
           zoom={12}
