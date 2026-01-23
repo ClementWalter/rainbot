@@ -1,0 +1,52 @@
+# RainBot Web Application Dockerfile
+# FastAPI backend + React frontend
+
+# Stage 1: Build frontend
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy package files
+COPY frontend/package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy frontend source
+COPY frontend/ ./
+
+# Build frontend
+RUN npm run build
+
+# Stage 2: Python application
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Copy and install Python dependencies
+COPY pyproject.toml README.md ./
+RUN pip install --no-cache-dir .
+
+# Copy application code
+COPY src/ ./src/
+
+# Copy built frontend
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
+# Create non-root user
+RUN useradd -m -u 1000 rainbot && chown -R rainbot:rainbot /app
+USER rainbot
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
+
+# Run the web server
+CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

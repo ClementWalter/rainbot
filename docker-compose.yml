@@ -1,6 +1,5 @@
-version: "3.8"
-
 services:
+  # Booking scheduler (background job)
   rainbot:
     build:
       context: .
@@ -34,9 +33,32 @@ services:
 
       # Optional debug mode
       - DEBUG=${DEBUG:-false}
-    # No volume mounts needed - credentials via CLIENT_SECRET env var
-    # Shared memory size for Chrome
     shm_size: "2gb"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Web application (API + frontend)
+  rainbot-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: rainbot-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # JWT configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-rainbot-secret-change-me}
+
+      # Paris Tennis credentials (for login validation)
+      - PARIS_TENNIS_PASSWORD=${PARIS_TENNIS_PASSWORD}
+
+      # Google Sheets configuration
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - GOOGLE_SPREADSHEET_ID=${GOOGLE_SPREADSHEET_ID}
     logging:
       driver: "json-file"
       options:

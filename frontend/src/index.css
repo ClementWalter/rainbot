@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  --tennis-green: #2e7d32;
+  --tennis-green-light: #4caf50;
+  --tennis-green-dark: #1b5e20;
+  --clay-orange: #d84315;
+  --clay-orange-light: #ff5722;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f5f5f5;
+}
+
+/* Request card styles */
+.request-card {
+  @apply bg-white rounded-xl shadow-md p-4 mb-3 transition-all duration-200;
+}
+
+.request-card:hover {
+  @apply shadow-lg;
+}
+
+.request-card-inactive {
+  @apply opacity-60;
+}
+
+/* Button styles */
+.btn-primary {
+  background-color: var(--tennis-green);
+  @apply text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200;
+}
+
+.btn-primary:hover {
+  background-color: var(--tennis-green-dark);
+}
+
+.btn-primary:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+.btn-secondary {
+  @apply bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-all duration-200;
+}
+
+.btn-secondary:hover {
+  @apply bg-gray-300;
+}
+
+/* Form styles */
+.input-field {
+  @apply w-full px-4 py-3 border border-gray-300 rounded-lg transition-all duration-200;
+}
+
+.input-field:focus {
+  @apply outline-none ring-2 ring-green-500 border-transparent;
+}
+
+/* Day selector */
+.day-chip {
+  @apply px-3 py-2 rounded-full text-sm font-medium cursor-pointer transition-all duration-200;
+}
+
+.day-chip-selected {
+  background-color: var(--tennis-green);
+  @apply text-white;
+}
+
+.day-chip-unselected {
+  @apply bg-gray-100 text-gray-600 hover:bg-gray-200;
+}

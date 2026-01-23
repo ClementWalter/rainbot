@@ -718,6 +718,163 @@ class GoogleSheetsService:
             logger.error(f"Failed to cleanup old no slots notifications: {e}")
             return 0
 
+    def add_booking_request(self, request: BookingRequest) -> bool:
+        """
+        Add a new booking request to the Requests sheet.
+
+        Args:
+            request: The BookingRequest to add
+
+        Returns:
+            True if successfully added, False otherwise
+
+        """
+        try:
+            worksheet = self._get_worksheet(BOOKING_REQUESTS_SHEET)
+
+            # Map day_of_week value to French name
+            day_names = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+            day_name = day_names[request.day_of_week.value]
+
+            # Extract hour from time string (e.g., "18:00" -> 18)
+            hour_from = int(request.time_start.split(":")[0])
+            hour_to = int(request.time_end.split(":")[0])
+
+            # Map court_type to French
+            court_type_map = {"indoor": "Couvert", "outdoor": "Découvert", "any": ""}
+            in_out = court_type_map.get(request.court_type.value, "")
+
+            # Build row with all columns in the expected order
+            # Columns: Username, MatchDay, HourFrom, HourTo, InOut, Court_0-4, Partenaire/full name, Active, RowID
+            facilities = request.facility_preferences + [""] * (
+                5 - len(request.facility_preferences)
+            )
+            row = [
+                request.user_id,  # Username
+                day_name,  # MatchDay
+                hour_from,  # HourFrom
+                hour_to,  # HourTo
+                in_out,  # InOut
+                facilities[0],  # Court_0
+                facilities[1],  # Court_1
+                facilities[2],  # Court_2
+                facilities[3],  # Court_3
+                facilities[4],  # Court_4
+                request.partner_name or "",  # Partenaire/full name
+                request.active,  # Active
+                request.id,  # RowID
+            ]
+
+            worksheet.append_row(row)
+            logger.info(f"Added booking request {request.id} for user {request.user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to add booking request: {e}")
+            return False
+
+    def update_booking_request(self, request: BookingRequest) -> bool:
+        """
+        Update an existing booking request in the Requests sheet.
+
+        Args:
+            request: The BookingRequest with updated values
+
+        Returns:
+            True if successfully updated, False otherwise
+
+        """
+        try:
+            worksheet = self._get_worksheet(BOOKING_REQUESTS_SHEET)
+            records = worksheet.get_all_records()
+
+            # Find the row with matching RowID
+            for idx, record in enumerate(records):
+                if str(record.get("RowID", "")) == request.id:
+                    row_num = idx + 2  # +2 for header row and 0-based index
+
+                    # Map day_of_week value to French name
+                    day_names = [
+                        "Lundi",
+                        "Mardi",
+                        "Mercredi",
+                        "Jeudi",
+                        "Vendredi",
+                        "Samedi",
+                        "Dimanche",
+                    ]
+                    day_name = day_names[request.day_of_week.value]
+
+                    # Extract hour from time string
+                    hour_from = int(request.time_start.split(":")[0])
+                    hour_to = int(request.time_end.split(":")[0])
+
+                    # Map court_type to French
+                    court_type_map = {"indoor": "Couvert", "outdoor": "Découvert", "any": ""}
+                    in_out = court_type_map.get(request.court_type.value, "")
+
+                    # Build row
+                    facilities = request.facility_preferences + [""] * (
+                        5 - len(request.facility_preferences)
+                    )
+                    row = [
+                        request.user_id,
+                        day_name,
+                        hour_from,
+                        hour_to,
+                        in_out,
+                        facilities[0],
+                        facilities[1],
+                        facilities[2],
+                        facilities[3],
+                        facilities[4],
+                        request.partner_name or "",
+                        request.active,
+                        request.id,
+                    ]
+
+                    # Update the entire row
+                    worksheet.update(f"A{row_num}:M{row_num}", [row])
+                    logger.info(f"Updated booking request {request.id}")
+                    return True
+
+            logger.warning(f"Booking request {request.id} not found for update")
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to update booking request: {e}")
+            return False
+
+    def delete_booking_request(self, request_id: str) -> bool:
+        """
+        Delete a booking request from the Requests sheet.
+
+        Args:
+            request_id: The ID of the request to delete
+
+        Returns:
+            True if successfully deleted, False otherwise
+
+        """
+        try:
+            worksheet = self._get_worksheet(BOOKING_REQUESTS_SHEET)
+            records = worksheet.get_all_records()
+
+            # Find the row with matching RowID
+            for idx, record in enumerate(records):
+                if str(record.get("RowID", "")) == request_id:
+                    row_num = idx + 2  # +2 for header row and 0-based index
+                    worksheet.delete_rows(row_num)
+                    logger.info(f"Deleted booking request {request_id}")
+                    return True
+
+            logger.warning(f"Booking request {request_id} not found for deletion")
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to delete booking request: {e}")
+            return False
+
 
 # Global service instance
 sheets_service = GoogleSheetsService()

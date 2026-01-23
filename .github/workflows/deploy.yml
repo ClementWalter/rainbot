@@ -18,6 +18,15 @@ jobs:
           script: |
             cd /opt/rainbot
             git pull origin master
+
+            # Build and deploy scheduler
             docker compose build --no-cache rainbot
             docker compose up -d rainbot
-            docker compose logs --tail=5 rainbot
+
+            # Build and deploy web app
+            docker compose build --no-cache rainbot-web
+            docker compose up -d rainbot-web
+
+            # Show status
+            docker compose ps
+            docker compose logs --tail=5
