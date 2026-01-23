@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.api.auth import LoginRequest, Token, create_access_token
-from src.api.routes import bookings, facilities, requests
+from src.api.routes import bookings, facilities, logs, requests
 from src.services.google_sheets import sheets_service
 
 load_dotenv()
@@ -53,6 +53,7 @@ app.add_middleware(
 app.include_router(requests.router, prefix="/api")
 app.include_router(bookings.router, prefix="/api")
 app.include_router(facilities.router, prefix="/api")
+app.include_router(logs.router, prefix="/api")
 
 
 class UserInfo(BaseModel):

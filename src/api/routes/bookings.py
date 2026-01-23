@@ -81,3 +81,28 @@ def list_upcoming_bookings(
     # Sort by date ascending (soonest first)
     upcoming.sort(key=lambda b: b.date if b.date else datetime.max)
     return [BookingResponse.from_model(b) for b in upcoming]
+
+
+@router.post("/refresh", response_model=list[BookingResponse])
+def refresh_bookings(
+    user_id: str = Depends(get_current_user_id),
+    sheets: GoogleSheetsService = Depends(get_sheets_service),
+) -> list[BookingResponse]:
+    """
+    Refresh and return upcoming bookings for the current user.
+
+    This forces a fresh read from the data source (Google Sheets).
+    Future: could scrape from Paris Tennis profile page.
+    """
+    from src.utils.timezone import today_paris
+
+    # Force a fresh read by clearing any caching (if present)
+    # For now, just re-fetch from sheets
+    today = today_paris()
+    all_bookings = sheets.get_all_bookings()
+    upcoming = [
+        b for b in all_bookings if b.user_id == user_id and b.date and b.date.date() >= today
+    ]
+    # Sort by date ascending (soonest first)
+    upcoming.sort(key=lambda b: b.date if b.date else datetime.max)
+    return [BookingResponse.from_model(b) for b in upcoming]

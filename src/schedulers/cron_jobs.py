@@ -13,6 +13,7 @@ from src.models.booking import Booking
 from src.models.booking_request import BookingRequest
 from src.models.user import User
 from src.services.google_sheets import GoogleSheetsService, sheets_service
+from src.services.logs_db import logs_service
 from src.services.notification import NotificationService, get_notification_service
 from src.services.paris_tennis import (
     BookingResult,
@@ -154,6 +155,11 @@ async def _process_booking_request_async(
 
             if not login_success:
                 logger.error(f"Login failed for user {user.email}")
+                logs_service.log_error(
+                    user.id,
+                    "Connexion au site Paris Tennis echouee",
+                    request_id=request.id,
+                )
                 notification.send_booking_failure_notification(
                     user,
                     "Impossible de se connecter au site Paris Tennis. "
@@ -167,6 +173,11 @@ async def _process_booking_request_async(
 
             if not available_slots:
                 logger.info(f"No available slots found for request {request.id}")
+                logs_service.log_info(
+                    user.id,
+                    "Aucun creneau disponible trouve",
+                    request_id=request.id,
+                )
                 # Send informational notification to user (only once per target date)
                 # Get the target date for this booking request
                 target_date = tennis_service._get_next_booking_date(request.day_of_week.value)
@@ -201,6 +212,11 @@ async def _process_booking_request_async(
                 return False
 
             logger.info(f"Found {len(available_slots)} available slots")
+            logs_service.log_info(
+                user.id,
+                f"{len(available_slots)} creneau(x) disponible(s) trouve(s)",
+                request_id=request.id,
+            )
 
             # Try to book the first available slot
             for slot in available_slots:
@@ -219,6 +235,16 @@ async def _process_booking_request_async(
 
                 if result.success:
                     logger.info(f"Booking successful! Confirmation: {result.confirmation_id}")
+                    logs_service.log_success(
+                        user.id,
+                        f"Reservation confirmee: {slot.facility_name} a {slot.time_start}",
+                        request_id=request.id,
+                        facility_name=slot.facility_name,
+                        details={
+                            "confirmation_id": result.confirmation_id,
+                            "court": slot.court_number,
+                        },
+                    )
 
                     # Create booking record
                     booking = _create_booking_from_result(user, request, slot, result)

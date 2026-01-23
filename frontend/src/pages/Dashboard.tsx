@@ -3,10 +3,13 @@ import { RequestCard } from "../components/RequestCard";
 import { RequestForm } from "../components/RequestForm";
 import { BookingList } from "../components/BookingList";
 import { CourtsMap } from "../components/CourtsMap";
+import { LogsList } from "../components/LogsList";
 import {
   getRequests,
   getUpcomingBookings,
   getFacilities,
+  getLogs,
+  refreshBookings,
   createRequest,
   updateRequest,
   deleteRequest,
@@ -14,16 +17,20 @@ import {
   type BookingRequest,
   type Booking,
   type Facility,
+  type BotLog,
   type BookingRequestCreate,
 } from "../api/client";
 
-type Tab = "alarms" | "map";
+type Tab = "alarms" | "logs" | "map";
 
 export function Dashboard() {
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [logs, setLogs] = useState<BotLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [refreshingBookings, setRefreshingBookings] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("alarms");
   const [editingRequest, setEditingRequest] = useState<BookingRequest | null>(
@@ -36,18 +43,45 @@ export function Dashboard() {
 
   const loadData = async () => {
     try {
-      const [requestsData, bookingsData, facilitiesData] = await Promise.all([
-        getRequests(),
-        getUpcomingBookings(),
-        getFacilities(),
-      ]);
+      const [requestsData, bookingsData, facilitiesData, logsData] =
+        await Promise.all([
+          getRequests(),
+          getUpcomingBookings(),
+          getFacilities(),
+          getLogs(50),
+        ]);
       setRequests(requestsData);
       setBookings(bookingsData);
       setFacilities(facilitiesData);
+      setLogs(logsData);
     } catch (err) {
       console.error("Failed to load data:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const logsData = await getLogs(50);
+      setLogs(logsData);
+    } catch (err) {
+      console.error("Failed to load logs:", err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const handleRefreshBookings = async () => {
+    setRefreshingBookings(true);
+    try {
+      const refreshedBookings = await refreshBookings();
+      setBookings(refreshedBookings);
+    } catch (err) {
+      console.error("Failed to refresh bookings:", err);
+    } finally {
+      setRefreshingBookings(false);
     }
   };
 
@@ -138,7 +172,17 @@ export function Dashboard() {
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            🔔 Mes alarmes
+            🔔 Alarmes
+          </button>
+          <button
+            onClick={() => setActiveTab("logs")}
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+              activeTab === "logs"
+                ? "text-green-600 border-b-2 border-green-600"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            📋 Logs
           </button>
           <button
             onClick={() => setActiveTab("map")}
@@ -148,7 +192,7 @@ export function Dashboard() {
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            🗺️ Carte des courts
+            🗺️ Carte
           </button>
         </div>
       </div>
@@ -203,14 +247,27 @@ export function Dashboard() {
 
           {/* Upcoming bookings section */}
           <section>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-lg">📅</span>
-              <h2 className="text-lg font-semibold text-gray-900">
-                Prochaines réservations
-              </h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📅</span>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Prochaines réservations
+                </h2>
+              </div>
+              <button
+                onClick={handleRefreshBookings}
+                disabled={refreshingBookings}
+                className="text-sm text-green-600 hover:text-green-700 font-medium disabled:opacity-50"
+              >
+                {refreshingBookings ? "..." : "Actualiser"}
+              </button>
             </div>
             <BookingList bookings={bookings} />
           </section>
+        </main>
+      ) : activeTab === "logs" ? (
+        <main className="flex-1 max-w-lg mx-auto px-4 py-6 w-full">
+          <LogsList logs={logs} loading={logsLoading} onRefresh={loadLogs} />
         </main>
       ) : (
         <main className="flex-1 flex flex-col">

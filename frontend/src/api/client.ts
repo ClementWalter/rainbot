@@ -63,6 +63,17 @@ export interface Facility {
   longitude: number;
 }
 
+export interface BotLog {
+  id: number;
+  user_id: string;
+  timestamp: string;
+  level: string;
+  message: string;
+  request_id: string | null;
+  facility_name: string | null;
+  details: { confirmation_id?: string; court?: string } | null;
+}
+
 // Token storage
 const TOKEN_KEY = "rainbot_token";
 
@@ -175,4 +186,14 @@ export async function getUpcomingBookings(): Promise<Booking[]> {
 // Facilities API
 export async function getFacilities(): Promise<Facility[]> {
   return apiRequest<Facility[]>("/facilities");
+}
+
+// Logs API
+export async function getLogs(limit: number = 50): Promise<BotLog[]> {
+  return apiRequest<BotLog[]>(`/logs?limit=${limit}`);
+}
+
+// Refresh bookings from Paris Tennis profile
+export async function refreshBookings(): Promise<Booking[]> {
+  return apiRequest<Booking[]>("/bookings/refresh", { method: "POST" });
 }
