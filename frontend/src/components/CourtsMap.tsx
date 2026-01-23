@@ -56,11 +56,14 @@ export function CourtsMap({ facilities }: CourtsMapProps) {
       </div>
 
       {/* Map */}
-      <div className="flex-1 relative" style={{ minHeight: "500px" }}>
+      <div
+        id="map-container"
+        style={{ height: "calc(100vh - 200px)", width: "100%" }}
+      >
         <MapContainer
           center={center}
           zoom={12}
-          className="absolute inset-0"
+          scrollWheelZoom={true}
           style={{ height: "100%", width: "100%" }}
         >
           <TileLayer
