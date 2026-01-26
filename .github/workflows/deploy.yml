@@ -27,6 +27,9 @@ jobs:
             docker compose build --no-cache rainbot-web
             docker compose up -d rainbot-web
 
+            # Deploy reverse proxy (Caddy)
+            docker compose up -d caddy
+
             # Show status
             docker compose ps
             docker compose logs --tail=5

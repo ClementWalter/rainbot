@@ -1,4 +1,19 @@
 services:
+  # Reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - rainbot-web
+
   # Booking scheduler (background job)
   rainbot:
     build:
@@ -52,8 +67,8 @@ services:
       dockerfile: Dockerfile.web
     container_name: rainbot-web
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - rainbot-data:/app/data
     environment:
@@ -77,3 +92,5 @@ services:
 
 volumes:
   rainbot-data:
+  caddy-data:
+  caddy-config:

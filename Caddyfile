@@ -1,0 +1,3 @@
+rainbot.fr, www.rainbot.fr {
+    reverse_proxy rainbot-web:8000
+}
