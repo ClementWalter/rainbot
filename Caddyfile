@@ -1,3 +1,13 @@
-rainbot.fr, www.rainbot.fr {
-    reverse_proxy rainbot-web:8000
+{
+    auto_https off
+}
+
+:80 {
+    @rainbot host rainbot.fr www.rainbot.fr
+    handle @rainbot {
+        reverse_proxy rainbot-web:8000
+    }
+    handle {
+        respond "Not found" 404
+    }
 }
