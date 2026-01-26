@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -18,6 +19,9 @@ jobs:
           script: |
             cd /opt/rainbot
             git pull origin master
+
+            # Clean up disk space
+            docker system prune -af
 
             # Build and deploy scheduler
             docker compose build --no-cache rainbot
