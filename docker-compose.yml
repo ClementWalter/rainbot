@@ -1,13 +1,16 @@
 services:
-  # Reverse proxy (Cloudflare handles HTTPS)
+  # Reverse proxy with automatic HTTPS
   caddy:
     image: caddy:2-alpine
     container_name: caddy
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     depends_on:
       - rainbot-web
 
@@ -89,3 +92,5 @@ services:
 
 volumes:
   rainbot-data:
+  caddy-data:
+  caddy-config:
