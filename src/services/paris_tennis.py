@@ -442,6 +442,158 @@ class ParisTennisService:
             return False
         return False
 
+    async def check_availability_quick(
+        self,
+        request: BookingRequest,
+        target_date: Optional[datetime] = None,
+    ) -> tuple[bool, int]:
+        """
+        Quick availability check WITHOUT login or CAPTCHA solving.
+
+        This method checks for available slots without requiring authentication,
+        allowing us to skip login (and CAPTCHA) when no slots are available.
+
+        Args:
+            request: BookingRequest with user preferences
+            target_date: Specific date to search. If None, searches next
+                        occurrence of request.day_of_week
+
+        Returns:
+            (has_slots, slot_count) - (True, N) if N slots found
+                                      (True, 0) if check failed (fail-open)
+                                      (False, 0) if definitely no slots
+        """
+        if target_date is None:
+            target_date = self._get_next_booking_date(request.day_of_week.value)
+
+        try:
+            logger.info(f"Quick availability check for {target_date.strftime('%Y-%m-%d')}")
+
+            when_value = target_date.strftime("%d/%m/%Y")
+            hour_range = self._format_hour_range(request.time_start, request.time_end)
+            sel_in_out = self._get_indoor_outdoor_values(request.court_type)
+
+            await self.page.goto(self.search_url)
+            await self._accept_cookie_banner()
+
+            facility_names = await self._resolve_facility_preferences(request)
+            await self._ensure_search_results_page(
+                target_date=target_date,
+                facility_names=facility_names if facility_names else None,
+                hour_range=hour_range,
+                sel_in_out=sel_in_out,
+            )
+
+            if not facility_names:
+                # Can't determine facilities, fail open
+                logger.debug("No facility names resolved, failing open")
+                return True, 0
+
+            # Check first facility only (quick check)
+            html = await self._fetch_availability_html_no_captcha(
+                hour_range=hour_range,
+                when_value=when_value,
+                facility_name=facility_names[0],
+                sel_in_out=sel_in_out,
+                sel_coating=[],
+            )
+
+            if html is None:
+                # Failed or CAPTCHA - fail open, let normal flow handle it
+                logger.debug("AJAX fetch returned None, failing open")
+                return True, 0
+
+            # Parse and filter slots
+            slots = self._parse_available_slots_html(
+                html=html,
+                facility_name=facility_names[0],
+                target_date=target_date,
+                request=request,
+                captcha_request_id=None,
+            )
+
+            logger.info(f"Quick check: {len(slots)} slots for {facility_names[0]}")
+            return len(slots) > 0, len(slots)
+
+        except Exception as e:
+            logger.warning(f"Quick availability check failed: {e}")
+            return True, 0  # Fail open
+
+    async def _fetch_availability_html_no_captcha(
+        self,
+        hour_range: str,
+        when_value: str,
+        facility_name: str,
+        sel_in_out: list[str],
+        sel_coating: list[str],
+    ) -> Optional[str]:
+        """
+        Fetch availability HTML WITHOUT CAPTCHA solving.
+
+        Returns None if CAPTCHA encountered (caller should fail-open).
+        This is used for quick availability checks before login.
+        """
+        try:
+            ajax_url = urljoin(self.search_url, SEARCH_SLOTS_AJAX_PATH)
+            li_token, li_token_code = await self._ensure_valid_li_antibot_tokens()
+
+            response = await self.page.evaluate(
+                """async ([hourRange, whenValue, facilityName, selInOut, selCoating,
+                          liToken, liTokenCode, ajaxUrl]) => {
+                selInOut = selInOut || [];
+                selCoating = selCoating || [];
+                const params = new URLSearchParams();
+                params.append("hourRange", hourRange);
+                params.append("when", whenValue);
+                params.append("selWhereTennisName", facilityName);
+                selInOut.forEach((value) => params.append("selInOut", value));
+                selCoating.forEach((value) => params.append("selCoating", value));
+                if (liToken) {
+                    params.append("li-antibot-token", liToken);
+                }
+                if (liTokenCode) {
+                    params.append("li-antibot-token-code", liTokenCode);
+                }
+
+                try {
+                    const response = await fetch(ajaxUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+                        body: params.toString(),
+                    });
+                    const text = await response.text();
+                    return { ok: true, text };
+                } catch (error) {
+                    return { ok: false, error: String(error) };
+                }
+                }""",
+                [
+                    hour_range,
+                    when_value,
+                    facility_name,
+                    sel_in_out,
+                    sel_coating,
+                    li_token or "",
+                    li_token_code or "",
+                    ajax_url,
+                ],
+            )
+
+            if not response or not response.get("ok"):
+                logger.debug("Failed to fetch availability for %s: %s", facility_name, response)
+                return None
+
+            html = response.get("text")
+            if self._looks_like_captcha_html(html):
+                # Don't solve - just report we can't check
+                logger.debug("CAPTCHA encountered during quick check, failing open")
+                return None
+
+            return html
+        except PlaywrightError as e:
+            logger.debug("Availability fetch failed for %s: %s", facility_name, e)
+            return None
+
     async def search_available_courts(
         self,
         request: BookingRequest,

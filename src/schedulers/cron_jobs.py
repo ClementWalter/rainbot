@@ -55,6 +55,52 @@ def booking_job() -> None:
     asyncio.run(_booking_job_async())
 
 
+async def _pre_check_availability(
+    requests: list[BookingRequest],
+) -> list[BookingRequest]:
+    """
+    Check availability for all requests WITHOUT logging in.
+
+    Uses a single browser session for efficiency.
+    Returns only requests that have potential availability.
+
+    This is a cost-saving optimization: we skip login (and CAPTCHA solving)
+    when no slots are available. The check is done without authentication
+    since the search page is publicly accessible.
+    """
+    if not requests:
+        return []
+
+    results: dict[str, bool] = {}  # request_id -> has_availability
+
+    try:
+        async with create_paris_tennis_session() as tennis_service:
+            # Group by (target_date, day_of_week) to avoid duplicate checks
+            checked_dates: dict[int, bool] = {}  # day_of_week -> has_any_slots
+
+            for request in requests:
+                day = request.day_of_week.value
+
+                if day in checked_dates:
+                    # Reuse result from same day
+                    results[request.id] = checked_dates[day]
+                    continue
+
+                has_slots, count = await tennis_service.check_availability_quick(request)
+                checked_dates[day] = has_slots
+                results[request.id] = has_slots
+
+                logger.info(
+                    f"Pre-check {request.id}: day={day}, " f"has_slots={has_slots}, count={count}"
+                )
+
+    except Exception as e:
+        logger.warning(f"Pre-check phase failed: {e}, proceeding with all requests")
+        return requests  # Fail open
+
+    return [req for req in requests if results.get(req.id, True)]
+
+
 async def _booking_job_async() -> None:
     """Async implementation of the booking job."""
     # Generate unique job ID for this execution to manage locks
@@ -80,12 +126,29 @@ async def _booking_job_async() -> None:
         user_map = {user.id: user for user in eligible_users}
         logger.info(f"Found {len(eligible_users)} eligible users")
 
-        # Filter requests to only those from eligible users and group by user
+        # Filter requests to only those from eligible users
         requests_to_process = [req for req in active_requests if req.user_id in eligible_user_ids]
         logger.info(f"Processing {len(requests_to_process)} requests from eligible users")
 
+        if not requests_to_process:
+            return
+
+        # === Pre-check phase (no login) ===
+        # Check availability WITHOUT login to save on CAPTCHA costs
+        requests_with_availability = await _pre_check_availability(requests_to_process)
+
+        if not requests_with_availability:
+            logger.info("No availability found for any requests, skipping all logins")
+            return
+
+        logger.info(
+            f"Pre-check: {len(requests_with_availability)}/{len(requests_to_process)} "
+            "requests have potential availability"
+        )
+
+        # === Existing logic for requests with availability ===
         requests_by_user: dict[str, list[BookingRequest]] = {}
-        for request in requests_to_process:
+        for request in requests_with_availability:
             requests_by_user.setdefault(request.user_id, []).append(request)
 
         for user_id, user_requests in requests_by_user.items():

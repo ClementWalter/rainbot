@@ -8,7 +8,7 @@ import pytest
 from src.models import Booking, BookingRequest, CourtType, DayOfWeek, User
 from src.schedulers.cron_jobs import (
     _create_booking_from_result,
-    _process_booking_request,
+    _process_booking_request_async,
     booking_job,
     cleanup_old_notifications,
     send_reminder,
@@ -75,7 +75,7 @@ class TestBookingJob:
         mock_sheets.get_active_booking_requests.assert_called_once()
         mock_sheets.get_eligible_users.assert_called_once()
 
-    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs._process_booking_request_async")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_booking_job_skips_pending_booking(
@@ -98,7 +98,7 @@ class TestBookingJob:
         mock_process.assert_not_called()
         mock_sheets.release_user_lock.assert_called()  # Lock should be released
 
-    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs._process_booking_request_async")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_booking_job_processes_eligible_request(
@@ -120,7 +120,7 @@ class TestBookingJob:
         mock_process.assert_called_once()
         mock_sheets.release_user_lock.assert_called()  # Lock should be released
 
-    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs._process_booking_request_async")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_booking_job_stops_after_success_for_user(
@@ -159,7 +159,7 @@ class TestBookingJob:
         assert mock_process.call_args_list[0].args[1].id == "req1"
         mock_sheets.release_user_lock.assert_called()
 
-    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs._process_booking_request_async")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_booking_job_processes_requests_any_day(
@@ -191,7 +191,7 @@ class TestBookingJob:
         mock_process.assert_called_once()
         mock_sheets.release_user_lock.assert_called()
 
-    @patch("src.schedulers.cron_jobs._process_booking_request")
+    @patch("src.schedulers.cron_jobs._process_booking_request_async")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_booking_job_skips_when_lock_not_acquired(
@@ -216,7 +216,7 @@ class TestBookingJob:
 
 
 class TestProcessBookingRequest:
-    """Tests for the _process_booking_request function."""
+    """Tests for the _process_booking_request_async function."""
 
     @pytest.fixture
     def mock_user(self):
@@ -272,7 +272,7 @@ class TestProcessBookingRequest:
         mock_service.login.return_value = False
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        result = _process_booking_request(
+        result = _process_booking_request_async(
             mock_user, mock_booking_request, mock_sheets, mock_notification
         )
 
@@ -299,7 +299,7 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        result = _process_booking_request(
+        result = _process_booking_request_async(
             mock_user, mock_booking_request, mock_sheets, mock_notification
         )
 
@@ -330,7 +330,7 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        result = _process_booking_request(
+        result = _process_booking_request_async(
             mock_user, mock_booking_request, mock_sheets, mock_notification
         )
 
@@ -361,7 +361,7 @@ class TestProcessBookingRequest:
         mock_service.search_available_courts.return_value = []
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        result = _process_booking_request(
+        result = _process_booking_request_async(
             mock_user, mock_booking_request, mock_sheets, mock_notification
         )
 
@@ -394,7 +394,7 @@ class TestProcessBookingRequest:
         )
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        result = _process_booking_request(
+        result = _process_booking_request_async(
             mock_user, mock_booking_request, mock_sheets, mock_notification
         )
 
@@ -433,7 +433,7 @@ class TestProcessBookingRequest:
         )
         mock_tennis_session.return_value.__enter__.return_value = mock_service
 
-        result = _process_booking_request(
+        result = _process_booking_request_async(
             mock_user, mock_booking_request, mock_sheets, mock_notification
         )
 
