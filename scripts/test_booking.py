@@ -100,7 +100,7 @@ async def main():
         print(f"  Final title: {await session.page.title()}")
 
         if result.success:
-            print(f"\n✓ Booking successful!")
+            print("\n✓ Booking successful!")
             print(f"  Confirmation ID: {result.confirmation_id}")
             print(f"  Facility: {slot_to_book.facility_name}")
             print(f"  Time: {slot_to_book.time_start}-{slot_to_book.time_end}")

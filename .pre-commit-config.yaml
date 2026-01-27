@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: trunk
+        name: Trunk check
+        language: system
+        pass_filenames: false
+        entry: trunk check --fix --all
+
+      - id: pytest
+        name: Python tests
+        language: system
+        pass_filenames: false
+        entry: uv run pytest -m "not live" -x -q
+
+      - id: frontend-typecheck
+        name: Frontend TypeScript typecheck
+        language: system
+        pass_filenames: false
+        entry: bash -c "cd frontend && npm run build"

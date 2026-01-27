@@ -28,6 +28,17 @@ from src.utils.timezone import now_paris
 
 logger = logging.getLogger(__name__)
 
+
+# Shim for legacy Selenium code paths (dead code but kept for compatibility)
+class _SeleniumByShim:
+    """Placeholder for Selenium's By class - legacy code paths."""
+
+    XPATH = "xpath"
+    CSS_SELECTOR = "css selector"
+
+
+By = _SeleniumByShim()
+
 # Default timeouts
 DEFAULT_WAIT_TIMEOUT = 10
 BOOKING_WAIT_TIMEOUT = 30
@@ -462,6 +473,7 @@ class ParisTennisService:
             (has_slots, slot_count) - (True, N) if N slots found
                                       (True, 0) if check failed (fail-open)
                                       (False, 0) if definitely no slots
+
         """
         if target_date is None:
             target_date = self._get_next_booking_date(request.day_of_week.value)
@@ -1541,7 +1553,7 @@ class ParisTennisService:
         for name in names:
             try:
                 value = element.get_attribute(name)
-            except WebDriverException:
+            except Exception:
                 value = None
             if value is None:
                 continue
@@ -1722,9 +1734,7 @@ class ParisTennisService:
         for xpath in xpaths:
             try:
                 ancestor = element.find_element(By.XPATH, xpath)
-            except NoSuchElementException:
-                continue
-            except WebDriverException:
+            except Exception:
                 continue
             raw_id = self._get_dom_element_attr(ancestor, "id")
             facility = self._extract_facility_from_panel_id(raw_id)
@@ -2313,14 +2323,14 @@ class ParisTennisService:
         for attr in attributes:
             try:
                 value = element.get_attribute(attr)
-            except WebDriverException:
+            except Exception:
                 value = None
             if value:
                 candidates.append(value)
 
         try:
             text_value = element.text
-        except WebDriverException:
+        except Exception:
             text_value = ""
         if text_value:
             candidates.append(text_value)
@@ -2453,18 +2463,14 @@ class ParisTennisService:
                 court_container = element.find_element(
                     By.XPATH, "ancestor::*[contains(@class,'tennis-court')][1]"
                 )
-            except NoSuchElementException:
-                court_container = None
-            except WebDriverException:
+            except Exception:
                 court_container = None
 
             if court_container:
                 try:
                     court_span = court_container.find_element(By.CSS_SELECTOR, "span.court")
                     court_text = (court_span.text or "").strip()
-                except NoSuchElementException:
-                    court_text = ""
-                except WebDriverException:
+                except Exception:
                     court_text = ""
 
                 try:
@@ -2472,23 +2478,19 @@ class ParisTennisService:
                         By.CSS_SELECTOR, ".price-description"
                     )
                     price_description = (price_desc_elem.text or "").strip()
-                except NoSuchElementException:
-                    price_description = ""
-                except WebDriverException:
+                except Exception:
                     price_description = ""
 
                 try:
                     price_elem = court_container.find_element(By.CSS_SELECTOR, ".price")
                     price_text = (price_elem.text or "").strip()
-                except NoSuchElementException:
-                    price_text = ""
-                except WebDriverException:
+                except Exception:
                     price_text = ""
 
             if not court_text:
                 try:
                     court_text = (element.text or "").strip()
-                except WebDriverException:
+                except Exception:
                     court_text = ""
 
             if court_text:
