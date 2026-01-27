@@ -2702,13 +2702,16 @@ class ParisTennisService:
                     slot=slot,
                 )
             else:
-                # Check for success message without explicit ID
+                # Check for success via URL or specific DOM elements
                 if await self._check_booking_success():
+                    logger.info("Booking success detected (no explicit confirmation ID)")
                     return BookingResult(
                         success=True,
                         confirmation_id="CONFIRMED",
                         slot=slot,
                     )
+                # No confirmation ID and no reliable success signal
+                logger.warning(f"No booking confirmation detected. URL: {self.page.url}")
                 return BookingResult(
                     success=False,
                     error_message="Booking confirmation not received",
@@ -3411,15 +3414,48 @@ class ParisTennisService:
             return None
 
     async def _check_booking_success(self) -> bool:
-        """Check for booking success indicators."""
-        success_indicators = [
-            "réservation confirmée",
-            "booking confirmed",
-            "succès",
-            "success",
-        ]
-        page_text = (await self.page.content()).lower()
-        return any(indicator in page_text for indicator in success_indicators)
+        """Check for booking success indicators.
+
+        Only returns True for specific, reliable confirmation signals:
+        - Confirmation page URL patterns
+        - Specific confirmation DOM elements
+        Does NOT match generic text like "success" which causes false positives.
+        """
+        try:
+            # Check URL for confirmation page pattern
+            current_url = self.page.url.lower()
+            if any(
+                pattern in current_url
+                for pattern in ["confirmation", "confirmed", "success", "recapitulatif"]
+            ):
+                logger.info(f"Booking success detected via URL: {current_url}")
+                return True
+
+            # Check for specific confirmation elements (not generic text)
+            confirmation_selectors = [
+                ".booking-confirmation",
+                ".reservation-confirmation",
+                "#booking-success",
+                "[data-booking-confirmed]",
+                ".confirmation-message",
+                # Paris Tennis specific
+                ".recapitulatif-reservation",
+                "#recapitulatif",
+            ]
+            for selector in confirmation_selectors:
+                try:
+                    locator = self.page.locator(selector)
+                    if await locator.count() > 0 and await locator.first.is_visible():
+                        logger.info(f"Booking success detected via element: {selector}")
+                        return True
+                except Exception:
+                    continue
+
+            # No reliable confirmation signal found
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking booking success: {e}")
+            return False
 
     async def logout(self) -> bool:
         """Log out of the Paris Tennis website."""
