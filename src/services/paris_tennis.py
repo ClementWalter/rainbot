@@ -1967,6 +1967,37 @@ class ParisTennisService:
             return CourtType.INDOOR
         return CourtType.ANY
 
+    def _determine_court_type(self, indoor_outdoor: str) -> CourtType:
+        """Determine court type from indoor/outdoor attribute value.
+
+        Args:
+            indoor_outdoor: Value like "V" (couvert), "F" (decouvert),
+                           or textual values like "Indoor", "Outdoor", etc.
+
+        Returns:
+            CourtType enum value
+
+        """
+        if not indoor_outdoor:
+            return CourtType.ANY
+
+        value = indoor_outdoor.strip().upper()
+
+        # Handle Paris Tennis checkbox values
+        if value == "V":  # Couvert (indoor)
+            return CourtType.INDOOR
+        if value == "F":  # Decouvert (outdoor)
+            return CourtType.OUTDOOR
+
+        # Handle textual values
+        normalized = _normalize_court_type_text(indoor_outdoor.lower())
+        if "decouvert" in normalized or "exterieur" in normalized or "outdoor" in normalized:
+            return CourtType.OUTDOOR
+        if "couvert" in normalized or "interieur" in normalized or "indoor" in normalized:
+            return CourtType.INDOOR
+
+        return CourtType.ANY
+
     async def _submit_reservation_form(
         self,
         slot: CourtSlot,
