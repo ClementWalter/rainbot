@@ -525,7 +525,22 @@ class ParisTennisService:
             )
 
             logger.info(f"Quick check: {len(slots)} slots for {facility_names[0]}")
-            return len(slots) > 0, len(slots)
+
+            # If first facility has slots, definitely has availability
+            if len(slots) > 0:
+                return True, len(slots)
+
+            # If first facility has no slots but there are other facilities,
+            # fail open because we didn't check all facilities
+            if len(facility_names) > 1:
+                logger.info(
+                    f"First facility ({facility_names[0]}) has no slots, "
+                    f"but {len(facility_names) - 1} other facilities not checked - failing open"
+                )
+                return True, 0
+
+            # Only one facility and it has no slots - definitively no availability
+            return False, 0
 
         except Exception as e:
             logger.warning(f"Quick availability check failed: {e}")
