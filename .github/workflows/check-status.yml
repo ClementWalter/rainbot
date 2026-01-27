@@ -1,0 +1,27 @@
+name: Check VPS Status
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check container status
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/rainbot
+            echo "=== Container Status ==="
+            docker compose ps
+
+            echo ""
+            echo "=== Rainbot Logs (last 100 lines) ==="
+            docker compose logs rainbot --tail=100
+
+            echo ""
+            echo "=== Rainbot-Web Logs (last 20 lines) ==="
+            docker compose logs rainbot-web --tail=20
