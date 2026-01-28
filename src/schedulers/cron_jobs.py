@@ -12,9 +12,12 @@ import uuid
 from src.models.booking import Booking
 from src.models.booking_request import BookingRequest
 from src.models.user import User
-from src.services.google_sheets import GoogleSheetsService, sheets_service
+from src.services.bookings_db import bookings_service
+from src.services.google_sheets import sheets_service
+from src.services.locks_db import locks_service
 from src.services.logs_db import logs_service
 from src.services.notification import NotificationService, get_notification_service
+from src.services.notifications_db import notifications_service
 from src.services.paris_tennis import (
     BookingResult,
     CourtSlot,
@@ -158,7 +161,7 @@ async def _booking_job_async() -> None:
                 continue
 
             # Try to acquire lock for this user to prevent concurrent processing
-            if not sheets.acquire_user_lock(user.id, job_id):
+            if not locks_service.acquire_user_lock(user.id, job_id):
                 logger.info(
                     f"Could not acquire lock for user {user.id}, "
                     "skipping requests (another job is processing)"
@@ -167,21 +170,21 @@ async def _booking_job_async() -> None:
 
             try:
                 # Check if user already has a pending booking (after acquiring lock)
-                if sheets.has_pending_booking(user.id):
+                if bookings_service.has_pending_booking(user.id):
                     logger.info(f"User {user.id} already has a pending booking, skipping requests")
                     continue
 
                 # Process booking requests for this user until one succeeds
                 for request in user_requests:
                     logger.info(f"Processing booking request {request.id} for user {user.id}")
-                    if await _process_booking_request_async(user, request, sheets, notification):
+                    if await _process_booking_request_async(user, request, notification):
                         logger.info(
                             f"Booking completed for user {user.id}, skipping remaining requests"
                         )
                         break
             finally:
                 # Always release the lock when done
-                sheets.release_user_lock(user.id, job_id)
+                locks_service.release_user_lock(user.id, job_id)
 
     except Exception as e:
         logger.error(f"Booking job failed with error: {e}", exc_info=True)
@@ -192,7 +195,6 @@ async def _booking_job_async() -> None:
 async def _process_booking_request_async(
     user: User,
     request: BookingRequest,
-    sheets: GoogleSheetsService,
     notification: NotificationService,
 ) -> bool:
     """
@@ -201,7 +203,6 @@ async def _process_booking_request_async(
     Args:
         user: The user making the booking
         request: The booking request to process
-        sheets: Google Sheets service for data persistence
         notification: Notification service for sending emails
 
     Returns:
@@ -247,7 +248,9 @@ async def _process_booking_request_async(
                 target_date_str = target_date.strftime("%Y-%m-%d")
 
                 # Check if we already sent a notification for this request/date
-                if not sheets.was_no_slots_notification_sent(request.id, target_date_str):
+                if not notifications_service.was_no_slots_notification_sent(
+                    request.id, target_date_str
+                ):
                     day_name = DAY_OF_WEEK_FRENCH.get(
                         request.day_of_week.value, request.day_of_week.name.lower()
                     )
@@ -260,7 +263,9 @@ async def _process_booking_request_async(
                     )
                     if getattr(notification_result, "success", False):
                         # Mark that we sent this notification
-                        sheets.mark_no_slots_notification_sent(request.id, target_date_str)
+                        notifications_service.mark_no_slots_notification_sent(
+                            request.id, target_date_str
+                        )
                     else:
                         logger.warning(
                             "Failed to send no slots notification for request %s: %s",
@@ -312,16 +317,16 @@ async def _process_booking_request_async(
                     # Create booking record
                     booking = _create_booking_from_result(user, request, slot, result)
 
-                    # Save to Google Sheets
-                    if sheets.add_booking(booking):
-                        logger.info(f"Booking {booking.id} saved to spreadsheet")
+                    # Save to SQLite database
+                    if bookings_service.add_booking(booking):
+                        logger.info(f"Booking {booking.id} saved to database")
                     else:
-                        logger.error(f"Failed to save booking {booking.id} to spreadsheet")
+                        logger.error(f"Failed to save booking {booking.id} to database")
 
                     # Decrement carnet balance if tracked for the user
                     if user.carnet_balance is not None:
                         new_balance = max(user.carnet_balance - 1, 0)
-                        if sheets.update_user_carnet_balance(user.id, new_balance):
+                        if sheets_service.update_user_carnet_balance(user.id, new_balance):
                             user.carnet_balance = new_balance
                         else:
                             logger.warning(
@@ -401,15 +406,15 @@ def cleanup_old_notifications() -> None:
     """
     Clean up old no-slots notification tracking records.
 
-    This job runs periodically to remove outdated records from the
-    NoSlotsNotifications sheet, keeping the spreadsheet manageable.
+    This job runs periodically to remove outdated records from SQLite.
     """
     logger.info("Starting cleanup old notifications job")
 
     try:
-        sheets = sheets_service
-        deleted_count = sheets.cleanup_old_no_slots_notifications(days_to_keep=7)
+        deleted_count = notifications_service.cleanup_old_notifications(days_to_keep=7)
         logger.info(f"Cleanup completed: removed {deleted_count} old notification records")
+        # Also cleanup expired locks
+        locks_service.cleanup_expired_locks()
     except Exception as e:
         logger.error(f"Cleanup job failed with error: {e}", exc_info=True)
 
@@ -428,7 +433,6 @@ def send_reminder() -> None:
 
     try:
         # Get services
-        sheets = sheets_service
         notification = get_notification_service()
 
         # Check if notification service is configured
@@ -436,16 +440,16 @@ def send_reminder() -> None:
             logger.warning("Notification service not configured, skipping reminders")
             return
 
-        # Get today's bookings
-        todays_bookings = sheets.get_todays_bookings()
+        # Get today's bookings from SQLite
+        todays_bookings = bookings_service.get_todays_bookings()
         logger.info(f"Found {len(todays_bookings)} bookings for today")
 
         if not todays_bookings:
             logger.info("No bookings scheduled for today")
             return
 
-        # Get all users for lookups
-        all_users = sheets.get_all_users()
+        # Get all users for lookups (still from Google Sheets)
+        all_users = sheets_service.get_all_users()
         user_map = {user.id: user for user in all_users}
 
         for booking in todays_bookings:
