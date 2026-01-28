@@ -987,15 +987,18 @@ class ParisTennisService:
 
                 // Fallback: if no structured panels found, count buttons
                 if (slots.length === 0) {
-                    const allButtons = document.querySelectorAll('button.btn-darkblue:has-text("Se connecter"), button.btn-darkblue');
+                    const allButtons = document.querySelectorAll('button.btn-darkblue');
                     allButtons.forEach((btn, idx) => {
-                        slots.push({
-                            facility: 'Unknown',
-                            court: String(idx + 1),
-                            timeStart: '00:00',
-                            timeEnd: '01:00',
-                            courtType: 'any'
-                        });
+                        // Only count buttons with "Se connecter" text
+                        if (btn.textContent && btn.textContent.includes('Se connecter')) {
+                            slots.push({
+                                facility: 'Unknown',
+                                court: String(idx + 1),
+                                timeStart: '00:00',
+                                timeEnd: '01:00',
+                                courtType: 'any'
+                            });
+                        }
                     });
                 }
 
