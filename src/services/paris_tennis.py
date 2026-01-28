@@ -124,6 +124,55 @@ FRENCH_MONTHS = (
     "décembre",
 )
 
+# Static mapping of facility codes to names (from Paris Tennis system)
+# Used as fallback when page-based resolution fails
+FACILITY_CODE_TO_NAME = {
+    "2": "Amandiers",
+    "12": "Atlantique",
+    "15": "Philippe Auguste",
+    "23": "Porte de Bagnolet",
+    "53": "Candie",
+    "58": "Carnot",
+    "60": "Georges Carpentier",
+    "67": "Jesse Owens",
+    "79": "Reims - Asnières",
+    "81": "Courcelles",
+    "85": "Aurelle de Paladines",
+    "92": "Bertrand Dauvin",
+    "98": "Docteurs Déjerine",
+    "109": "Dunois",
+    "120": "Elisabeth",
+    "126": "La Faluère",
+    "155": "Jandelle",
+    "174": "Léo Lagrange",
+    "188": "Suzanne Lenglen",
+    "198": "Louis Lumière",
+    "218": "Moureu - Baudricourt",
+    "220": "René et André Mourlon",
+    "233": "Croix Nivert",
+    "240": "Edouard Pailleron",
+    "258": "Rigoulot - La Plaine",
+    "264": "Poissonniers",
+    "267": "Poliveau",
+    "272": "Poterne des Peupliers",
+    "273": "Niox",
+    "281": "Château des Rentiers",
+    "293": "Max Rousié",
+    "302": "Paul Barruel",
+    "303": "Sablonnière",
+    "305": "Sept Arpents",
+    "320": "Thiéré",
+    "327": "Alain Mimoun",
+    "330": "Valeyre",
+    "428": "Cordelières",
+    "429": "Henry de Montherlant",
+    "497": "Jules Ladoumègue",
+    "529": "Puteaux",
+    "545": "Neuve Saint Pierre",
+    "560": "Bobigny",
+    "567": "Halle Fret",
+}
+
 
 def _normalize_court_type_text(value: str) -> str:
     if not value:
@@ -508,6 +557,8 @@ class ParisTennisService:
                     "No facility names resolved - request should have facility_preferences"
                 )
                 return False, 0  # No facilities = no availability
+
+            logger.info(f"Resolved facility names for pre-check: {facility_names}")
 
             # Check ALL facilities in the pre-check phase
             total_slots = 0
@@ -1131,11 +1182,32 @@ class ParisTennisService:
     async def _resolve_facility_preferences(self, request: BookingRequest) -> list[str]:
         """Resolve requested facility preferences against visible tennis names."""
         available = await self._get_available_facility_names()
+        logger.debug(
+            f"Available facility names from page: {available[:5] if available else 'NONE'}"
+        )
+
         if not request.facility_preferences:
             return available
 
         if not available:
-            return [pref for pref in request.facility_preferences if pref]
+            # Use static code-to-name mapping as fallback
+            resolved_from_static: list[str] = []
+            for pref in request.facility_preferences:
+                if not pref:
+                    continue
+                if pref in FACILITY_CODE_TO_NAME:
+                    resolved_from_static.append(FACILITY_CODE_TO_NAME[pref])
+                else:
+                    # Unknown code - use as-is (may not work)
+                    resolved_from_static.append(pref)
+            if resolved_from_static:
+                logger.info(
+                    f"Resolved facility codes via static mapping: "
+                    f"{request.facility_preferences} -> {resolved_from_static}"
+                )
+            else:
+                logger.warning(f"Could not resolve facility codes: {request.facility_preferences}")
+            return resolved_from_static
 
         normalized_available = [
             (self._normalize_facility_code(name), name) for name in available if name
@@ -1165,7 +1237,18 @@ class ParisTennisService:
         names: list[str] = []
 
         try:
-            marker_names = await self.page.evaluate("""
+            # Wait for mapMarkers to be available (up to 5 seconds)
+            mapMarkers_available = True
+            try:
+                await self.page.wait_for_function(
+                    "window.mapMarkers && Object.keys(window.mapMarkers).length > 0",
+                    timeout=5000,
+                )
+            except PlaywrightTimeoutError:
+                logger.debug("mapMarkers not available after 5s timeout, will try dropdown")
+                mapMarkers_available = False
+
+            marker_names = [] if not mapMarkers_available else await self.page.evaluate("""
                 const markers = window.mapMarkers;
                 if (!markers) {
                     return [];
@@ -1329,6 +1412,22 @@ class ParisTennisService:
                     names.append(text.strip())
         except PlaywrightError:
             pass
+
+        # Fallback: read from the facility dropdown on the search form
+        if not names:
+            try:
+                dropdown_names = await self.page.evaluate("""
+                    const select = document.querySelector("select[name='selWhereTennisName']");
+                    if (!select) return [];
+                    return Array.from(select.options)
+                        .map(opt => opt.text || opt.value)
+                        .filter(text => text && text.trim() && text !== 'Tous');
+                """)
+                if dropdown_names:
+                    logger.debug(f"Got {len(dropdown_names)} facilities from dropdown")
+                    names.extend(dropdown_names)
+            except PlaywrightError:
+                pass
 
         seen: set[str] = set()
         deduped: list[str] = []
