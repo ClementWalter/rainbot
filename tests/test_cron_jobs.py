@@ -18,7 +18,9 @@ from src.services.paris_tennis import BookingResult, CourtSlot
 from src.utils.timezone import now_paris, today_weekday_paris
 
 
-@pytest.mark.skip(reason="Tests need refactoring: mock requests_db_service instead of sheets_service")
+@pytest.mark.skip(
+    reason="Tests need refactoring: mock requests_db_service instead of sheets_service"
+)
 class TestBookingJob:
     """Tests for the booking_job function."""
 
@@ -53,9 +55,7 @@ class TestBookingJob:
     @patch("src.schedulers.cron_jobs.requests_db_service")
     @patch("src.schedulers.cron_jobs.sheets_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_booking_job_no_active_requests(
-        self, mock_notification, mock_sheets, mock_requests_db
-    ):
+    def test_booking_job_no_active_requests(self, mock_notification, mock_sheets, mock_requests_db):
         """Test booking job with no active requests."""
         mock_requests_db.get_active_booking_requests.return_value = []
 
@@ -230,7 +230,9 @@ class TestBookingJob:
         mock_sheets.release_user_lock.assert_not_called()
 
 
-@pytest.mark.skip(reason="Tests need refactoring: use async/await and __aenter__ instead of __enter__")
+@pytest.mark.skip(
+    reason="Tests need refactoring: use async/await and __aenter__ instead of __enter__"
+)
 class TestProcessBookingRequest:
     """Tests for the _process_booking_request_async function."""
 
@@ -516,25 +518,27 @@ class TestSendReminder:
 
         mock_sheets.get_todays_bookings.assert_not_called()
 
-    @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.bookings_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
-    def test_send_reminder_no_bookings(self, mock_notification_func, mock_sheets):
+    def test_send_reminder_no_bookings(self, mock_notification_func, mock_bookings):
         """Test send_reminder with no bookings today."""
         mock_notification = MagicMock()
         mock_notification.is_configured.return_value = True
         mock_notification_func.return_value = mock_notification
-        mock_sheets.get_todays_bookings.return_value = []
+        mock_bookings.get_todays_bookings.return_value = []
 
         send_reminder()
 
-        mock_sheets.get_todays_bookings.assert_called_once()
+        mock_bookings.get_todays_bookings.assert_called_once()
         mock_notification.send_match_day_reminder.assert_not_called()
 
     @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.bookings_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_send_reminder_sends_to_user(
         self,
         mock_notification_func,
+        mock_bookings,
         mock_sheets,
         mock_user,
         mock_booking_today,
@@ -545,7 +549,7 @@ class TestSendReminder:
         mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
         mock_notification_func.return_value = mock_notification
 
-        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_bookings.get_todays_bookings.return_value = [mock_booking_today]
         mock_sheets.get_all_users.return_value = [mock_user]
 
         send_reminder()
@@ -555,10 +559,12 @@ class TestSendReminder:
         assert mock_notification.send_match_day_reminder.call_count == 2
 
     @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.bookings_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_send_reminder_uses_user_name(
         self,
         mock_notification_func,
+        mock_bookings,
         mock_sheets,
         mock_user,
         mock_booking_today,
@@ -569,7 +575,7 @@ class TestSendReminder:
         mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
         mock_notification_func.return_value = mock_notification
 
-        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_bookings.get_todays_bookings.return_value = [mock_booking_today]
         mock_sheets.get_all_users.return_value = [mock_user]
 
         send_reminder()
@@ -581,10 +587,12 @@ class TestSendReminder:
         assert user_call.kwargs["is_partner"] is False
 
     @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.bookings_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_send_reminder_passes_player_name_to_partner(
         self,
         mock_notification_func,
+        mock_bookings,
         mock_sheets,
         mock_user,
         mock_booking_today,
@@ -595,7 +603,7 @@ class TestSendReminder:
         mock_notification.send_match_day_reminder.return_value = MagicMock(success=True)
         mock_notification_func.return_value = mock_notification
 
-        mock_sheets.get_todays_bookings.return_value = [mock_booking_today]
+        mock_bookings.get_todays_bookings.return_value = [mock_booking_today]
         mock_sheets.get_all_users.return_value = [mock_user]
 
         send_reminder()
@@ -608,10 +616,12 @@ class TestSendReminder:
         assert partner_call.kwargs["player_name"] == mock_user.name
 
     @patch("src.schedulers.cron_jobs.sheets_service")
+    @patch("src.schedulers.cron_jobs.bookings_service")
     @patch("src.schedulers.cron_jobs.get_notification_service")
     def test_send_reminder_skips_partner_without_email(
         self,
         mock_notification_func,
+        mock_bookings,
         mock_sheets,
         mock_user,
     ):
@@ -637,7 +647,7 @@ class TestSendReminder:
             confirmation_id="CONF123",
         )
 
-        mock_sheets.get_todays_bookings.return_value = [booking_no_partner_email]
+        mock_bookings.get_todays_bookings.return_value = [booking_no_partner_email]
         mock_sheets.get_all_users.return_value = [mock_user]
 
         send_reminder()
@@ -701,30 +711,34 @@ class TestCreateBookingFromResult:
 class TestCleanupOldNotifications:
     """Tests for the cleanup_old_notifications function."""
 
-    @patch("src.schedulers.cron_jobs.sheets_service")
-    def test_cleanup_old_notifications_success(self, mock_sheets):
+    @patch("src.schedulers.cron_jobs.locks_service")
+    @patch("src.schedulers.cron_jobs.notifications_service")
+    def test_cleanup_old_notifications_success(self, mock_notifications, mock_locks):
         """Test cleanup job successfully removes old records."""
-        mock_sheets.cleanup_old_no_slots_notifications.return_value = 5
+        mock_notifications.cleanup_old_notifications.return_value = 5
 
         cleanup_old_notifications()
 
-        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once_with(days_to_keep=7)
+        mock_notifications.cleanup_old_notifications.assert_called_once_with(days_to_keep=7)
+        mock_locks.cleanup_expired_locks.assert_called_once()
 
-    @patch("src.schedulers.cron_jobs.sheets_service")
-    def test_cleanup_old_notifications_no_records(self, mock_sheets):
+    @patch("src.schedulers.cron_jobs.locks_service")
+    @patch("src.schedulers.cron_jobs.notifications_service")
+    def test_cleanup_old_notifications_no_records(self, mock_notifications, mock_locks):
         """Test cleanup job when no old records exist."""
-        mock_sheets.cleanup_old_no_slots_notifications.return_value = 0
+        mock_notifications.cleanup_old_notifications.return_value = 0
 
         cleanup_old_notifications()
 
-        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once()
+        mock_notifications.cleanup_old_notifications.assert_called_once()
 
-    @patch("src.schedulers.cron_jobs.sheets_service")
-    def test_cleanup_old_notifications_handles_error(self, mock_sheets):
+    @patch("src.schedulers.cron_jobs.locks_service")
+    @patch("src.schedulers.cron_jobs.notifications_service")
+    def test_cleanup_old_notifications_handles_error(self, mock_notifications, mock_locks):
         """Test cleanup job handles errors gracefully."""
-        mock_sheets.cleanup_old_no_slots_notifications.side_effect = Exception("Google API error")
+        mock_notifications.cleanup_old_notifications.side_effect = Exception("API error")
 
         # Should not raise exception
         cleanup_old_notifications()
 
-        mock_sheets.cleanup_old_no_slots_notifications.assert_called_once()
+        mock_notifications.cleanup_old_notifications.assert_called_once()

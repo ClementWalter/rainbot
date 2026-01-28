@@ -539,7 +539,7 @@ class ParisTennisService:
                 f"{request.time_start}-{request.time_end} | facilities: {facilities_str}"
             )
 
-            when_value = target_date.strftime("%d/%m/%Y")
+            target_date.strftime("%d/%m/%Y")
             hour_range = self._format_hour_range(request.time_start, request.time_end)
             sel_in_out = self._get_indoor_outdoor_values(request.court_type)
 
@@ -602,7 +602,7 @@ class ParisTennisService:
                 return True, 0
 
             # Results page loaded but no available slots
-            logger.info(f"Quick check complete: 0 'Se connecter' buttons - NO AVAILABILITY")
+            logger.info("Quick check complete: 0 'Se connecter' buttons - NO AVAILABILITY")
             return False, 0
 
         except Exception as e:
@@ -914,6 +914,7 @@ class ParisTennisService:
 
         Returns:
             List of CourtSlot objects
+
         """
         slots: list[CourtSlot] = []
 
