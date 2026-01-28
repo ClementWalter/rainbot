@@ -150,6 +150,22 @@ async def _booking_job_async() -> None:
         if not requests_to_process:
             return
 
+        # Filter out requests without facility preferences (required for pre-check)
+        valid_requests = []
+        for req in requests_to_process:
+            if not req.facility_preferences:
+                logger.warning(
+                    f"Skipping request {req.id} - no facility preferences " f"(user: {req.user_id})"
+                )
+            else:
+                valid_requests.append(req)
+
+        if not valid_requests:
+            logger.info("No valid requests with facility preferences to process")
+            return
+
+        requests_to_process = valid_requests
+
         # === Pre-check phase (no login) ===
         # Check availability WITHOUT login to save on CAPTCHA costs
         requests_with_availability = await _pre_check_availability(requests_to_process)

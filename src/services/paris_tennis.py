@@ -503,9 +503,11 @@ class ParisTennisService:
             )
 
             if not facility_names:
-                # Can't determine facilities, fail open
-                logger.debug("No facility names resolved, failing open")
-                return True, 0
+                # This should not happen - requests without facilities are filtered upstream
+                logger.error(
+                    "No facility names resolved - request should have facility_preferences"
+                )
+                return False, 0  # No facilities = no availability
 
             # Check ALL facilities in the pre-check phase
             total_slots = 0

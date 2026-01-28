@@ -20,7 +20,9 @@ class RequestCreate(BaseModel):
     time_start: str = Field(..., pattern=r"^\d{1,2}:\d{2}$", description="HH:MM format")
     time_end: str = Field(..., pattern=r"^\d{1,2}:\d{2}$", description="HH:MM format")
     court_type: str = Field(default="any", description="indoor, outdoor, or any")
-    facility_preferences: list[str] = Field(default_factory=list)
+    facility_preferences: list[str] = Field(
+        ..., min_length=1, description="At least one facility code required"
+    )
     partner_name: Optional[str] = None
     partner_email: Optional[str] = None
     active: bool = True
@@ -91,6 +93,13 @@ def create_request(
     requests_svc: SQLiteRequestsService = Depends(get_requests_service),
 ) -> RequestResponse:
     """Create a new booking request."""
+    # Validate facility preferences (required for pre-check optimization)
+    if not data.facility_preferences:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one facility preference is required",
+        )
+
     # Map court type
     court_type_map = {
         "indoor": CourtType.INDOOR,
@@ -150,6 +159,11 @@ def update_request(
         }
         request.court_type = court_type_map.get(data.court_type.lower(), CourtType.ANY)
     if data.facility_preferences is not None:
+        if not data.facility_preferences:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one facility preference is required",
+            )
         request.facility_preferences = data.facility_preferences
     if data.partner_name is not None:
         request.partner_name = data.partner_name
