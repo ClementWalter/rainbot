@@ -1,3 +1,4 @@
-rainbot.fr, www.rainbot.fr {
+# HTTP only - Cloudflare handles SSL (Flexible mode)
+:80 {
     reverse_proxy rainbot-web:8000
 }
