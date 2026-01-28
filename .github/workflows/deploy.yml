@@ -20,8 +20,11 @@ jobs:
             cd /opt/rainbot
             git pull origin master
 
-            # Clean up disk space
-            docker system prune -af
+            # Clean up disk space aggressively
+            docker system prune -af --volumes
+
+            # Also clean old builder cache
+            docker builder prune -af
 
             # Build and deploy scheduler
             docker compose build --no-cache rainbot
