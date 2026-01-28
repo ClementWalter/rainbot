@@ -1,18 +1,12 @@
 """FastAPI Dependencies."""
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.api.auth import TokenData, decode_access_token
-from src.services.google_sheets import GoogleSheetsService, sheets_service
 from src.services.requests_db import SQLiteRequestsService, requests_service
 
 security = HTTPBearer()
-
-
-def get_sheets_service() -> GoogleSheetsService:
-    """Get Google Sheets service instance (for user authentication)."""
-    return sheets_service
 
 
 def get_requests_service() -> SQLiteRequestsService:

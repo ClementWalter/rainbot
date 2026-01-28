@@ -6,9 +6,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.api.deps import get_current_user_id, get_sheets_service
+from src.api.deps import get_current_user_id
 from src.models.booking import Booking
-from src.services.google_sheets import GoogleSheetsService
+from src.services.bookings_db import bookings_service
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
@@ -55,11 +55,9 @@ class BookingResponse(BaseModel):
 @router.get("", response_model=list[BookingResponse])
 def list_bookings(
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
 ) -> list[BookingResponse]:
     """List all bookings for the current user (upcoming and past)."""
-    all_bookings = sheets.get_all_bookings()
-    user_bookings = [b for b in all_bookings if b.user_id == user_id]
+    user_bookings = bookings_service.get_bookings_for_user(user_id)
     # Sort by date descending (most recent first)
     user_bookings.sort(key=lambda b: b.date if b.date else datetime.min, reverse=True)
     return [BookingResponse.from_model(b) for b in user_bookings]
@@ -68,41 +66,21 @@ def list_bookings(
 @router.get("/upcoming", response_model=list[BookingResponse])
 def list_upcoming_bookings(
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
 ) -> list[BookingResponse]:
     """List upcoming bookings for the current user."""
-    from src.utils.timezone import today_paris
-
-    today = today_paris()
-    all_bookings = sheets.get_all_bookings()
-    upcoming = [
-        b for b in all_bookings if b.user_id == user_id and b.date and b.date.date() >= today
-    ]
-    # Sort by date ascending (soonest first)
-    upcoming.sort(key=lambda b: b.date if b.date else datetime.max)
+    upcoming = bookings_service.get_upcoming_bookings_for_user(user_id)
+    # Already sorted by date ascending from the service
     return [BookingResponse.from_model(b) for b in upcoming]
 
 
 @router.post("/refresh", response_model=list[BookingResponse])
 def refresh_bookings(
     user_id: str = Depends(get_current_user_id),
-    sheets: GoogleSheetsService = Depends(get_sheets_service),
 ) -> list[BookingResponse]:
     """
     Refresh and return upcoming bookings for the current user.
 
-    This forces a fresh read from the data source (Google Sheets).
-    Future: could scrape from Paris Tennis profile page.
+    Forces a fresh read from the SQLite database.
     """
-    from src.utils.timezone import today_paris
-
-    # Force a fresh read by clearing any caching (if present)
-    # For now, just re-fetch from sheets
-    today = today_paris()
-    all_bookings = sheets.get_all_bookings()
-    upcoming = [
-        b for b in all_bookings if b.user_id == user_id and b.date and b.date.date() >= today
-    ]
-    # Sort by date ascending (soonest first)
-    upcoming.sort(key=lambda b: b.date if b.date else datetime.max)
+    upcoming = bookings_service.get_upcoming_bookings_for_user(user_id)
     return [BookingResponse.from_model(b) for b in upcoming]
