@@ -78,7 +78,7 @@ class RequestResponse(BaseModel):
 @router.get("", response_model=list[RequestResponse])
 def list_requests(
     user_id: str = Depends(get_current_user_id),
-    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),  # noqa: B008
 ) -> list[RequestResponse]:
     """List all booking requests for the current user."""
     all_requests = requests_svc.get_all_booking_requests()
@@ -90,7 +90,7 @@ def list_requests(
 def create_request(
     data: RequestCreate,
     user_id: str = Depends(get_current_user_id),
-    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),  # noqa: B008
 ) -> RequestResponse:
     """Create a new booking request."""
     # Validate facility preferences (required for pre-check optimization)
@@ -135,7 +135,7 @@ def update_request(
     request_id: str,
     data: RequestUpdate,
     user_id: str = Depends(get_current_user_id),
-    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),  # noqa: B008
 ) -> RequestResponse:
     """Update a booking request."""
     # Find the request
@@ -185,7 +185,7 @@ def update_request(
 def delete_request(
     request_id: str,
     user_id: str = Depends(get_current_user_id),
-    requests_svc: SQLiteRequestsService = Depends(get_requests_service),
+    requests_svc: SQLiteRequestsService = Depends(get_requests_service),  # noqa: B008
 ) -> None:
     """Delete a booking request."""
     request = requests_svc.get_booking_request_by_id(request_id)

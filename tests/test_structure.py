@@ -1,7 +1,5 @@
 """Tests to verify the basic project structure."""
 
-import pytest
-
 
 def test_import_src():
     """Verify src package can be imported."""

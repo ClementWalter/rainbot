@@ -42,6 +42,7 @@ async def create_browser_context(
 
     Returns:
         Tuple of (Browser, BrowserContext)
+
     """
     if headless is None:
         headless = not settings.debug
@@ -90,6 +91,7 @@ async def create_stealth_page(context: BrowserContext) -> Page:
 
     Returns:
         New Page instance
+
     """
     page = await context.new_page()
     return page
@@ -101,6 +103,7 @@ async def close_browser(browser: Browser) -> None:
 
     Args:
         browser: The Browser to close
+
     """
     try:
         await browser.close()
@@ -132,6 +135,7 @@ async def browser_session(
             await page.goto("https://example.com")
             # ... do work ...
         # Browser is automatically closed
+
     """
     async with Stealth().use_async(async_playwright()) as playwright:
         browser, context = await create_browser_context(

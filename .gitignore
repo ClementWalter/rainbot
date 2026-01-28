@@ -19,3 +19,4 @@ geckodriver
 tests/test_booking.py
 .claude/tsc-cache
 data
+.claude/cache/

@@ -111,9 +111,6 @@ async def get_me(
     user_id: str = None,
 ) -> UserInfo:
     """Get current user information."""
-    from fastapi import Depends
-
-    from src.api.deps import get_current_user_id
 
     # This endpoint needs to be called with proper dependency injection
     # For now, return a placeholder

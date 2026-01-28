@@ -29,6 +29,7 @@ class SQLiteRequestsService:
 
         Returns:
             List of all BookingRequest objects, regardless of active status.
+
         """
         conn = get_connection()
         cursor = conn.execute("""
@@ -56,6 +57,7 @@ class SQLiteRequestsService:
 
         Returns:
             List of BookingRequest objects where active=True.
+
         """
         conn = get_connection()
         cursor = conn.execute("""
@@ -87,6 +89,7 @@ class SQLiteRequestsService:
 
         Returns:
             True if successful, False otherwise.
+
         """
         conn = get_connection()
         try:
@@ -133,6 +136,7 @@ class SQLiteRequestsService:
 
         Returns:
             True if successful, False otherwise.
+
         """
         conn = get_connection()
         try:
@@ -190,6 +194,7 @@ class SQLiteRequestsService:
 
         Returns:
             True if successful, False otherwise.
+
         """
         conn = get_connection()
         try:
@@ -219,6 +224,7 @@ class SQLiteRequestsService:
 
         Returns:
             The BookingRequest if found, None otherwise.
+
         """
         conn = get_connection()
         cursor = conn.execute(
@@ -251,6 +257,7 @@ class SQLiteRequestsService:
 
         Returns:
             BookingRequest object.
+
         """
         # Parse facility preferences from JSON
         facility_prefs = []

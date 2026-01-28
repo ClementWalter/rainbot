@@ -18,6 +18,7 @@ def now_paris() -> datetime:
 
     Returns:
         Timezone-aware datetime in Europe/Paris timezone
+
     """
     return datetime.now(PARIS_TZ)
 
@@ -28,6 +29,7 @@ def today_paris() -> date:
 
     Returns:
         Date object for today in Paris timezone
+
     """
     return now_paris().date()
 
@@ -38,5 +40,6 @@ def today_weekday_paris() -> int:
 
     Returns:
         Integer day of week (0=Monday, 6=Sunday)
+
     """
     return now_paris().weekday()

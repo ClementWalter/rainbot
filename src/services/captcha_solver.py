@@ -1540,7 +1540,6 @@ class CaptchaSolverService:
             CaptchaSolveResult with success status.
 
         """
-        from playwright.async_api import Error as PlaywrightError
 
         current_url = page.url
         last_error: Optional[CaptchaSolveResult] = None
@@ -1796,7 +1795,7 @@ class CaptchaSolverService:
                     logger.info("Clicked validate button in iframe")
 
                     # Wait and poll for token from multiple sources
-                    for wait_attempt in range(8):  # 8 seconds total
+                    for _wait_attempt in range(8):  # 8 seconds total
                         await asyncio.sleep(1)
 
                         # Check for token captured via network interception (most reliable)

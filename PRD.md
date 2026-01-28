@@ -94,33 +94,33 @@ Users can view their booking history including:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                         USER SETUP                               │
+│                         USER SETUP                              │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. User registers with their Paris tennis credentials           │
-│  2. User subscribes to the service (payment)                     │
-│  3. User creates booking request(s) with preferences             │
+│  1. User registers with their Paris tennis credentials          │
+│  2. User subscribes to the service (payment)                    │
+│  3. User creates booking request(s) with preferences            │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      AUTOMATED PROCESS                           │
+│                      AUTOMATED PROCESS                          │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Bot monitors for available courts matching criteria          │
-│  2. When match found: Bot logs into user's account               │
-│  3. Bot searches and selects the court                           │
-│  4. Bot solves CAPTCHA verification                              │
-│  5. Bot enters partner details                                   │
-│  6. Bot completes payment with user's ticket carnet              │
-│  7. Bot confirms booking                                         │
+│  1. Bot monitors for available courts matching criteria         │
+│  2. When match found: Bot logs into user's account              │
+│  3. Bot searches and selects the court                          │
+│  4. Bot solves CAPTCHA verification                             │
+│  5. Bot enters partner details                                  │
+│  6. Bot completes payment with user's ticket carnet             │
+│  7. Bot confirms booking                                        │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        NOTIFICATIONS                             │
+│                        NOTIFICATIONS                            │
 ├─────────────────────────────────────────────────────────────────┤
-│  • Booking confirmation sent to user                             │
-│  • Match day reminder sent to user AND partner                   │
-│  • Booking logged in history                                     │
+│  • Booking confirmation sent to user                            │
+│  • Match day reminder sent to user AND partner                  │
+│  • Booking logged in history                                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

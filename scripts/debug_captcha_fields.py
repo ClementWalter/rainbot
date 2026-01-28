@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from selenium.webdriver.common.by import By
 
 from src.models.booking_request import (  # noqa: E402
     BookingRequest,

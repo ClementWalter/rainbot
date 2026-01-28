@@ -11,7 +11,6 @@ Run with: pytest tests/test_live_paris_tennis.py -v -s -m live
 import os
 
 import pytest
-import pytest_asyncio
 from dotenv import load_dotenv
 
 from src.services.paris_tennis import ParisTennisService

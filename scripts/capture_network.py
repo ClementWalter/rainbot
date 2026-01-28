@@ -14,10 +14,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-from webdriver_manager.chrome import ChromeDriverManager
+from selenium import webdriver  # noqa: E402
+from selenium.webdriver.chrome.service import Service  # noqa: E402
+from webdriver_manager.chrome import ChromeDriverManager  # noqa: E402
 
 from src.models.booking_request import (  # noqa: E402
     BookingRequest,
@@ -113,7 +112,7 @@ def main():
 
         # Monitor for URL changes and capture logs
         all_events = []
-        for i in range(120):  # 2 minutes
+        for _i in range(120):  # 2 minutes
             time.sleep(1)
             events = get_network_logs(driver)
             if events:

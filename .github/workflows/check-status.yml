@@ -3,6 +3,8 @@ name: Check VPS Status
 on:
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   check:
     runs-on: ubuntu-latest

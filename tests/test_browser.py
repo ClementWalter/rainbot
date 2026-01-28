@@ -1,6 +1,6 @@
 """Tests for browser utility module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -83,8 +83,6 @@ class TestBrowserSession:
         """Test that browser_session can be used as async context manager."""
         # This tests the interface - actual browser creation is tested in integration tests
         # For unit tests, we just verify the function signature
-        from contextlib import asynccontextmanager
-        from inspect import isasyncgenfunction
 
         # browser_session should be decorated with asynccontextmanager
         assert callable(browser_session)

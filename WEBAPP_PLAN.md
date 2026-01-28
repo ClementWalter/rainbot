@@ -14,14 +14,16 @@ can:
 
 ### Current Google Sheet Structure
 
-**Requests Sheet Columns:** | Column | Field | Type | Description |
-|--------|-------|------|-------------| | Username | user_id | string | User's
-email | | MatchDay | day_of_week | enum | Lundi-Dimanche (0-6) | | HourFrom |
-time_start | int→string | Start hour (8-22) | | HourTo | time_end | int→string |
-End hour (8-22) | | InOut | court_type | enum | Couvert/Découvert/Any | |
-Court_0-4 | facility_preferences | string[] | Preferred courts | |
-Partenaire/full name | partner_name | string | Partner's name | | Active |
-active | boolean | Toggle on/off | | RowID | id | string | Unique identifier |
+**Requests Sheet Columns:**
+
+| Column | Field | Type | Description | |--------|-------|------|-------------|
+| Username | user_id | string | User's email | | MatchDay | day_of_week | enum |
+Lundi-Dimanche (0-6) | | HourFrom | time_start | int→string | Start hour (8-22)
+| | HourTo | time_end | int→string | End hour (8-22) | | InOut | court_type |
+enum | Couvert/Découvert/Any | | Court_0-4 | facility_preferences | string[] |
+Preferred courts | | Partenaire/full name | partner_name | string | Partner's
+name | | Active | active | boolean | Toggle on/off | | RowID | id | string |
+Unique identifier |
 
 **Historique Sheet (Bookings):** | Column | Description |
 |--------|-------------| | ID | Booking UUID | | UserID | Owner's email | |

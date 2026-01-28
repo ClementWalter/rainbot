@@ -3,8 +3,6 @@
 
 import asyncio
 import logging
-import os
-import sys
 
 from dotenv import load_dotenv
 
@@ -16,11 +14,11 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(module)s: %(message)s",
 )
 
-from src.models.booking_request import DayOfWeek
-from src.services.google_sheets import sheets_service
-from src.services.paris_tennis import create_paris_tennis_session
-from src.services.requests_db import requests_service
-from src.utils.timezone import now_paris, today_paris
+from src.models.booking_request import DayOfWeek  # noqa: E402
+from src.services.google_sheets import sheets_service  # noqa: E402
+from src.services.paris_tennis import create_paris_tennis_session  # noqa: E402
+from src.services.requests_db import requests_service  # noqa: E402
+from src.utils.timezone import now_paris, today_paris  # noqa: E402
 
 
 def print_section(title: str) -> None:

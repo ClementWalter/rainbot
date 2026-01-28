@@ -15,7 +15,7 @@ def get_requests_service() -> SQLiteRequestsService:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials = Depends(security),  # noqa: B008
 ) -> TokenData:
     """Get current authenticated user from JWT token."""
     token = credentials.credentials
@@ -23,7 +23,7 @@ def get_current_user(
 
 
 def get_current_user_id(
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),  # noqa: B008
 ) -> str:
     """Get current user ID."""
     return current_user.user_id

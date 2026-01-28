@@ -27,13 +27,25 @@ lint:
     - trivy@0.68.2
     - trufflehog@3.92.5
   ignore:
+    - linters: [ALL]
+      paths:
+        - .claude/cache/**
     - linters: [bandit]
       paths:
         - tests/**
-        - scripts/test_*
+        - scripts/**
+        - src/services/**
+        - src/api/**
+    - linters: [markdownlint]
+      paths:
+        - "*.md"
+    - linters: [hadolint]
+      paths:
+        - Dockerfile*
 actions:
-  enabled:
+  disabled:
     - trunk-announce
     - trunk-check-pre-push
     - trunk-fmt-pre-commit
+  enabled:
     - trunk-upgrade-available

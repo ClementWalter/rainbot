@@ -5,8 +5,8 @@ services:
     container_name: caddy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - 80:80
+      - 443:443
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -53,11 +53,11 @@ services:
 
       # Optional debug mode
       - DEBUG=${DEBUG:-false}
-    shm_size: "2gb"
+    shm_size: 2gb
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
-        max-size: "10m"
+        max-size: 10m
         max-file: "3"
 
   # Web application (API + frontend)
@@ -85,9 +85,9 @@ services:
       # SQLite database path
       - SQLITE_DB_PATH=/app/data/rainbot.db
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
-        max-size: "10m"
+        max-size: 10m
         max-file: "3"
 
 volumes:

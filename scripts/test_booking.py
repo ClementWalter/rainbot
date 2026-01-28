@@ -21,9 +21,13 @@ load_dotenv()
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.models.booking_request import BookingRequest, CourtType, DayOfWeek
-from src.services.paris_tennis import ParisTennisService
-from src.utils.browser import PlaywrightSession
+from src.models.booking_request import (  # noqa: E402
+    BookingRequest,
+    CourtType,
+    DayOfWeek,
+)
+from src.services.paris_tennis import ParisTennisService  # noqa: E402
+from src.utils.browser import PlaywrightSession  # noqa: E402
 
 
 async def main():
