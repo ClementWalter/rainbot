@@ -479,7 +479,13 @@ class ParisTennisService:
             target_date = self._get_next_booking_date(request.day_of_week.value)
 
         try:
-            logger.info(f"Quick availability check for {target_date.strftime('%Y-%m-%d')}")
+            facilities_str = (
+                ", ".join(request.facility_preferences) if request.facility_preferences else "all"
+            )
+            logger.info(
+                f"Quick check: {target_date.strftime('%Y-%m-%d')} "
+                f"{request.time_start}-{request.time_end} | facilities: {facilities_str}"
+            )
 
             when_value = target_date.strftime("%d/%m/%Y")
             hour_range = self._format_hour_range(request.time_start, request.time_end)
@@ -524,7 +530,9 @@ class ParisTennisService:
                 captcha_request_id=None,
             )
 
-            logger.info(f"Quick check: {len(slots)} slots for {facility_names[0]}")
+            logger.info(
+                f"Quick check result: {len(slots)} slots found for facility {facility_names[0]}"
+            )
 
             # If first facility has slots, definitely has availability
             if len(slots) > 0:
@@ -533,9 +541,10 @@ class ParisTennisService:
             # If first facility has no slots but there are other facilities,
             # fail open because we didn't check all facilities
             if len(facility_names) > 1:
+                other_facilities = ", ".join(facility_names[1:])
                 logger.info(
-                    f"First facility ({facility_names[0]}) has no slots, "
-                    f"but {len(facility_names) - 1} other facilities not checked - failing open"
+                    f"No slots for {facility_names[0]}, but {len(facility_names) - 1} "
+                    f"other facilities not checked ({other_facilities}) - failing open"
                 )
                 return True, 0
 

@@ -89,12 +89,26 @@ async def _pre_check_availability(
                     results[request.id] = checked_dates[day]
                     continue
 
+                # Get target date for logging
+                target_date = tennis_service._get_next_booking_date(day)
+                day_name = DAY_OF_WEEK_FRENCH.get(day, f"day_{day}")
+                facilities_str = (
+                    ", ".join(request.facility_preferences)
+                    if request.facility_preferences
+                    else "all"
+                )
+
+                logger.info(
+                    f"Pre-check [{request.id[:8]}]: {day_name} {target_date.strftime('%Y-%m-%d')} "
+                    f"{request.time_start}-{request.time_end} | facilities: {facilities_str}"
+                )
+
                 has_slots, count = await tennis_service.check_availability_quick(request)
                 checked_dates[day] = has_slots
                 results[request.id] = has_slots
 
                 logger.info(
-                    f"Pre-check {request.id}: day={day}, " f"has_slots={has_slots}, count={count}"
+                    f"Pre-check [{request.id[:8]}] result: has_slots={has_slots}, count={count}"
                 )
 
     except Exception as e:
@@ -210,9 +224,25 @@ async def _process_booking_request_async(
 
     """
     try:
+        # Log what we're about to book
+        target_date = None  # Will be computed by tennis_service
+        day_name = DAY_OF_WEEK_FRENCH.get(request.day_of_week.value, request.day_of_week.name)
+        facilities_str = (
+            ", ".join(request.facility_preferences) if request.facility_preferences else "any"
+        )
+        logger.info(
+            f"Processing [{request.id[:8]}] for {user.email}: "
+            f"{day_name} {request.time_start}-{request.time_end} | "
+            f"facilities: {facilities_str} | court_type: {request.court_type.value}"
+        )
+
         async with create_paris_tennis_session() as tennis_service:
-            # Login to Paris Tennis
-            logger.info(f"Logging in for user {user.email}")
+            # Compute target date for logging
+            target_date = tennis_service._get_next_booking_date(request.day_of_week.value)
+            logger.info(
+                f"Logging in for {user.email} to book {target_date.strftime('%Y-%m-%d')} "
+                f"({day_name} {request.time_start}-{request.time_end})"
+            )
             login_success = await tennis_service.login(
                 user.paris_tennis_email, user.paris_tennis_password
             )
@@ -232,11 +262,17 @@ async def _process_booking_request_async(
                 return False
 
             # Search for available courts
-            logger.info(f"Searching for courts matching request {request.id}")
+            logger.info(
+                f"Searching courts: {target_date.strftime('%Y-%m-%d')} "
+                f"{request.time_start}-{request.time_end} | facilities: {facilities_str}"
+            )
             available_slots = await tennis_service.search_available_courts(request)
 
             if not available_slots:
-                logger.info(f"No available slots found for request {request.id}")
+                logger.info(
+                    f"No slots found for {target_date.strftime('%Y-%m-%d')} "
+                    f"{request.time_start}-{request.time_end}"
+                )
                 logs_service.log_info(
                     user.id,
                     "Aucun creneau disponible trouve",
