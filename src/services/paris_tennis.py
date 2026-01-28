@@ -173,6 +173,9 @@ FACILITY_CODE_TO_NAME = {
     "567": "Halle Fret",
 }
 
+# Reverse mapping: facility name to code
+FACILITY_NAME_TO_CODE = {v: k for k, v in FACILITY_CODE_TO_NAME.items()}
+
 
 def _normalize_court_type_text(value: str) -> str:
     if not value:
@@ -540,15 +543,17 @@ class ParisTennisService:
             hour_range = self._format_hour_range(request.time_start, request.time_end)
             sel_in_out = self._get_indoor_outdoor_values(request.court_type)
 
-            await self.page.goto(self.search_url)
-            await self._accept_cookie_banner()
+            # Resolve facility names using static mapping (no page needed)
+            facility_names = []
+            for pref in request.facility_preferences:
+                if pref in FACILITY_CODE_TO_NAME:
+                    facility_names.append(FACILITY_CODE_TO_NAME[pref])
+                else:
+                    facility_names.append(pref)
 
-            facility_names = await self._resolve_facility_preferences(request)
-            await self._ensure_search_results_page(
-                target_date=target_date,
-                facility_names=facility_names if facility_names else None,
-                hour_range=hour_range,
-                sel_in_out=sel_in_out,
+            logger.info(
+                f"Resolved facility codes via static mapping: "
+                f"{request.facility_preferences} -> {facility_names}"
             )
 
             if not facility_names:
@@ -558,53 +563,46 @@ class ParisTennisService:
                 )
                 return False, 0  # No facilities = no availability
 
-            logger.info(f"Resolved facility names for pre-check: {facility_names}")
-
-            # Check ALL facilities in the pre-check phase
-            total_slots = 0
-            facilities_checked = 0
-
-            for facility_name in facility_names:
-                html = await self._fetch_availability_html_no_captcha(
-                    hour_range=hour_range,
-                    when_value=when_value,
-                    facility_name=facility_name,
-                    sel_in_out=sel_in_out,
-                    sel_coating=[],
-                )
-
-                if html is None:
-                    # Failed or CAPTCHA on this facility - fail open
-                    logger.warning(f"Quick check failed for facility {facility_name}, failing open")
-                    return True, 0
-
-                # Parse and filter slots
-                slots = self._parse_available_slots_html(
-                    html=html,
-                    facility_name=facility_name,
-                    target_date=target_date,
-                    request=request,
-                    captcha_request_id=None,
-                )
-
-                facilities_checked += 1
-                slot_count = len(slots)
-                total_slots += slot_count
-
-                if slot_count > 0:
-                    logger.info(
-                        f"Quick check: {slot_count} slots found at {facility_name} - "
-                        f"availability confirmed"
-                    )
-                    return True, total_slots
-                else:
-                    logger.info(f"Quick check: 0 slots at {facility_name}")
-
-            # All facilities checked, no slots found anywhere
-            logger.info(
-                f"Quick check complete: 0 slots across {facilities_checked} facilities - "
-                f"NO AVAILABILITY"
+            # Navigate directly to search results via POST (no form filling needed)
+            await self._navigate_to_search_results_via_post(
+                target_date=target_date,
+                facility_names=facility_names,
+                hour_range=hour_range,
+                sel_in_out=sel_in_out,
             )
+
+            # Simple check: look for "Se connecter" buttons which indicate available slots
+            # These buttons appear when a slot is available but user needs to login to book
+            # Button can be direct or nested inside <a> tags
+            login_buttons = self.page.locator("button.btn-darkblue:has-text('Se connecter')")
+            slot_count = await login_buttons.count()
+
+            # Also check for the booking div structure
+            if slot_count == 0:
+                booking_divs = self.page.locator(".button.book button:has-text('Se connecter')")
+                slot_count = await booking_divs.count()
+
+            if slot_count > 0:
+                logger.info(
+                    f"Quick check: {slot_count} 'Se connecter' buttons found - "
+                    f"AVAILABILITY CONFIRMED"
+                )
+                return True, slot_count
+
+            # No login buttons found - check if page loaded correctly
+            # Look for any indication that this is a valid results page
+            results_indicators = self.page.locator(
+                ".tennis-name, .court-info, .slot-info, #mapContent"
+            )
+            indicator_count = await results_indicators.count()
+
+            if indicator_count == 0:
+                # Page might not have loaded correctly - fail open
+                logger.warning("Quick check: No results indicators found, failing open")
+                return True, 0
+
+            # Results page loaded but no available slots
+            logger.info(f"Quick check complete: 0 'Se connecter' buttons - NO AVAILABILITY")
             return False, 0
 
         except Exception as e:
@@ -713,78 +711,38 @@ class ParisTennisService:
         try:
             logger.info(f"Searching courts for {target_date.strftime('%Y-%m-%d')}")
 
-            when_value = target_date.strftime("%d/%m/%Y")
             hour_range = self._format_hour_range(request.time_start, request.time_end)
             sel_in_out = self._get_indoor_outdoor_values(request.court_type)
 
-            # Navigate to search page and load results context
-            await self.page.goto(self.search_url)
-            await self._accept_cookie_banner()
+            # Resolve facility names using static mapping
+            facility_names = []
+            for pref in request.facility_preferences:
+                if pref in FACILITY_CODE_TO_NAME:
+                    facility_names.append(FACILITY_CODE_TO_NAME[pref])
+                else:
+                    facility_names.append(pref)
 
-            facility_names = await self._resolve_facility_preferences(request)
-            captcha_request_id = await self._ensure_search_results_page(
+            if not facility_names:
+                logger.warning("No facility preferences - cannot search")
+                return []
+
+            logger.info(f"Resolved facilities: {facility_names}")
+
+            # Navigate directly to search results via POST
+            await self._navigate_to_search_results_via_post(
                 target_date=target_date,
-                facility_names=facility_names if facility_names else None,
+                facility_names=facility_names,
                 hour_range=hour_range,
                 sel_in_out=sel_in_out,
             )
 
-            sel_coating = self._get_surface_values()
-            if not facility_names:
-                facility_names = await self._resolve_facility_preferences(request)
+            # Parse slots from results page DOM
+            available_slots = await self._parse_slots_from_results_page(
+                target_date=target_date,
+                request=request,
+            )
 
-            if not facility_names:
-                logger.warning("No facility preferences resolved; falling back to DOM parsing")
-                available_slots = await self._parse_all_results(target_date, request)
-                available_slots = self._filter_slots_by_facility_preferences(
-                    available_slots, request
-                )
-                available_slots = self._sort_available_slots(available_slots, request)
-                logger.info(f"Found {len(available_slots)} available slots (DOM fallback)")
-                return available_slots
-
-            consecutive_failures = 0
-            max_consecutive_failures = 3
-            for facility_name in facility_names:
-                html, captcha_request_id = await self._fetch_availability_html(
-                    hour_range=hour_range,
-                    when_value=when_value,
-                    facility_name=facility_name,
-                    sel_in_out=sel_in_out,
-                    sel_coating=sel_coating,
-                    captcha_request_id=captcha_request_id,
-                )
-                if not html:
-                    consecutive_failures += 1
-                    if consecutive_failures >= max_consecutive_failures:
-                        logger.warning(
-                            "Too many consecutive AJAX failures (%d); "
-                            "falling back to DOM parsing",
-                            consecutive_failures,
-                        )
-                        break
-                    continue
-                consecutive_failures = 0  # Reset on success
-                slots = self._parse_available_slots_html(
-                    html=html,
-                    facility_name=facility_name,
-                    target_date=target_date,
-                    request=request,
-                    captcha_request_id=captcha_request_id,
-                )
-                available_slots.extend(slots)
-
-            available_slots = self._filter_slots_by_facility_preferences(available_slots, request)
-
-            if not available_slots:
-                logger.info(
-                    "AJAX availability search returned no slots; falling back to DOM parsing"
-                )
-                available_slots = await self._parse_all_results(target_date, request)
-                available_slots = self._filter_slots_by_facility_preferences(
-                    available_slots, request
-                )
-
+            # Sort by facility preferences
             available_slots = self._sort_available_slots(available_slots, request)
 
             logger.info(f"Found {len(available_slots)} available slots")
@@ -853,6 +811,232 @@ class ParisTennisService:
             return await self._get_captcha_request_id()
         except (PlaywrightTimeoutError, PlaywrightError):
             return None
+
+    async def _navigate_to_search_results_via_post(
+        self,
+        target_date: datetime,
+        facility_names: list[str],
+        hour_range: str,
+        sel_in_out: list[str],
+    ) -> None:
+        """Navigate to search results page via direct POST (bypasses form UI)."""
+        results_url = urljoin(
+            self.search_url, "Portal.jsp?page=recherche&action=rechercher_creneau"
+        )
+        when_value = target_date.strftime("%d/%m/%Y")
+
+        # All coating types (surface types)
+        sel_coating = ["96", "2095", "94", "1324", "2016", "92"]
+
+        # Build form data
+        form_data = {
+            "where": ", ".join(facility_names),
+            "when": when_value,
+            "hourRange": hour_range,
+        }
+
+        # Navigate to search page first to get cookies/session
+        await self.page.goto(self.search_url)
+        await self._accept_cookie_banner()
+
+        # Submit form via JavaScript POST
+        await self.page.evaluate(
+            """([url, formData, facilityNames, selInOut, selCoating]) => {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = url;
+                form.style.display = 'none';
+
+                // Add simple fields
+                Object.entries(formData).forEach(([name, value]) => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = name;
+                    input.value = value;
+                    form.appendChild(input);
+                });
+
+                // Add multiple selWhereTennisName values
+                facilityNames.forEach(name => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'selWhereTennisName';
+                    input.value = name;
+                    form.appendChild(input);
+                });
+
+                // Add multiple selInOut values
+                selInOut.forEach(value => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'selInOut';
+                    input.value = value;
+                    form.appendChild(input);
+                });
+
+                // Add multiple selCoating values
+                selCoating.forEach(value => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'selCoating';
+                    input.value = value;
+                    form.appendChild(input);
+                });
+
+                document.body.appendChild(form);
+                form.submit();
+            }""",
+            [results_url, form_data, facility_names, sel_in_out, sel_coating],
+        )
+
+        # Wait for navigation to results page
+        try:
+            await self.page.wait_for_url(f"**{SEARCH_RESULTS_QUERY}**", timeout=10000)
+        except PlaywrightTimeoutError:
+            logger.warning("Timeout waiting for search results page after POST")
+
+        await asyncio.sleep(1)  # Let page fully load
+
+    async def _parse_slots_from_results_page(
+        self,
+        target_date: datetime,
+        request: BookingRequest,
+    ) -> list[CourtSlot]:
+        """
+        Parse available slots from the search results page DOM.
+
+        Looks for "Se connecter" buttons which indicate available slots,
+        and extracts facility name, court number, and time from the DOM structure.
+
+        Args:
+            target_date: The target booking date
+            request: BookingRequest to filter by preferences
+
+        Returns:
+            List of CourtSlot objects
+        """
+        slots: list[CourtSlot] = []
+
+        # Extract slot info from DOM using JavaScript
+        slots_data = await self.page.evaluate("""
+            (() => {
+                const slots = [];
+
+                // Find all facility tabs (e.g., "courtListBertrandDauvin")
+                const facilityPanels = document.querySelectorAll('[id^="courtList"]');
+
+                facilityPanels.forEach(panel => {
+                    // Extract facility name from panel ID
+                    const panelId = panel.id;
+                    let facilityName = panelId.replace('courtList', '');
+                    // Add space before capital letters (BertrandDauvin -> Bertrand Dauvin)
+                    facilityName = facilityName.replace(/([A-Z])/g, ' $1').trim();
+
+                    // Find all time slots within this facility
+                    const timeLinks = panel.querySelectorAll('a[data-toggle="collapse"][href*="collapse"]');
+
+                    timeLinks.forEach(link => {
+                        const timeText = link.textContent.trim();
+                        // Parse time like "16h - 17h" -> ["16:00", "17:00"]
+                        const timeMatch = timeText.match(/(\\d{1,2})h\\s*(?:-\\s*(\\d{1,2})h)?/);
+                        if (!timeMatch) return;
+
+                        const startHour = timeMatch[1].padStart(2, '0');
+                        const endHour = timeMatch[2] ? timeMatch[2].padStart(2, '0') : String(parseInt(startHour) + 1).padStart(2, '0');
+                        const timeStart = `${startHour}:00`;
+                        const timeEnd = `${endHour}:00`;
+
+                        const href = link.getAttribute('href') || '';
+                        const collapseId = href.replace('#', '');
+                        const collapsePanel = document.getElementById(collapseId);
+
+                        if (collapsePanel) {
+                            // Find all "Se connecter" buttons (each = one available court)
+                            const loginButtons = collapsePanel.querySelectorAll('button.btn-darkblue');
+
+                            loginButtons.forEach((btn, idx) => {
+                                // Try to find court number
+                                const row = btn.closest('tr, .row, .court-row, .court-item');
+                                let courtNum = String(idx + 1);
+
+                                if (row) {
+                                    const rowText = row.textContent || '';
+                                    const courtMatch = rowText.match(/court\\s*(\\d+)/i) ||
+                                                       rowText.match(/n[°o]\\s*(\\d+)/i) ||
+                                                       rowText.match(/Tennis\\s*(\\d+)/i);
+                                    if (courtMatch) courtNum = courtMatch[1];
+                                }
+
+                                // Try to detect indoor/outdoor from nearby text
+                                const parentText = (row ? row.textContent : btn.closest('.collapse')?.textContent) || '';
+                                const isIndoor = /couvert|indoor|intérieur/i.test(parentText);
+                                const isOutdoor = /découvert|outdoor|extérieur/i.test(parentText);
+                                const courtType = isIndoor ? 'indoor' : (isOutdoor ? 'outdoor' : 'any');
+
+                                slots.push({
+                                    facility: facilityName,
+                                    court: courtNum,
+                                    timeStart: timeStart,
+                                    timeEnd: timeEnd,
+                                    courtType: courtType
+                                });
+                            });
+                        }
+                    });
+                });
+
+                // Fallback: if no structured panels found, count buttons
+                if (slots.length === 0) {
+                    const allButtons = document.querySelectorAll('button.btn-darkblue:has-text("Se connecter"), button.btn-darkblue');
+                    allButtons.forEach((btn, idx) => {
+                        slots.push({
+                            facility: 'Unknown',
+                            court: String(idx + 1),
+                            timeStart: '00:00',
+                            timeEnd: '01:00',
+                            courtType: 'any'
+                        });
+                    });
+                }
+
+                return slots;
+            })()
+        """)
+
+        # Convert to CourtSlot objects
+        for slot_data in slots_data:
+            facility_name = slot_data.get("facility", "Unknown")
+            # Map facility name back to code
+            facility_code = FACILITY_NAME_TO_CODE.get(facility_name, "")
+
+            # Map court type string to enum
+            court_type_str = slot_data.get("courtType", "any")
+            court_type = {
+                "indoor": CourtType.INDOOR,
+                "outdoor": CourtType.OUTDOOR,
+            }.get(court_type_str, CourtType.ANY)
+
+            slot = CourtSlot(
+                facility_name=facility_name,
+                facility_code=facility_code,
+                court_number=slot_data.get("court", "1"),
+                date=target_date,
+                time_start=slot_data.get("timeStart", "00:00"),
+                time_end=slot_data.get("timeEnd", "01:00"),
+                court_type=court_type,
+            )
+            slots.append(slot)
+
+            logger.info(
+                f"Found slot: {facility_name}, court {slot.court_number}, "
+                f"{slot.time_start}-{slot.time_end}"
+            )
+
+        # Filter by request preferences
+        filtered_slots = self._filter_slots_by_request(slots, request)
+
+        logger.info(f"Parsed {len(slots)} slots, {len(filtered_slots)} match preferences")
+        return filtered_slots
 
     async def _solve_captcha_if_present(self) -> bool:
         """Solve CAPTCHA on the current page if detected."""
@@ -2268,6 +2452,37 @@ class ParisTennisService:
         if not request.facility_preferences:
             return slots
         return [slot for slot in slots if self._slot_matches_facility_preferences(slot, request)]
+
+    def _filter_slots_by_request(
+        self,
+        slots: list[CourtSlot],
+        request: BookingRequest,
+    ) -> list[CourtSlot]:
+        """Filter slots by all request preferences (time, court type, facility)."""
+        if not slots:
+            return slots
+
+        filtered = []
+        for slot in slots:
+            # Filter by time range
+            if request.time_start and slot.time_start < request.time_start:
+                continue
+            if request.time_end and slot.time_end > request.time_end:
+                continue
+
+            # Filter by court type
+            if request.court_type != CourtType.ANY:
+                if slot.court_type != CourtType.ANY and slot.court_type != request.court_type:
+                    continue
+
+            # Filter by facility preferences
+            if request.facility_preferences:
+                if not self._slot_matches_facility_preferences(slot, request):
+                    continue
+
+            filtered.append(slot)
+
+        return filtered
 
     async def _set_time_range(self, time_start: str, time_end: str) -> None:
         """Set time range filters if available."""
