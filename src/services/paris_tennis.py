@@ -507,48 +507,51 @@ class ParisTennisService:
                 logger.debug("No facility names resolved, failing open")
                 return True, 0
 
-            # Check first facility only (quick check)
-            html = await self._fetch_availability_html_no_captcha(
-                hour_range=hour_range,
-                when_value=when_value,
-                facility_name=facility_names[0],
-                sel_in_out=sel_in_out,
-                sel_coating=[],
-            )
+            # Check ALL facilities in the pre-check phase
+            total_slots = 0
+            facilities_checked = 0
 
-            if html is None:
-                # Failed or CAPTCHA - fail open, let normal flow handle it
-                logger.debug("AJAX fetch returned None, failing open")
-                return True, 0
-
-            # Parse and filter slots
-            slots = self._parse_available_slots_html(
-                html=html,
-                facility_name=facility_names[0],
-                target_date=target_date,
-                request=request,
-                captcha_request_id=None,
-            )
-
-            logger.info(
-                f"Quick check result: {len(slots)} slots found for facility {facility_names[0]}"
-            )
-
-            # If first facility has slots, definitely has availability
-            if len(slots) > 0:
-                return True, len(slots)
-
-            # If first facility has no slots but there are other facilities,
-            # fail open because we didn't check all facilities
-            if len(facility_names) > 1:
-                other_facilities = ", ".join(facility_names[1:])
-                logger.info(
-                    f"No slots for {facility_names[0]}, but {len(facility_names) - 1} "
-                    f"other facilities not checked ({other_facilities}) - failing open"
+            for facility_name in facility_names:
+                html = await self._fetch_availability_html_no_captcha(
+                    hour_range=hour_range,
+                    when_value=when_value,
+                    facility_name=facility_name,
+                    sel_in_out=sel_in_out,
+                    sel_coating=[],
                 )
-                return True, 0
 
-            # Only one facility and it has no slots - definitively no availability
+                if html is None:
+                    # Failed or CAPTCHA on this facility - fail open
+                    logger.warning(f"Quick check failed for facility {facility_name}, failing open")
+                    return True, 0
+
+                # Parse and filter slots
+                slots = self._parse_available_slots_html(
+                    html=html,
+                    facility_name=facility_name,
+                    target_date=target_date,
+                    request=request,
+                    captcha_request_id=None,
+                )
+
+                facilities_checked += 1
+                slot_count = len(slots)
+                total_slots += slot_count
+
+                if slot_count > 0:
+                    logger.info(
+                        f"Quick check: {slot_count} slots found at {facility_name} - "
+                        f"availability confirmed"
+                    )
+                    return True, total_slots
+                else:
+                    logger.info(f"Quick check: 0 slots at {facility_name}")
+
+            # All facilities checked, no slots found anywhere
+            logger.info(
+                f"Quick check complete: 0 slots across {facilities_checked} facilities - "
+                f"NO AVAILABILITY"
+            )
             return False, 0
 
         except Exception as e:
