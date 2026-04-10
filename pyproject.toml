@@ -1,0 +1,28 @@
+[project]
+name = "paris-tennis-api"
+version = "0.1.0"
+description = "Unofficial Python API for tennis.paris.fr with booking and profile automation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12.3",
+  "lxml>=5.2.2",
+  "playwright>=1.53.0",
+  "python-dotenv>=1.0.1",
+  "requests>=2.32.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.3"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paris_tennis_api"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = ["e2e: marks live end-to-end tests that hit tennis.paris.fr"]

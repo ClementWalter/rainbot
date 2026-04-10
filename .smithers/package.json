@@ -1,0 +1,25 @@
+{
+  "name": "smithers-workflows",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "workflow:list": "smithers workflow list",
+    "workflow:run": "smithers workflow run",
+    "workflow:implement": "smithers workflow implement"
+  },
+  "dependencies": {
+    "smithers-orchestrator": "latest",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.0",
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
+    "@types/mdx": "2.0.0"
+  },
+  "overrides": {
+    "diff": "8.0.4",
+    "file-type": "22.0.1"
+  }
+}

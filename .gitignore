@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+*.log
+.DS_Store
+smithers.db
+smithers.db-shm
+smithers.db-wal
