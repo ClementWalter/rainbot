@@ -15,6 +15,8 @@ from paris_tennis_api.models import (
     SearchCatalog,
     SearchResult,
     SlotOffer,
+    TicketAvailability,
+    TicketAvailabilitySummary,
     TennisCourt,
     TennisVenue,
 )
@@ -218,6 +220,41 @@ def parse_profile_reservation(html: str) -> ReservationSummary:
         cancellation_token=cancellation_token,
         raw_text=raw_text,
     )
+
+
+def parse_ticket_availability(html: str) -> TicketAvailabilitySummary:
+    """Parse ticket balances from the profile ticket tab.
+
+    The page structure changes over time, so the parser keeps flexible row
+    extraction and only keeps rows that look like balance lines.
+    """
+
+    soup = BeautifulSoup(html, "lxml")
+    raw_text = soup.get_text(" ", strip=True)
+
+    tickets: list[TicketAvailability] = []
+    seen: set[tuple[str, str]] = set()
+    for row in soup.select("table tr"):
+        cells = [
+            cell.get_text(" ", strip=True)
+            for cell in row.select("th, td")
+            if cell.get_text(" ", strip=True)
+        ]
+        if len(cells) < 2:
+            continue
+
+        label = cells[0]
+        remaining = cells[-1]
+        if not re.search(r"\d", remaining):
+            continue
+
+        key = (label, remaining)
+        if key in seen:
+            continue
+        seen.add(key)
+        tickets.append(TicketAvailability(label=label, remaining=remaining))
+
+    return TicketAvailabilitySummary(tickets=tuple(tickets), raw_text=raw_text)
 
 
 def parse_captcha_form_fields(html: str) -> dict[str, str]:

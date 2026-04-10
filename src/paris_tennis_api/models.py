@@ -108,6 +108,22 @@ class ReservationSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class TicketAvailability:
+    """A single user ticket entry with remaining balance text."""
+
+    label: str
+    remaining: str
+
+
+@dataclass(frozen=True, slots=True)
+class TicketAvailabilitySummary:
+    """Structured ticket balances extracted from the ticket profile tab."""
+
+    tickets: tuple[TicketAvailability, ...]
+    raw_text: str
+
+
+@dataclass(frozen=True, slots=True)
 class AntiBotConfig:
     """Captcha configuration extracted from LI_ANTIBOT initialization."""
 

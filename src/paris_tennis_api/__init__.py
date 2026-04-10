@@ -7,6 +7,8 @@ from paris_tennis_api.models import (
     ReservationSummary,
     SearchRequest,
     SlotOffer,
+    TicketAvailability,
+    TicketAvailabilitySummary,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "ReservationSummary",
     "SearchRequest",
     "SlotOffer",
+    "TicketAvailability",
+    "TicketAvailabilitySummary",
 ]

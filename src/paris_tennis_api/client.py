@@ -27,12 +27,14 @@ from paris_tennis_api.models import (
     SearchRequest,
     SearchResult,
     SlotOffer,
+    TicketAvailabilitySummary,
 )
 from paris_tennis_api.parsers import (
     parse_antibot_config,
     parse_profile_reservation,
     parse_search_catalog,
     parse_search_result,
+    parse_ticket_availability,
 )
 
 BASE_URL = "https://tennis.paris.fr/tennis/"
@@ -366,6 +368,12 @@ class ParisTennisClient:
 
         html = self.get_profile_tab(ProfileTab.MA_RESERVATION)
         return parse_profile_reservation(html)
+
+    def get_available_tickets(self) -> TicketAvailabilitySummary:
+        """Return parsed available ticket balances from the profile tab."""
+
+        html = self.get_profile_tab(ProfileTab.CARNET_RESERVATION)
+        return parse_ticket_availability(html)
 
     def cancel_current_reservation(self) -> bool:
         """Cancel active reservation if present and return final no-reservation state."""

@@ -12,6 +12,9 @@ dependencies = [
   "requests>=2.32.3",
 ]
 
+[project.scripts]
+paris-tennis = "paris_tennis_api.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.3.3"]
 

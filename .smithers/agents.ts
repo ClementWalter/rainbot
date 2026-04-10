@@ -1,10 +1,10 @@
 // smithers-source: generated
 import {
+  AmpAgent,
   ClaudeCodeAgent,
   CodexAgent,
   GeminiAgent,
   PiAgent,
-  AmpAgent,
   type AgentLike,
 } from "smithers-orchestrator";
 
@@ -18,7 +18,7 @@ export const providers = {
 } as const;
 
 export const agents = {
-  cheapFast: [providers.claudeSonnet, providers.gemini],
-  smart: [providers.codex, providers.claude, providers.gemini],
-  smartTool: [providers.claude, providers.codex, providers.gemini],
+  cheapFast: [providers.claudeSonnet],
+  smart: [providers.codex, providers.claude],
+  smartTool: [providers.claude, providers.codex],
 } as const satisfies Record<string, AgentLike[]>;
