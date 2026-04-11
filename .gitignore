@@ -8,3 +8,4 @@ __pycache__/
 smithers.db
 smithers.db-shm
 smithers.db-wal
+data/

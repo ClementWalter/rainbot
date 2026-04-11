@@ -15,10 +15,10 @@ from paris_tennis_api.models import (
     SearchCatalog,
     SearchResult,
     SlotOffer,
-    TicketAvailability,
-    TicketAvailabilitySummary,
     TennisCourt,
     TennisVenue,
+    TicketAvailability,
+    TicketAvailabilitySummary,
 )
 
 

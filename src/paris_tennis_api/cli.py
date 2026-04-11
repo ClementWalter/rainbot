@@ -42,7 +42,9 @@ def build_parser(*, env: Mapping[str, str] | None = None) -> argparse.ArgumentPa
     )
     parser.add_argument(
         "--username",
-        default=_first_env_value(env_map, "PARIS_TENNIS_USERNAME", "PARIS_TENNIS_EMAIL"),
+        default=_first_env_value(
+            env_map, "PARIS_TENNIS_USERNAME", "PARIS_TENNIS_EMAIL"
+        ),
         help="Login username (defaults to PARIS_TENNIS_USERNAME then PARIS_TENNIS_EMAIL).",
     )
     parser.add_argument(
@@ -108,7 +110,9 @@ def build_parser(*, env: Mapping[str, str] | None = None) -> argparse.ArgumentPa
 def _add_search_arguments(parser: argparse.ArgumentParser) -> None:
     """Keep search/book argument shape identical so both commands stay predictable."""
 
-    parser.add_argument("--venue", required=True, help="Exact venue name from list-courts.")
+    parser.add_argument(
+        "--venue", required=True, help="Exact venue name from list-courts."
+    )
     parser.add_argument("--date", required=True, help="Date in DD/MM/YYYY format.")
     parser.add_argument(
         "--hour-start",
@@ -162,7 +166,9 @@ def _validate_common_credentials(args: argparse.Namespace) -> None:
         )
 
 
-def _build_search_request(args: argparse.Namespace, catalog: SearchCatalog) -> SearchRequest:
+def _build_search_request(
+    args: argparse.Namespace, catalog: SearchCatalog
+) -> SearchRequest:
     """Default optional filters from live catalog so command users can keep flags minimal."""
 
     return SearchRequest(
@@ -232,13 +238,13 @@ def _handle_book(client: ParisTennisClient, args: argparse.Namespace) -> int:
     if not result.slots:
         raise BookingError("No slots available for the provided filters.")
     if not result.captcha_request_id:
-        raise BookingError("Search did not return captchaRequestId; booking is not possible.")
+        raise BookingError(
+            "Search did not return captchaRequestId; booking is not possible."
+        )
 
     selected_index = args.slot_index - 1
     if selected_index < 0 or selected_index >= len(result.slots):
-        raise ValidationError(
-            f"slot-index must be between 1 and {len(result.slots)}."
-        )
+        raise ValidationError(f"slot-index must be between 1 and {len(result.slots)}.")
 
     slot = result.slots[selected_index]
     _log_slot(index=args.slot_index, slot=slot)

@@ -1,0 +1,122 @@
+{% extends "base.html" %} {% block title %}Saved Searches · RainClaude Tennis{%
+endblock %} {% block content %}
+<section class="card">
+  <h2>New saved search</h2>
+  <p class="muted">Set one booking alarm and toggle it on/off any time.</p>
+  <form method="post" action="/searches" class="stack-form">
+    <label>
+      Label
+      <input type="text" name="label" placeholder="Morning clay" required />
+    </label>
+    <label>
+      Venue name
+      <input
+        type="text"
+        name="venue_name"
+        placeholder="Alain Mimoun"
+        required
+      />
+    </label>
+    <label>
+      Date (DD/MM/YYYY)
+      <input type="text" name="date_iso" placeholder="12/04/2026" required />
+    </label>
+    <div class="grid two-col">
+      <label>
+        Hour start
+        <input
+          type="number"
+          name="hour_start"
+          min="0"
+          max="23"
+          value="8"
+          required
+        />
+      </label>
+      <label>
+        Hour end
+        <input
+          type="number"
+          name="hour_end"
+          min="1"
+          max="24"
+          value="22"
+          required
+        />
+      </label>
+    </div>
+    <label>
+      Surface IDs (comma-separated)
+      <input type="text" name="surface_ids" placeholder="1324" />
+    </label>
+    <label>
+      Indoor/outdoor codes (comma-separated)
+      <input type="text" name="in_out_codes" placeholder="V" />
+    </label>
+    <label>
+      Slot index to book
+      <input type="number" name="slot_index" min="1" value="1" required />
+    </label>
+    <button type="submit" class="primary-button">Save search</button>
+  </form>
+</section>
+
+<section class="card">
+  <div class="row-space-between">
+    <h2>My saved searches</h2>
+    {% if not captcha_configured %}
+    <span class="pill warning">Booking disabled: missing captcha key</span>
+    {% endif %}
+  </div>
+  {% if not searches %}
+  <p class="muted">No saved searches yet.</p>
+  {% endif %}
+  <div class="stack-list">
+    {% for search in searches %}
+    <article
+      class="search-card {% if search.is_active %}is-active{% else %}is-inactive{% endif %}"
+    >
+      <header>
+        <h3>{{ search.label }}</h3>
+        <span
+          class="pill {% if search.is_active %}success{% else %}muted{% endif %}"
+        >
+          {% if search.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </header>
+      <p>
+        {{ search.venue_name }} · {{ search.date_iso }} · {{ search.hour_start
+        }}-{{ search.hour_end }}
+      </p>
+      <p class="muted">
+        surfaces={{ search.surface_ids|join(',') or 'any' }} · in/out={{
+        search.in_out_codes|join(',') or 'any' }} · slot={{ search.slot_index }}
+      </p>
+      <div class="button-row">
+        <form action="/searches/{{ search.id }}/toggle" method="post">
+          <button type="submit" class="secondary-button">Toggle</button>
+        </form>
+        <form action="/searches/{{ search.id }}/book" method="post">
+          <button
+            type="submit"
+            class="primary-button"
+            {%
+            if
+            not
+            captcha_configured
+            %}disabled{%
+            endif
+            %}
+          >
+            Book now
+          </button>
+        </form>
+        <form action="/searches/{{ search.id }}/delete" method="post">
+          <button type="submit" class="danger-button">Delete</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

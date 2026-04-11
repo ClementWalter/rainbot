@@ -2,6 +2,8 @@
 
 Unofficial Python API over `https://tennis.paris.fr/` for login, search, booking, profile access, and cancellation.
 
+The repository now also contains a mobile-first web app built on FastAPI + Jinja templates + SQLite for a low-maintenance local/deployment stack.
+
 ## Setup
 
 ```bash
@@ -39,6 +41,31 @@ uv run paris-tennis --username "$PARIS_TENNIS_EMAIL" --password "$PARIS_TENNIS_P
 uv run paris-tennis --username "$PARIS_TENNIS_EMAIL" --password "$PARIS_TENNIS_PASSWORD" cancel
 uv run paris-tennis --username "$PARIS_TENNIS_EMAIL" --password "$PARIS_TENNIS_PASSWORD" tickets
 ```
+
+## Web app usage
+
+Run the full local web stack:
+
+```bash
+uv run paris-tennis-webapp --reload
+```
+
+Open `http://127.0.0.1:8000`.
+
+Behavior:
+
+- Login uses allow-listed Paris Tennis credentials stored in clear text in SQLite.
+- First launch exposes a one-time bootstrap form to create the initial admin.
+- Users can save booking searches and toggle them active/inactive.
+- History page shows pending reservation live from Paris Tennis (no pending DB cache) plus local booking history recorded when booking through the app.
+- Admins can manage allow-listed users and admin role directly in the app.
+
+Useful env vars:
+
+- `PARIS_TENNIS_WEBAPP_DB` (default `data/paris_tennis_webapp.sqlite3`)
+- `PARIS_TENNIS_WEBAPP_SESSION_SECRET`
+- `PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY` (fallback: `CAPTCHA_API_KEY`)
+- `PARIS_TENNIS_WEBAPP_HEADLESS`, `PARIS_TENNIS_WEBAPP_HOST`, `PARIS_TENNIS_WEBAPP_PORT`
 
 ## Run tests
 
