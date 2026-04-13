@@ -748,85 +748,18 @@ def _payment_page_locator_router(
     return _router
 
 
-def test_submit_payment_step_refuses_when_only_paid_ticket_mode_available(
-    monkeypatch,
-) -> None:
-    """Account without prepaid balance must raise instead of clicking into payfip."""
-
-    client = _authenticated_client()
-    page = MagicMock()
-    page.evaluate.return_value = ["ticket"]
-    missing_card = MagicMock()
-    missing_card.count.return_value = 0
-    submit = MagicMock()
-    page.locator.side_effect = _payment_page_locator_router(
-        cards_by_mode={},
-        missing_card=missing_card,
-        submit=submit,
-    )
-    monkeypatch.setattr(client, "_require_page", lambda: page)
-    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
-    with pytest.raises(BookingError) as excinfo:
-        client._submit_payment_step()
-    # The error must flag that a paid option was deliberately skipped so the
-    # user can decide to top up or book a different venue.
-    assert (
-        submit.click.called is False
-        and "payfip" in str(excinfo.value)
-        and "ticket" in str(excinfo.value)
-    )
-
-
-def test_submit_payment_step_prefers_wallet_over_legacy_existing_ticket(
-    monkeypatch,
-) -> None:
-    """Wallet (current prepaid naming) must win against existingTicket (legacy)."""
-
-    client = _authenticated_client()
-    page = MagicMock()
-    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=reservation_confirmation"
-    page.evaluate.return_value = ["wallet", "wallet", "existingTicket"]
-    wallet_card = MagicMock()
-    wallet_card.count.return_value = 2
-    wallet_card.first = MagicMock()
-    existing_card = MagicMock()
-    existing_card.count.return_value = 1
-    existing_card.first = MagicMock()
-    missing_card = MagicMock()
-    missing_card.count.return_value = 0
-    submit = MagicMock()
-    page.locator.side_effect = _payment_page_locator_router(
-        cards_by_mode={
-            "wallet": wallet_card,
-            "existingTicket": existing_card,
-        },
-        missing_card=missing_card,
-        submit=submit,
-    )
-    monkeypatch.setattr(client, "_require_page", lambda: page)
-    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
-    client._submit_payment_step()
-    assert (
-        wallet_card.first.click.called is True
-        and existing_card.first.click.called is False
-    )
-
-
 def test_submit_payment_step_raises_when_redirected_to_payfip(monkeypatch) -> None:
     """Any payfip redirect must abort the flow so we never silently auto-charge."""
 
     client = _authenticated_client()
     page = MagicMock()
     page.url = "https://www.payfip.gouv.fr/tpa/tpa.web"
-    page.evaluate.return_value = ["wallet"]
-    wallet_card = MagicMock()
-    wallet_card.count.return_value = 1
-    wallet_card.first = MagicMock()
+    page.evaluate.return_value = ["wallet", "ticket"]
     missing_card = MagicMock()
     missing_card.count.return_value = 0
     submit = MagicMock()
     page.locator.side_effect = _payment_page_locator_router(
-        cards_by_mode={"wallet": wallet_card},
+        cards_by_mode={},
         missing_card=missing_card,
         submit=submit,
     )
@@ -858,7 +791,7 @@ def test_submit_payment_step_raises_with_diagnostic_when_url_does_not_advance(
     monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
     with pytest.raises(BookingError) as excinfo:
         client._submit_payment_step()
-    assert "creditCard" in str(excinfo.value)
+    assert "methode_paiement" in str(excinfo.value)
 
 
 def test_clear_pending_booking_handles_reservation_captcha_flow(monkeypatch) -> None:
@@ -1008,10 +941,10 @@ def test_submit_validation_step_fills_two_player_fields(monkeypatch) -> None:
     )
 
 
-def test_submit_payment_step_clicks_existing_ticket_as_legacy_fallback(
+def test_submit_payment_step_clicks_existing_ticket_card_when_present(
     monkeypatch,
 ) -> None:
-    """Legacy accounts that only expose existingTicket must still book successfully."""
+    """Payment helper must click the existingTicket card before final submit."""
 
     client = _authenticated_client()
     page = MagicMock()
