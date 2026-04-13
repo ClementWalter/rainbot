@@ -165,6 +165,14 @@ def test_login_page_redirects_for_authenticated_user(tmp_path: Path) -> None:
     assert response.headers["location"] == "/searches"
 
 
+def test_login_page_renders_for_anonymous_user(tmp_path: Path) -> None:
+    """Anonymous users should receive the login page HTML."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.get("/login")
+    assert response.status_code == 200
+
+
 def test_bootstrap_admin_rejects_when_users_already_exist(tmp_path: Path) -> None:
     """Bootstrap endpoint should be one-time only once any user exists."""
 
@@ -232,6 +240,16 @@ def test_searches_route_redirects_when_anonymous(tmp_path: Path) -> None:
     client, _store = _build_bundle(tmp_path)
     response = client.get("/searches", follow_redirects=False)
     assert response.headers["location"] == "/login"
+
+
+def test_searches_route_renders_for_authenticated_user(tmp_path: Path) -> None:
+    """Authenticated users should receive the saved-searches dashboard page."""
+
+    client, _store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        response = client.get("/searches")
+    assert response.status_code == 200
 
 
 def test_create_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
@@ -436,6 +454,24 @@ def test_admin_users_route_rejects_non_admin_users(tmp_path: Path) -> None:
     assert response.headers["location"] == "/searches"
 
 
+def test_admin_users_route_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous access to admin users page should redirect to login."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.get("/admin/users", follow_redirects=False)
+    assert response.headers["location"] == "/login"
+
+
+def test_admin_users_route_renders_for_admin(tmp_path: Path) -> None:
+    """Admin users page should render successfully for authenticated admins."""
+
+    client, _store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        response = client.get("/admin/users")
+    assert response.status_code == 200
+
+
 def test_admin_create_user_requires_non_empty_fields(tmp_path: Path) -> None:
     """Admin creation route should reject empty required fields."""
 
@@ -470,6 +506,35 @@ def test_admin_create_user_redirects_when_anonymous(tmp_path: Path) -> None:
         follow_redirects=False,
     )
     assert response.headers["location"] == "/login"
+
+
+def test_admin_create_user_rejects_non_admin_user(tmp_path: Path) -> None:
+    """Non-admin users should be blocked from creating new allow-listed accounts."""
+
+    client, store = _build_bundle(tmp_path)
+    store.create_user(
+        display_name="User",
+        paris_username="user4@example.com",
+        paris_password="secret",
+        is_admin=False,
+    )
+    with client:
+        client.post(
+            "/login",
+            data={"paris_username": "user4@example.com", "paris_password": "secret"},
+            follow_redirects=False,
+        )
+        response = client.post(
+            "/admin/users",
+            data={
+                "display_name": "Blocked",
+                "paris_username": "blocked@example.com",
+                "paris_password": "secret",
+                "is_admin": "false",
+            },
+            follow_redirects=False,
+        )
+    assert response.headers["location"] == "/searches"
 
 
 def test_admin_create_user_rejects_duplicate_username(tmp_path: Path) -> None:

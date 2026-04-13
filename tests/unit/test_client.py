@@ -5,12 +5,16 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
-from paris_tennis_api.client import ParisTennisClient
-from paris_tennis_api.exceptions import BookingError
+from paris_tennis_api.client import ParisTennisClient, ProfileTab
+from paris_tennis_api.config import ParisTennisSettings
+from paris_tennis_api.exceptions import AuthenticationError, BookingError
 from paris_tennis_api.models import (
+    AntiBotConfig,
+    AntiBotToken,
     ReservationSummary,
     SearchCatalog,
     SearchRequest,
@@ -74,6 +78,16 @@ class _FakePage:
         """Return deterministic HTML content for parser monkeypatches."""
 
         return self._html
+
+
+class _NoopContext:
+    """Context manager shim for page.expect_navigation in booking flow tests."""
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
 
 
 def _catalog() -> SearchCatalog:
@@ -381,3 +395,421 @@ def test_book_first_available_passes_target_date_to_search(monkeypatch) -> None:
         client.book_first_available(days_in_advance=3, preferred_venues=("Alain Mimoun",))
 
     assert observed["date"] == expected_date
+
+
+def test_from_settings_transfers_runtime_values() -> None:
+    """from_settings should preserve credentials and headless mode on client creation."""
+
+    settings = ParisTennisSettings(
+        email="user@example.com",
+        password="secret",
+        captcha_api_key="captcha",
+        headless=False,
+    )
+    client = ParisTennisClient.from_settings(settings)
+    assert (client._email, client._password, client._headless) == (
+        "user@example.com",
+        "secret",
+        False,
+    )
+
+
+def test_context_manager_opens_and_closes_client(monkeypatch) -> None:
+    """Context manager should call open/close exactly once to manage browser resources."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    state = {"open": 0, "close": 0}
+    monkeypatch.setattr(client, "open", lambda: state.__setitem__("open", state["open"] + 1))
+    monkeypatch.setattr(client, "close", lambda: state.__setitem__("close", state["close"] + 1))
+    with client:
+        pass
+    assert (state["open"], state["close"]) == (1, 1)
+
+
+def test_login_sets_authenticated_flag(monkeypatch) -> None:
+    """Successful login should mark the client as authenticated for protected methods."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    page = MagicMock()
+    page.goto.return_value = SimpleNamespace(status=200)
+    username = MagicMock()
+    username.count.return_value = 1
+    submit = MagicMock()
+    page.locator.side_effect = lambda selector: (
+        username if selector == "#username" else submit
+    )
+    page.content.return_value = "<html>ok</html>"
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_profile_reservation",
+        lambda html: ReservationSummary(
+            has_active_reservation=False,
+            cancellation_token="",
+            raw_text="profile",
+        ),
+    )
+    client.login()
+    assert client._is_authenticated is True
+
+
+def test_login_rejects_http_error(monkeypatch) -> None:
+    """Login entrypoint HTTP failures should raise AuthenticationError."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    page = MagicMock()
+    page.goto.return_value = SimpleNamespace(status=403)
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    with pytest.raises(AuthenticationError):
+        client.login()
+
+
+def test_login_requires_username_input(monkeypatch) -> None:
+    """Missing username input indicates broken auth page and should fail immediately."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    page = MagicMock()
+    page.goto.return_value = SimpleNamespace(status=200)
+    username = MagicMock()
+    username.count.return_value = 0
+    page.locator.return_value = username
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    with pytest.raises(AuthenticationError):
+        client.login()
+
+
+def test_login_rejects_empty_profile_summary(monkeypatch) -> None:
+    """Post-login profile validation should fail when parser returns empty text."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    page = MagicMock()
+    page.goto.return_value = SimpleNamespace(status=200)
+    username = MagicMock()
+    username.count.return_value = 1
+    submit = MagicMock()
+    page.locator.side_effect = lambda selector: (
+        username if selector == "#username" else submit
+    )
+    page.content.return_value = "<html>empty</html>"
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_profile_reservation",
+        lambda html: ReservationSummary(
+            has_active_reservation=False,
+            cancellation_token="",
+            raw_text="",
+        ),
+    )
+    with pytest.raises(AuthenticationError):
+        client.login()
+
+
+def test_book_slot_runs_browser_flow(monkeypatch) -> None:
+    """book_slot should run captcha submission and final step hooks before returning HTML."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.expect_navigation.return_value = _NoopContext()
+    page.content.return_value = "<html>final</html>"
+    page.url = "https://tennis.paris.fr/captcha"
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_antibot_config",
+        lambda html: AntiBotConfig(
+            method="IMAGE",
+            fallback_method="AUDIO",
+            locale="FR",
+            sp_key="sp",
+            base_url="https://captcha.liveidentity.com/captcha",
+            container_id="li-antibot",
+            custom_css_url=None,
+            antibot_id="ab",
+            request_id="rq",
+        ),
+    )
+    client._captcha_solver = MagicMock()
+    client._captcha_solver.solve.return_value = AntiBotToken(
+        container_id="li-antibot",
+        token="token",
+        token_code="code",
+    )
+    monkeypatch.setattr(client, "_submit_validation_step", lambda: None)
+    monkeypatch.setattr(client, "_submit_payment_step", lambda: None)
+    html = client.book_slot(slot=_slot(), captcha_request_id="captcha-request-id")
+    assert html == "<html>final</html>"
+
+
+def test_get_profile_tab_returns_html_when_authenticated(monkeypatch) -> None:
+    """Profile tab helper should navigate and return page HTML for authenticated users."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.content.return_value = "<html>profile</html>"
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    html = client.get_profile_tab(ProfileTab.MA_RESERVATION)
+    assert html == "<html>profile</html>"
+
+
+def test_get_profile_tab_requires_authentication() -> None:
+    """Profile tab helper should reject anonymous client state."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    with pytest.raises(AuthenticationError):
+        client.get_profile_tab(ProfileTab.MA_RESERVATION)
+
+
+def test_get_all_profile_tabs_aggregates_each_enum_tab(monkeypatch) -> None:
+    """Bulk profile helper should map every profile tab to fetched HTML."""
+
+    client = _authenticated_client()
+    monkeypatch.setattr(client, "get_profile_tab", lambda tab: tab.value)
+    tabs = client.get_all_profile_tabs()
+    assert set(tabs) == set(ProfileTab)
+
+
+def test_get_current_reservation_parses_profile_tab(monkeypatch) -> None:
+    """Current reservation should parse MA_RESERVATION tab via parser utility."""
+
+    client = _authenticated_client()
+    monkeypatch.setattr(client, "get_profile_tab", lambda tab: "<html>reservation</html>")
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_profile_reservation",
+        lambda html: ReservationSummary(
+            has_active_reservation=True,
+            cancellation_token="token",
+            raw_text="active",
+        ),
+    )
+    summary = client.get_current_reservation()
+    assert summary.has_active_reservation is True
+
+
+def test_get_available_tickets_parses_ticket_tab(monkeypatch) -> None:
+    """Ticket helper should parse CARNET_RESERVATION tab via ticket parser utility."""
+
+    client = _authenticated_client()
+    monkeypatch.setattr(client, "get_profile_tab", lambda tab: "<html>tickets</html>")
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_ticket_availability",
+        lambda html: SimpleNamespace(tickets=(), raw_text="tickets"),
+    )
+    summary = client.get_available_tickets()
+    assert summary.raw_text == "tickets"
+
+
+def test_cancel_current_reservation_requires_authenticated_client() -> None:
+    """Cancellation should enforce authenticated client state."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    with pytest.raises(AuthenticationError):
+        client.cancel_current_reservation()
+
+
+def test_submit_validation_step_completes_with_minimal_page(monkeypatch) -> None:
+    """Validation step should click submit even when player fields are unavailable."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    players = MagicMock()
+    players.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = lambda selector: players if selector == "input[name='player1']" else submit
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    client._submit_validation_step()
+    assert submit.click.called is True
+
+
+def test_submit_payment_step_handles_missing_ticket_card(monkeypatch) -> None:
+    """Payment step should continue to submit even when ticket card selector is absent."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    card = MagicMock()
+    card.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = lambda selector: card if selector == "table[paymentmode='existingTicket']" else submit
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    client._submit_payment_step()
+    assert submit.click.called is True
+
+
+def test_clear_pending_booking_handles_reservation_captcha_flow(monkeypatch) -> None:
+    """Pending-booking cleanup should solve captcha and call validation+abort steps."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.url = "https://tennis.paris.fr/reservation_captcha/reservation_creneau/methode_paiement"
+    page.expect_navigation.return_value = _NoopContext()
+    page.content.return_value = "<html>captcha</html>"
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_antibot_config",
+        lambda html: AntiBotConfig(
+            method="IMAGE",
+            fallback_method="AUDIO",
+            locale="FR",
+            sp_key="sp",
+            base_url="https://captcha.liveidentity.com/captcha",
+            container_id="li-antibot",
+            custom_css_url=None,
+            antibot_id="ab",
+            request_id="rq",
+        ),
+    )
+    client._captcha_solver = MagicMock()
+    client._captcha_solver.solve.return_value = AntiBotToken(
+        container_id="li-antibot",
+        token="token",
+        token_code="code",
+    )
+    called = {"validation": 0}
+    monkeypatch.setattr(
+        client,
+        "_submit_validation_step",
+        lambda: called.__setitem__("validation", called["validation"] + 1),
+    )
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    client._clear_pending_booking()
+    assert called["validation"] == 1
+
+
+def test_open_initializes_playwright_handles(monkeypatch) -> None:
+    """open() should create playwright, browser, context, and page handles."""
+
+    page = MagicMock()
+    context = MagicMock()
+    context.new_page.return_value = page
+    browser = MagicMock()
+    browser.new_context.return_value = context
+    playwright = MagicMock()
+    playwright.chromium.launch.return_value = browser
+    manager = MagicMock()
+    manager.start.return_value = playwright
+    monkeypatch.setattr("paris_tennis_api.client.sync_playwright", lambda: manager)
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    client.open()
+    assert client._page is page
+
+
+def test_close_clears_playwright_handles() -> None:
+    """close() should reset internal handles to None after cleanup calls."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    client._context = MagicMock()
+    client._browser = MagicMock()
+    client._playwright = MagicMock()
+    client._page = MagicMock()
+    client.close()
+    assert (client._context, client._browser, client._playwright, client._page) == (
+        None,
+        None,
+        None,
+        None,
+    )
+
+
+def test_request_property_raises_when_context_is_missing(monkeypatch) -> None:
+    """Request property should raise when open() does not create a browser context."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    monkeypatch.setattr(client, "open", lambda: None)
+    with pytest.raises(RuntimeError):
+        _ = client._request
+
+
+def test_require_page_raises_when_open_keeps_page_none(monkeypatch) -> None:
+    """_require_page should fail fast when page handle is still unavailable."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    monkeypatch.setattr(client, "open", lambda: None)
+    with pytest.raises(RuntimeError):
+        client._require_page()
+
+
+def test_require_page_returns_existing_page_handle(monkeypatch) -> None:
+    """_require_page should return existing page handle when client is already initialized."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    page = object()
+    client._page = page
+    monkeypatch.setattr(client, "open", lambda: None)
+    assert client._require_page() is page
+
+
+def test_require_authenticated_optional_mode_skips_check() -> None:
+    """optional=True should bypass auth failure for flows that permit anonymous access."""
+
+    client = ParisTennisClient(email="user@example.com", password="pwd", captcha_api_key="captcha")
+    client._require_authenticated(optional=True)
+    assert True
+
+
+def test_submit_validation_step_fills_two_player_fields(monkeypatch) -> None:
+    """Validation helper should fill both partner fields when they are present."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    players = MagicMock()
+    players.count.return_value = 2
+    first = MagicMock()
+    second = MagicMock()
+    players.nth.side_effect = [first, second]
+    submit = MagicMock()
+    page.locator.side_effect = lambda selector: players if selector == "input[name='player1']" else submit
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    client._submit_validation_step()
+    assert (first.fill.call_args.args[0], second.fill.call_args.args[0]) == (
+        "Partenaire",
+        "Test",
+    )
+
+
+def test_submit_payment_step_clicks_ticket_card_when_present(monkeypatch) -> None:
+    """Payment helper should click the ticket card before final submit when available."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    card = MagicMock()
+    card.count.return_value = 1
+    submit = MagicMock()
+    page.locator.side_effect = lambda selector: card if selector == "table[paymentmode='existingTicket']" else submit
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    client._submit_payment_step()
+    assert card.click.called is True
+
+
+def test_book_first_available_falls_back_to_all_venues_when_none_available(monkeypatch) -> None:
+    """Fallback venue selection should include all venues when none are marked available_now."""
+
+    client = _authenticated_client()
+    catalog = _catalog()
+    catalog.venues["Alain Mimoun"] = TennisVenue(
+        venue_id="327",
+        name="Alain Mimoun",
+        available_now=False,
+        courts=(TennisCourt(court_id="3096", name="Court 6"),),
+    )
+    monkeypatch.setattr(client, "get_search_catalog", lambda: catalog)
+    monkeypatch.setattr(
+        client,
+        "search_slots",
+        lambda request: SearchResult(
+            slots=(_slot(),) if request.venue_name == "Alain Mimoun" else (),
+            captcha_request_id="captcha-id",
+        ),
+    )
+    monkeypatch.setattr(client, "book_slot", lambda slot, captcha_request_id: None)
+    monkeypatch.setattr(
+        client,
+        "get_current_reservation",
+        lambda: ReservationSummary(
+            has_active_reservation=True,
+            cancellation_token="token",
+            raw_text="active",
+        ),
+    )
+    reservation = client.book_first_available(days_in_advance=2)
+    assert reservation.venue_name == "Alain Mimoun"
