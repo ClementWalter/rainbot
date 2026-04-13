@@ -160,9 +160,7 @@ def create_app(
             scheduler.stop()
             session_manager.shutdown()
 
-    app = FastAPI(
-        title="RainClaude Tennis Booker", version="0.2.0", lifespan=_lifespan
-    )
+    app = FastAPI(title="Rainbot", version="0.2.0", lifespan=_lifespan)
     app.add_middleware(
         SessionMiddleware,
         secret_key=app_settings.session_secret,

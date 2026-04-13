@@ -170,8 +170,8 @@ export function SearchesPage() {
       <section>
         <h1>Saved searches</h1>
         <p className="muted">
-          Alarms that book Paris Tennis courts on your behalf the moment a
-          slot matching your criteria opens up.
+          Alarms that book courts on your behalf the moment a slot matching
+          your criteria opens up.
         </p>
       </section>
 

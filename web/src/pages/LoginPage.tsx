@@ -53,9 +53,7 @@ export function LoginPage() {
               {needsBootstrap ? "First-run setup" : "Sign in"}
             </span>
             <h1 style={{ marginTop: "0.8rem" }}>
-              {needsBootstrap
-                ? "Welcome — set up your admin"
-                : "Paris Tennis Booker"}
+              {needsBootstrap ? "Welcome — set up your admin" : "Rainbot"}
             </h1>
             <p className="muted">
               {needsBootstrap
@@ -77,14 +75,14 @@ export function LoginPage() {
               />
             ) : null}
             <InputField
-              label="Paris tennis username"
+              label="Tennis username"
               value={parisUsername}
               onChange={(e) => setParisUsername(e.target.value)}
               autoComplete="username"
               required
             />
             <InputField
-              label="Paris tennis password"
+              label="Tennis password"
               type="password"
               value={parisPassword}
               onChange={(e) => setParisPassword(e.target.value)}

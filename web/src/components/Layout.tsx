@@ -1,5 +1,5 @@
-import { NavLink, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useSession } from "../hooks/useSession";
 import { Button } from "./Button";
@@ -22,8 +22,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="brand">
           <div className="brand-mark" aria-hidden />
           <div className="brand-title">
-            <span className="eyebrow">Paris Tennis</span>
-            <span className="name">RainClaude</span>
+            <span className="eyebrow">Sometime it rains</span>
+            <span className="name">Rainbot</span>
           </div>
         </div>
         {user ? (
