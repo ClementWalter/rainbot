@@ -7,10 +7,14 @@
 import type {
   AvailabilityResponse,
   BookingRecord,
+  BurstWindow,
   Catalog,
   MeResponse,
   PendingResponse,
   SavedSearch,
+  SchedulerOverview,
+  SchedulerRun,
+  SchedulerSettings,
   User,
 } from "./types";
 
@@ -137,4 +141,24 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  scheduler: () => request<SchedulerOverview>("/api/admin/scheduler"),
+  updateScheduler: (body: {
+    enabled?: boolean;
+    default_interval_seconds?: number;
+    tick_noise_seconds?: number;
+    burst_windows?: BurstWindow[];
+  }) =>
+    request<{ settings: SchedulerSettings }>("/api/admin/scheduler", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  runScheduler: () =>
+    request<{ summary: Record<string, unknown> }>(
+      "/api/admin/scheduler/run",
+      { method: "POST" },
+    ),
+  schedulerRuns: (limit = 100) =>
+    request<{ runs: SchedulerRun[] }>(
+      `/api/admin/scheduler/runs?limit=${limit}`,
+    ),
 };

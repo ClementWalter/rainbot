@@ -133,11 +133,12 @@ export function HistoryPage() {
                 <span className="pill positive">{record.booked_at}</span>
               </div>
               <p style={{ marginTop: "0.4rem" }}>
-                {record.date_deb} → {record.date_fin}
+                {formatSlotRange(record.date_deb, record.date_fin)}
               </p>
               <p className="muted" style={{ fontSize: "0.85rem" }}>
-                {record.court_name || `court=${record.court_id}`} · price=
-                {record.price_eur} ({record.price_label})
+                {record.court_name || `court=${record.court_id}`} ·{" "}
+                {formatPrice(record.price_eur)}
+                {record.price_label ? ` (${record.price_label})` : ""}
               </p>
             </GlassCard>
           ))
@@ -145,6 +146,46 @@ export function HistoryPage() {
       </section>
     </>
   );
+}
+
+// Tennis bookings come back as "YYYY/MM/DD HH:MM:SS" pairs that always
+// share a date.  Collapse to "YYYY/MM/DD · 18h → 19h" when start/end fall on
+// the same day, and use the long form only when they don't.
+function formatSlotRange(dateDeb: string, dateFin: string): string {
+  const start = parseSlotDate(dateDeb);
+  const end = parseSlotDate(dateFin);
+  if (!start || !end) {
+    return [dateDeb, dateFin].filter(Boolean).join(" → ");
+  }
+  if (start.day === end.day) {
+    return `${start.day} · ${start.time} → ${end.time}`;
+  }
+  return `${start.day} ${start.time} → ${end.day} ${end.time}`;
+}
+
+function parseSlotDate(value: string): { day: string; time: string } | null {
+  if (!value) return null;
+  const [day, time] = value.split(" ");
+  if (!day || !time) return null;
+  return { day, time: shortenHour(time) };
+}
+
+// "18:00:00" → "18h" (tennis slots are always on the hour).  Falls back to
+// "18h00" if the source ever shows non-zero minutes so we don't lose info.
+function shortenHour(value: string): string {
+  const [hour, minute] = value.split(":");
+  if (!hour) return value;
+  if (minute === "00" || minute === undefined) return `${Number(hour)}h`;
+  return `${Number(hour)}h${minute}`;
+}
+
+// "20" → "20€".  If the upstream ever sends "20 €" or "20.00", keep what's
+// there but always tack on the euro sign so layouts stay consistent.
+function formatPrice(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.endsWith("€")) return trimmed;
+  return `${trimmed}€`;
 }
 
 // Pull "Crédit d'absence" / "Nombre d'heures" lines out of the trimmed

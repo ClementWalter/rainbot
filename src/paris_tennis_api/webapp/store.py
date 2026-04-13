@@ -53,6 +53,11 @@ class SavedSearch:
     is_active: bool
     created_at: str
     updated_at: str
+    # Scheduler bookkeeping — populated by the background tick loop.
+    last_attempt_at: str = ""
+    last_success_at: str = ""
+    last_target_date: str = ""
+    failure_count: int = 0
 
     @property
     def venue_name(self) -> str:
@@ -71,6 +76,20 @@ class SavedSearch:
         """Surface filters were removed from UI; keep stable empty tuple for compatibility."""
 
         return ()
+
+
+@dataclass(frozen=True, slots=True)
+class SchedulerRun:
+    """One execution of the background scheduler tick.
+
+    `summary` is JSON text — kept opaque at the store layer so the
+    scheduler can evolve its payload shape without schema migrations.
+    """
+
+    id: int
+    started_at: str
+    finished_at: str
+    summary_json: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +173,19 @@ class WebAppStore:
                     price_eur TEXT NOT NULL,
                     price_label TEXT NOT NULL,
                     booked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS scheduler_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    finished_at TEXT NOT NULL DEFAULT '',
+                    summary TEXT NOT NULL DEFAULT '{}'
                 );
                 """)
             self._migrate_saved_searches_table(connection)
@@ -586,7 +618,151 @@ class WebAppStore:
             is_active=bool(row["is_active"]),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
+            last_attempt_at=str(row["last_attempt_at"]) if "last_attempt_at" in columns else "",
+            last_success_at=str(row["last_success_at"]) if "last_success_at" in columns else "",
+            last_target_date=str(row["last_target_date"]) if "last_target_date" in columns else "",
+            failure_count=int(row["failure_count"]) if "failure_count" in columns else 0,
         )
+
+    # ------------------------------------------------------------------
+    # App settings (k/v) — used by the scheduler for runtime configuration
+    # so admins can tune intervals without restarting the server.
+    # ------------------------------------------------------------------
+
+    def get_app_setting(self, key: str, default: str = "") -> str:
+        """Read one setting value, returning ``default`` for unknown keys."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+        return str(row["value"]) if row else default
+
+    def set_app_setting(self, key: str, value: str) -> None:
+        """Upsert one setting; ``updated_at`` is refreshed on every write."""
+
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO app_settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = CURRENT_TIMESTAMP",
+                (key, value),
+            )
+            connection.commit()
+
+    def list_app_settings(self) -> dict[str, str]:
+        """Return all settings as a flat dict for the admin API."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT key, value FROM app_settings"
+            ).fetchall()
+        return {str(row["key"]): str(row["value"]) for row in rows}
+
+    # ------------------------------------------------------------------
+    # Scheduler runs — append-only log of background-tick outcomes.
+    # ------------------------------------------------------------------
+
+    def insert_scheduler_run(self, *, started_at: str) -> int:
+        """Open a new tick row; the scheduler fills the summary on completion."""
+
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO scheduler_runs(started_at) VALUES (?)",
+                (started_at,),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def finish_scheduler_run(
+        self, *, run_id: int, finished_at: str, summary_json: str
+    ) -> None:
+        """Stamp the tick row with its end time + serialized outcome summary."""
+
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE scheduler_runs SET finished_at = ?, summary = ? "
+                "WHERE id = ?",
+                (finished_at, summary_json, run_id),
+            )
+            connection.commit()
+
+    def list_scheduler_runs(self, *, limit: int = 50) -> tuple[SchedulerRun, ...]:
+        """Return the most recent tick entries for the admin log view."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM scheduler_runs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return tuple(
+            SchedulerRun(
+                id=int(row["id"]),
+                started_at=str(row["started_at"]),
+                finished_at=str(row["finished_at"] or ""),
+                summary_json=str(row["summary"] or "{}"),
+            )
+            for row in rows
+        )
+
+    # ------------------------------------------------------------------
+    # Scheduler ↔ saved-search bookkeeping.
+    # ------------------------------------------------------------------
+
+    def list_active_saved_searches(self) -> tuple[SavedSearch, ...]:
+        """All active searches across all users — input to the scheduler tick."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM saved_searches WHERE is_active = 1 "
+                "ORDER BY user_id ASC, id ASC"
+            ).fetchall()
+        return tuple(self._row_to_saved_search(row) for row in rows)
+
+    def record_search_attempt(
+        self,
+        *,
+        search_id: int,
+        target_date: str,
+        success: bool,
+        attempt_at: str,
+        deactivate: bool,
+    ) -> None:
+        """Update bookkeeping after one tick attempted to act on a search.
+
+        On success we reset failure_count and stamp success_at + the date we
+        just booked.  On failure we increment failure_count.  The caller
+        decides whether to flip is_active off via ``deactivate`` so the
+        scheduler keeps both auto-deactivate-on-success (2a) and
+        deactivate-after-N-failures policies in one place.
+        """
+
+        with self._connect() as connection:
+            if success:
+                connection.execute(
+                    "UPDATE saved_searches SET last_attempt_at = ?, "
+                    "last_success_at = ?, last_target_date = ?, "
+                    "failure_count = 0, "
+                    "is_active = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ?",
+                    (
+                        attempt_at,
+                        attempt_at,
+                        target_date,
+                        0 if deactivate else 1,
+                        search_id,
+                    ),
+                )
+            else:
+                connection.execute(
+                    "UPDATE saved_searches SET last_attempt_at = ?, "
+                    "failure_count = failure_count + 1, "
+                    "is_active = CASE WHEN ? THEN 0 ELSE is_active END, "
+                    "updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ?",
+                    (attempt_at, 1 if deactivate else 0, search_id),
+                )
+            connection.commit()
 
     def _row_to_booking_record(self, row: sqlite3.Row) -> BookingRecord:
         return BookingRecord(
@@ -614,6 +790,11 @@ class WebAppStore:
             ("venue_names", "ALTER TABLE saved_searches ADD COLUMN venue_names TEXT NOT NULL DEFAULT '[]'"),
             ("court_ids", "ALTER TABLE saved_searches ADD COLUMN court_ids TEXT NOT NULL DEFAULT '[]'"),
             ("weekday", "ALTER TABLE saved_searches ADD COLUMN weekday TEXT NOT NULL DEFAULT 'monday'"),
+            # Scheduler bookkeeping — populated by the background tick loop.
+            ("last_attempt_at", "ALTER TABLE saved_searches ADD COLUMN last_attempt_at TEXT NOT NULL DEFAULT ''"),
+            ("last_success_at", "ALTER TABLE saved_searches ADD COLUMN last_success_at TEXT NOT NULL DEFAULT ''"),
+            ("last_target_date", "ALTER TABLE saved_searches ADD COLUMN last_target_date TEXT NOT NULL DEFAULT ''"),
+            ("failure_count", "ALTER TABLE saved_searches ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0"),
         )
         for column_name, sql in migrations:
             if column_name not in columns:

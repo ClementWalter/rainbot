@@ -8,6 +8,7 @@ SQLite store set up by previous iterations; only the HTTP surface changed.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import sqlite3
 import threading
@@ -26,6 +27,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from paris_tennis_api.client import ParisTennisClient
 from paris_tennis_api.exceptions import BookingError, ParisTennisError, ValidationError
 from paris_tennis_api.models import SearchCatalog, SearchRequest
+from paris_tennis_api.webapp.scheduler import SchedulerService
 from paris_tennis_api.webapp.sessions import UserSessionManager
 from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.store import AllowedUser, SavedSearch, WebAppStore
@@ -96,6 +98,23 @@ class UpdateUserBody(BaseModel):
     is_enabled: bool | None = None
 
 
+class BurstWindowBody(BaseModel):
+    """One burst window: poll faster around a precise time of day."""
+
+    time: str
+    plus_minus_minutes: int = 5
+    interval_seconds: int = 30
+
+
+class UpdateSchedulerBody(BaseModel):
+    """Scheduler config body — every field optional for partial PATCHes."""
+
+    enabled: bool | None = None
+    default_interval_seconds: int | None = None
+    tick_noise_seconds: int | None = None
+    burst_windows: list[BurstWindowBody] | None = None
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -119,16 +138,26 @@ def create_app(
         headless=app_settings.headless,
         catalog_ttl_seconds=app_settings.catalog_ttl_seconds,
     )
+    scheduler = SchedulerService(
+        store=app_store,
+        session_manager=session_manager,
+        timezone_name=app_settings.timezone,
+    )
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Lifespan hook: warm per-user catalog caches on boot, close sessions on exit."""
+        """Lifespan hook: warm catalogs, start scheduler, tear them down on exit."""
 
         if app_settings.warm_on_startup:
             _warm_catalogs_in_background(store=app_store, manager=session_manager)
+        # Scheduler thread is always started; whether it actually books is
+        # gated on the admin-controlled `scheduler.enabled` setting so the
+        # operator can flip it without restarting the process.
+        scheduler.start()
         try:
             yield
         finally:
+            scheduler.stop()
             session_manager.shutdown()
 
     app = FastAPI(
@@ -144,6 +173,7 @@ def create_app(
     app.state.store = app_store
     app.state.client_factory = client_factory
     app.state.session_manager = session_manager
+    app.state.scheduler = scheduler
 
     # ----------------------------------------------------------- infra
     @app.get("/healthz")
@@ -672,6 +702,65 @@ def create_app(
             )
         return JSONResponse({"user": _user_payload(updated)})
 
+    # ----------------------------------------------------------- scheduler
+    @app.get("/api/admin/scheduler")
+    def api_admin_scheduler(request: Request) -> JSONResponse:
+        """Return scheduler config + recent tick log for the admin page."""
+
+        _require_admin(request)
+        runs = _store(request).list_scheduler_runs(limit=25)
+        return JSONResponse(
+            {
+                "settings": _scheduler(request).read_settings(),
+                "runs": [_scheduler_run_payload(run) for run in runs],
+            }
+        )
+
+    @app.patch("/api/admin/scheduler")
+    def api_admin_update_scheduler(
+        request: Request, body: UpdateSchedulerBody
+    ) -> JSONResponse:
+        """Patch any subset of scheduler settings; loop re-reads on next tick."""
+
+        _require_admin(request)
+        burst_windows = (
+            [bw.model_dump() for bw in body.burst_windows]
+            if body.burst_windows is not None
+            else None
+        )
+        settings = _scheduler(request).write_settings(
+            enabled=body.enabled,
+            default_interval_seconds=body.default_interval_seconds,
+            tick_noise_seconds=body.tick_noise_seconds,
+            burst_windows=burst_windows,
+        )
+        return JSONResponse({"settings": settings})
+
+    @app.post("/api/admin/scheduler/run")
+    def api_admin_run_scheduler_now(request: Request) -> JSONResponse:
+        """Force one tick immediately and return its summary."""
+
+        _require_admin(request)
+        try:
+            summary = _scheduler(request).run_once()
+        except Exception as error:  # noqa: BLE001
+            LOGGER.exception("Force-tick failed")
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return JSONResponse({"summary": summary})
+
+    @app.get("/api/admin/scheduler/runs")
+    def api_admin_scheduler_runs(
+        request: Request, limit: int = 100
+    ) -> JSONResponse:
+        """Return paginated tick history for the admin log view."""
+
+        _require_admin(request)
+        clamped = max(1, min(500, limit))
+        runs = _store(request).list_scheduler_runs(limit=clamped)
+        return JSONResponse(
+            {"runs": [_scheduler_run_payload(run) for run in runs]}
+        )
+
     # ----------------------------------------------------------- SPA
     # In production the Vite build is mounted at / and any unknown path
     # returns index.html so client-side React Router can handle it.  In dev
@@ -1034,6 +1123,25 @@ def _settings(request: Request) -> WebAppSettings:
 
 def _session_manager(request: Request) -> UserSessionManager:
     return request.app.state.session_manager
+
+
+def _scheduler(request: Request) -> SchedulerService:
+    return request.app.state.scheduler
+
+
+def _scheduler_run_payload(run: Any) -> dict[str, Any]:
+    """Inflate the JSON summary so the admin UI does not have to parse strings."""
+
+    try:
+        summary = json.loads(run.summary_json) if run.summary_json else {}
+    except json.JSONDecodeError:
+        summary = {"raw": run.summary_json}
+    return {
+        "id": run.id,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "summary": summary,
+    }
 
 
 app = create_app()

@@ -102,6 +102,25 @@ class FakeParisClient:
         return True
 
 
+class FakeSchedulerStatefulClient(FakeParisClient):
+    """Pending status flips True only after a successful booking, so the
+    scheduler's "skip user with pending reservation" guard does not
+    short-circuit on the very first tick."""
+
+    def get_current_reservation(self) -> ReservationSummary:
+        if self._state.book_calls > 0:
+            return ReservationSummary(
+                has_active_reservation=True,
+                cancellation_token="token",
+                raw_text="Reservation active",
+            )
+        return ReservationSummary(
+            has_active_reservation=False,
+            cancellation_token="",
+            raw_text="No reservation",
+        )
+
+
 class FakeSecondVenueOnlyParisClient(FakeParisClient):
     """Require second venue fallback to cover multi-select booking traversal."""
 
@@ -491,6 +510,73 @@ def test_duplicate_search_clones_with_copy_suffix(tmp_path: Path) -> None:
         "Original (copy)",
         ["Alain Mimoun", "Bercy"],
     )
+
+
+def test_scheduler_endpoints_round_trip_settings_and_run(tmp_path: Path) -> None:
+    """Admin can read defaults, patch settings, and force a tick that runs end-to-end."""
+
+    client, store, _state = _build_bundle(
+        tmp_path, client_class=FakeSchedulerStatefulClient
+    )
+    with client:
+        _login(client)
+        # Active search so the forced tick has work to do (FakeParisClient
+        # always returns one slot, so the booking will succeed).
+        store.create_saved_search(
+            user_id=1,
+            label="Tick target",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
+            hour_start=8,
+            hour_end=9,
+            in_out_codes=("V",),
+        )
+
+        defaults = client.get("/api/admin/scheduler").json()
+        # Tweak interval + add a burst window so the SPA payload survives a round-trip.
+        patched = client.patch(
+            "/api/admin/scheduler",
+            json={
+                "default_interval_seconds": 120,
+                "burst_windows": [
+                    {
+                        "time": "07:58",
+                        "plus_minus_minutes": 5,
+                        "interval_seconds": 5,
+                    }
+                ],
+            },
+        )
+        forced = client.post("/api/admin/scheduler/run").json()
+
+    assert defaults["settings"]["default_interval_seconds"] == 60
+    new_settings = patched.json()["settings"]
+    assert (
+        new_settings["default_interval_seconds"],
+        new_settings["burst_windows"][0]["time"],
+    ) == (120, "07:58")
+    assert forced["summary"]["bookings_succeeded"] == 1
+    # Auto-deactivate-on-success means the search is now paused.
+    assert store.list_saved_searches(user_id=1)[0].is_active is False
+
+
+def test_scheduler_endpoint_requires_admin(tmp_path: Path) -> None:
+    """Non-admin sessions must receive 403 on the scheduler API."""
+
+    client, store, _state = _build_bundle(tmp_path)
+    store.create_user(
+        display_name="User",
+        paris_username="user@example.com",
+        paris_password="secret",
+        is_admin=False,
+    )
+    with client:
+        client.post(
+            "/api/session",
+            json={"paris_username": "user@example.com", "paris_password": "secret"},
+        )
+        response = client.get("/api/admin/scheduler")
+    assert response.status_code == 403
 
 
 def test_me_endpoint_reports_bootstrap_state(tmp_path: Path) -> None:

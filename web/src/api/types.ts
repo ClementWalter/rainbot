@@ -102,3 +102,31 @@ export type AvailabilityResponse = {
   date: string;
   venues: AvailabilityVenue[];
 };
+
+export type BurstWindow = {
+  time: string;
+  plus_minus_minutes: number;
+  interval_seconds: number;
+};
+
+export type SchedulerSettings = {
+  enabled: boolean;
+  default_interval_seconds: number;
+  tick_noise_seconds: number;
+  burst_windows: BurstWindow[];
+  min_interval_seconds: number;
+  max_interval_seconds: number;
+  max_tick_noise_seconds: number;
+};
+
+export type SchedulerRun = {
+  id: number;
+  started_at: string;
+  finished_at: string;
+  summary: Record<string, unknown>;
+};
+
+export type SchedulerOverview = {
+  settings: SchedulerSettings;
+  runs: SchedulerRun[];
+};

@@ -45,14 +45,24 @@ export function Layout({ children }: { children: ReactNode }) {
               History
             </NavLink>
             {user.is_admin ? (
-              <NavLink
-                to="/admin/users"
-                className={({ isActive }) =>
-                  `nav-link ${isActive ? "active" : ""}`.trim()
-                }
-              >
-                Users
-              </NavLink>
+              <>
+                <NavLink
+                  to="/admin/users"
+                  className={({ isActive }) =>
+                    `nav-link ${isActive ? "active" : ""}`.trim()
+                  }
+                >
+                  Users
+                </NavLink>
+                <NavLink
+                  to="/admin/scheduler"
+                  className={({ isActive }) =>
+                    `nav-link ${isActive ? "active" : ""}`.trim()
+                  }
+                >
+                  Scheduler
+                </NavLink>
+              </>
             ) : null}
             <span className="pill">{user.display_name}</span>
             <Button variant="ghost" onClick={handleLogout}>
