@@ -20,15 +20,24 @@ class WebAppSettings:
     host: str
     port: int
     timezone: str = "Europe/Paris"
+    # Catalog TTL governs how often we re-hit tennis.paris.fr to refresh venue
+    # options. 10 minutes keeps the dashboard feeling live without paying the
+    # full login+navigate cost on every request.
+    catalog_ttl_seconds: int = 600
+    # The warmer pre-populates per-user catalog caches on startup so the first
+    # /searches request doesn't wear the login latency.  Tests disable this.
+    warm_on_startup: bool = True
 
     @classmethod
     def from_env(cls) -> "WebAppSettings":
         """Load settings from env with safe local defaults for low-maintenance setup."""
 
-        # Keep webapp startup consistent with CLI behavior by honoring local `.env` files.
-        load_dotenv(".env")
-        database_path = Path(
-            os.getenv("PARIS_TENNIS_WEBAPP_DB", "data/paris_tennis_webapp.sqlite3")
+        project_root = _discover_project_root()
+        # Anchor dotenv loading to the repository so startup is not tied to process CWD.
+        load_dotenv(project_root / ".env")
+        database_path = _resolve_database_path(
+            raw_value=os.getenv("PARIS_TENNIS_WEBAPP_DB", ""),
+            project_root=project_root,
         )
         # The app auto-creates the parent directory so first boot stays frictionless.
         database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +56,12 @@ class WebAppSettings:
         port = int(port_raw) if port_raw.isdigit() else 8000
         timezone = os.getenv("PARIS_TENNIS_WEBAPP_TIMEZONE", "Europe/Paris").strip()
         timezone = timezone or "Europe/Paris"
+        catalog_ttl_raw = os.getenv("PARIS_TENNIS_WEBAPP_CATALOG_TTL_SECONDS", "").strip()
+        catalog_ttl_seconds = (
+            int(catalog_ttl_raw) if catalog_ttl_raw.isdigit() else 600
+        )
+        warm_raw = os.getenv("PARIS_TENNIS_WEBAPP_WARM_ON_STARTUP", "true")
+        warm_on_startup = warm_raw.strip().lower() not in {"0", "false", "no"}
 
         return cls(
             database_path=database_path,
@@ -56,6 +71,8 @@ class WebAppSettings:
             host=host,
             port=port,
             timezone=timezone,
+            catalog_ttl_seconds=catalog_ttl_seconds,
+            warm_on_startup=warm_on_startup,
         )
 
 
@@ -67,3 +84,23 @@ def _first_non_empty_env(*keys: str) -> str:
         if value:
             return value
     return ""
+
+
+def _discover_project_root() -> Path:
+    """Find repository root once so config loading stays stable across launch contexts."""
+
+    module_path = Path(__file__).resolve()
+    for parent in module_path.parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    return module_path.parent
+
+
+def _resolve_database_path(*, raw_value: str, project_root: Path) -> Path:
+    """Resolve relative DB paths against project root to avoid CWD-dependent storage."""
+
+    value = raw_value.strip() or "data/paris_tennis_webapp.sqlite3"
+    database_path = Path(value)
+    if database_path.is_absolute():
+        return database_path
+    return project_root / database_path

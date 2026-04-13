@@ -51,7 +51,8 @@ class _HappyClient:
             captcha_request_id="captcha-request",
         )
 
-    def get_search_catalog(self) -> SearchCatalog:
+    def get_search_catalog(self, *, force_refresh: bool = False) -> SearchCatalog:
+        _ = force_refresh
         return SearchCatalog(
             venues={
                 "Alain Mimoun": TennisVenue(
@@ -120,6 +121,13 @@ class _NoCaptchaClient(_HappyClient):
         )
 
 
+class _PlaywrightExplodingClient(_HappyClient):
+    """Simulates a raw Playwright TypeError bubbling out of search_slots."""
+
+    def search_slots(self, _request) -> SearchResult:
+        raise TypeError("Cannot set properties of null (setting 'innerHTML')")
+
+
 class _InactiveReservationClient(_HappyClient):
     """Fake client variant that reports no active reservation after booking."""
 
@@ -146,6 +154,10 @@ def _build_bundle(
         headless=True,
         host="127.0.0.1",
         port=8000,
+        # Tests run the background warmer would race per-client state; off by
+        # default, and a tight TTL keeps cache paths exercised in other tests.
+        warm_on_startup=False,
+        catalog_ttl_seconds=60,
     )
     store = WebAppStore(settings.database_path)
     store.initialize()
@@ -268,6 +280,8 @@ def test_bootstrap_admin_requires_non_empty_fields(tmp_path: Path) -> None:
         headless=True,
         host="127.0.0.1",
         port=8000,
+        warm_on_startup=False,
+        catalog_ttl_seconds=60,
     )
     store = WebAppStore(settings.database_path)
     store.initialize()
@@ -295,6 +309,8 @@ def test_bootstrap_admin_success_redirects_to_searches(tmp_path: Path) -> None:
         headless=True,
         host="127.0.0.1",
         port=8000,
+        warm_on_startup=False,
+        catalog_ttl_seconds=60,
     )
     store = WebAppStore(settings.database_path)
     store.initialize()
@@ -552,6 +568,24 @@ def test_book_saved_search_handles_missing_captcha_key(tmp_path: Path) -> None:
     assert response.headers["location"] == "/searches"
 
 
+def test_book_saved_search_missing_captcha_flash_mentions_all_supported_env_keys(
+    tmp_path: Path,
+) -> None:
+    """Error text should mention every accepted captcha env key to speed troubleshooting."""
+
+    client, store = _build_bundle(tmp_path, captcha_api_key="")
+    with client:
+        _login_admin(client)
+        client.post(
+            "/searches",
+            data=_saved_search_form(label="Book"),
+            follow_redirects=False,
+        )
+        search = store.list_saved_searches(user_id=1)[0]
+        response = client.post(f"/searches/{search.id}/book", follow_redirects=True)
+    assert "PARIS_TENNIS_CAPTCHA_API_KEY" in response.text
+
+
 def test_book_saved_search_ignores_legacy_slot_index_from_store(
     tmp_path: Path,
 ) -> None:
@@ -574,26 +608,34 @@ def test_book_saved_search_ignores_legacy_slot_index_from_store(
     assert response.headers["location"] == "/history"
 
 
-def test_history_page_renders_error_message_when_client_fails(tmp_path: Path) -> None:
-    """History route should render error state when live reservation fetch fails."""
+def test_history_pending_fragment_renders_error_when_client_fails(tmp_path: Path) -> None:
+    """Pending fragment should render error state when live reservation fetch fails."""
 
     client, _store = _build_bundle(tmp_path, client_factory=_FailingHistoryClient)
     with client:
         _login_admin(client)
-        response = client.get("/history")
+        response = client.get("/history/pending")
     assert "history failed" in response.text
 
 
-def test_history_page_renders_live_pending_reservation_on_success(
+def test_history_pending_fragment_renders_live_reservation_on_success(
     tmp_path: Path,
 ) -> None:
-    """History should display the live pending reservation summary when fetch works."""
+    """Pending fragment should display the live pending reservation summary on success."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
-        response = client.get("/history")
+        response = client.get("/history/pending")
     assert "Reservation active" in response.text
+
+
+def test_history_pending_fragment_requires_authentication(tmp_path: Path) -> None:
+    """Unauthenticated callers should receive a short 401 fragment, not the page."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.get("/history/pending")
+    assert response.status_code == 401 and "Not authenticated" in response.text
 
 
 def test_history_route_redirects_when_anonymous(tmp_path: Path) -> None:
@@ -959,6 +1001,25 @@ def test_book_saved_search_handles_inactive_reservation_after_booking(
         search = store.list_saved_searches(user_id=1)[0]
         response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
     assert response.headers["location"] == "/searches"
+
+
+def test_book_saved_search_catches_non_domain_exceptions_as_flash(tmp_path: Path) -> None:
+    """Raw exceptions (e.g. Playwright TypeError) should flash, not return HTTP 500."""
+
+    client, store = _build_bundle(tmp_path, client_factory=_PlaywrightExplodingClient)
+    with client:
+        _login_admin(client)
+        search = store.create_saved_search(
+            user_id=1,
+            label="Explodes",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
+            hour_start=8,
+            hour_end=9,
+            in_out_codes=("V",),
+        )
+        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
+    assert (response.status_code, response.headers["location"]) == (303, "/searches")
 
 
 def test_book_saved_search_success_redirects_to_history(tmp_path: Path) -> None:

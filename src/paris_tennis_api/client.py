@@ -206,6 +206,17 @@ class ParisTennisClient:
         page = self._require_page()
         page.goto(SEARCH_URL, wait_until="networkidle", timeout=120_000)
 
+        # The server redirects to the booking wizard when a previous flow was
+        # left incomplete (e.g. the last booking bailed at the payment step).
+        # Walk through it and abort so retries land on a fresh search page
+        # instead of crashing in page.evaluate with "null" form elements.
+        if "recherche" not in page.url:
+            self._logger.info(
+                "Search blocked by pending booking at %s — clearing.", page.url
+            )
+            self._clear_pending_booking()
+            page.goto(SEARCH_URL, wait_until="networkidle", timeout=120_000)
+
         payload = {
             "venueName": request.venue_name,
             "dateIso": request.date_iso,
@@ -267,6 +278,10 @@ class ParisTennisClient:
             # stale/anonymous search result that should not be booked.
             raise BookingError("captcha_request_id is required for booking.")
         page = self._require_page()
+
+        # Log the exact slot we are about to book so post-mortems can correlate
+        # booking attempts with search-result logs even when the flow fails.
+        self._logger.info("Booking slot: %s", asdict(slot))
 
         # Block LiveIdentity API while the page navigates so the on-page JS
         # cannot consume the captcha request IDs before our external solver.
@@ -473,10 +488,18 @@ class ParisTennisClient:
         """Fill partner fields on the 'Validation du court' page and advance."""
 
         page = self._require_page()
+        start_url = page.url
+        self._logger.debug("Validation step starting — URL: %s", start_url)
+
         player_fields = page.locator("input[name='player1']")
-        if player_fields.count() >= 2:
+        player_count = player_fields.count()
+        if player_count >= 2:
             player_fields.nth(0).fill("Partenaire")
             player_fields.nth(1).fill("Test")
+        else:
+            self._logger.debug(
+                "Validation step found %s partner field(s) (expected 2).", player_count
+            )
 
         page.evaluate("""() => {
             const btn = document.getElementById('submitControle');
@@ -485,22 +508,102 @@ class ParisTennisClient:
         page.locator("#submitControle").click()
         time.sleep(2)
         page.wait_for_load_state("networkidle", timeout=30_000)
-        self._logger.info("Validation step done — URL: %s", page.url)
+        end_url = page.url
+        self._logger.info(
+            "Validation step done — URL: %s (was: %s)", end_url, start_url
+        )
+
+        # The validation page stays at `reservation_creneau` when the site
+        # rejects our submission (e.g. missing partner name, account flagged).
+        # Raise here instead of letting the payment step inherit the wrong page.
+        if "reservation_creneau" in str(end_url):
+            raise BookingError(
+                "Validation step did not advance past reservation_creneau. "
+                f"partner_fields={player_count}, url={end_url}."
+            )
+
+    # Prepaid payment modes the site offers, in order of preference.  Only
+    # modes that consume an *existing* balance belong here — `ticket` is the
+    # paid purchase path (routes to payfip.gouv.fr) and must never be clicked
+    # automatically or we'd silently charge the user.
+    _PAYMENT_MODE_PREFERENCE: tuple[str, ...] = ("wallet", "existingTicket")
+    # Known paid modes we refuse to select.  Listed explicitly so the error
+    # message can distinguish "paid option skipped" from "unknown mode".
+    _PAID_PAYMENT_MODES: frozenset[str] = frozenset({"ticket"})
 
     def _submit_payment_step(self) -> None:
-        """Select the prepaid ticket card and confirm payment."""
+        """Select the first available prepaid card and confirm payment."""
 
         page = self._require_page()
-        # Click the prepaid-hours card so it gets the 'selected' class.
-        card = page.locator("table[paymentmode='existingTicket']")
-        if card.count() > 0:
-            card.click()
-            time.sleep(1)
+        start_url = page.url
+        self._logger.debug("Payment step starting — URL: %s", start_url)
+
+        # Enumerate all payment modes so we can diagnose which options the site
+        # offered if the booking fails to advance.  Kept at INFO so operators
+        # see the real options the first time they hit a new account shape.
+        payment_modes = page.evaluate(
+            "() => Array.from(document.querySelectorAll('table[paymentmode]'))"
+            ".map(el => el.getAttribute('paymentmode'))"
+        )
+        self._logger.info("Payment page modes available: %s", payment_modes)
+
+        # Walk the preference list and click the first prepaid card that's on
+        # the page.  The site requires a selected card before #submit advances,
+        # so missing this step makes the flow silently stall at methode_paiement.
+        selected_mode = ""
+        for candidate in self._PAYMENT_MODE_PREFERENCE:
+            card = page.locator(f"table[paymentmode='{candidate}']")
+            if card.count() > 0:
+                card.first.click()
+                selected_mode = candidate
+                time.sleep(1)
+                break
+
+        if not selected_mode:
+            # Refusing to fall back to `ticket` (paid) is deliberate: clicking
+            # it would redirect to payfip and silently charge whatever card
+            # the account has on file.  Raise a clear error instead so the
+            # operator can top up the prepaid balance or book differently.
+            paid_offered = sorted(
+                mode for mode in payment_modes or [] if mode in self._PAID_PAYMENT_MODES
+            )
+            raise BookingError(
+                "No prepaid payment option available on methode_paiement. "
+                f"available_modes={payment_modes}, "
+                f"prepaid_tried={list(self._PAYMENT_MODE_PREFERENCE)}, "
+                f"paid_modes_skipped={paid_offered}. "
+                "Refusing to auto-click paid options (would charge via payfip)."
+            )
 
         page.locator("#submit").click()
         time.sleep(3)
         page.wait_for_load_state("networkidle", timeout=30_000)
-        self._logger.info("Payment step done — URL: %s", page.url)
+        end_url = page.url
+        self._logger.info(
+            "Payment step done — URL: %s (was: %s, mode=%s)",
+            end_url,
+            start_url,
+            selected_mode,
+        )
+
+        # Any payfip redirect means we somehow clicked through to the paid
+        # gateway.  Abort loudly: never let a webapp/CLI run finish "silently"
+        # in a real-money payment flow.
+        if "payfip" in str(end_url):
+            raise BookingError(
+                "Payment step redirected to payfip (paid gateway) despite "
+                f"selecting prepaid mode={selected_mode!r}. url={end_url}."
+            )
+
+        # When the submit click is ignored (e.g. button kept disabled), the
+        # URL stays at methode_paiement and `get_current_reservation` later
+        # returns empty.  Surface this now with enough context to diagnose.
+        if "methode_paiement" in str(end_url):
+            raise BookingError(
+                "Payment step did not advance past methode_paiement. "
+                f"selected_mode={selected_mode}, "
+                f"available_modes={payment_modes}, url={end_url}."
+            )
 
     def _clear_pending_booking(self) -> None:
         """Walk through a stale booking wizard to the payment page, then abort.

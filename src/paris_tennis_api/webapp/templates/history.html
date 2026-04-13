@@ -1,15 +1,8 @@
 {% extends "base.html" %} {% block title %}History · RainClaude Tennis{%
 endblock %} {% block content %}
-<section class="card">
+<section class="card" id="pending-reservation" data-pending-url="/history/pending">
   <h2>Pending reservation (live)</h2>
-  {% if pending_error %}
-  <p class="flash flash-error">{{ pending_error }}</p>
-  {% elif pending and pending.has_active_reservation %}
-  <p class="highlight">Reservation active</p>
-  <p class="muted">{{ pending.raw_text }}</p>
-  {% else %}
-  <p class="muted">No active reservation currently detected.</p>
-  {% endif %}
+  <p class="muted">Loading live reservation status…</p>
 </section>
 
 <section class="card">
@@ -35,4 +28,23 @@ endblock %} {% block content %}
     {% endfor %}
   </div>
 </section>
+
+<script>
+  // Load the live reservation block asynchronously so the history page paints
+  // instantly; the Playwright round-trip to tennis.paris.fr happens in the
+  // background instead of blocking the initial render.
+  (function () {
+    var container = document.getElementById("pending-reservation");
+    if (!container) return;
+    var endpoint = container.getAttribute("data-pending-url");
+    fetch(endpoint, { credentials: "same-origin" })
+      .then(function (response) { return response.text(); })
+      .then(function (html) { container.innerHTML = html; })
+      .catch(function () {
+        container.innerHTML =
+          '<h2>Pending reservation (live)</h2>' +
+          '<p class="flash flash-error">Could not load live status.</p>';
+      });
+  })();
+</script>
 {% endblock %}

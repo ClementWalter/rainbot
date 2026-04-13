@@ -187,6 +187,45 @@ def test_get_search_catalog_clears_pending_booking_then_retries(monkeypatch) -> 
     assert (called["clear"], fake_page.goto_calls) == (1, 2)
 
 
+def test_search_slots_clears_pending_booking_before_submitting(monkeypatch) -> None:
+    """Search retries after a stuck booking should clear the wizard, not crash in JS."""
+
+    fake_page = _FakePage(
+        urls_after_goto=(
+            # First goto lands on the blocked booking wizard (previous flow stuck).
+            "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=methode_paiement",
+            # After clearing, the second goto lands on the real search page.
+            "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=recherche",
+        )
+    )
+    client = _authenticated_client()
+    called = {"clear": 0}
+    expected_result = SearchResult(
+        slots=(_slot(),), captcha_request_id="captcha-request"
+    )
+    request = SearchRequest(
+        venue_name="Alain Mimoun",
+        date_iso="12/04/2026",
+        hour_start=8,
+        hour_end=9,
+        surface_ids=("1324",),
+        in_out_codes=("V",),
+    )
+
+    monkeypatch.setattr(client, "get_search_catalog", lambda: _catalog())
+    monkeypatch.setattr(client, "_require_page", lambda: fake_page)
+    monkeypatch.setattr(
+        client,
+        "_clear_pending_booking",
+        lambda: called.__setitem__("clear", called["clear"] + 1),
+    )
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_search_result", lambda _html: expected_result
+    )
+    client.search_slots(request)
+    assert (called["clear"], fake_page.goto_calls) == (1, 2)
+
+
 def test_search_slots_submits_expected_payload(monkeypatch) -> None:
     """Search should transform request data into the browser payload expected by page JS."""
 
@@ -657,6 +696,9 @@ def test_submit_validation_step_completes_with_minimal_page(monkeypatch) -> None
 
     client = _authenticated_client()
     page = MagicMock()
+    # Simulate a successful navigation off the validation step so we assert the
+    # happy path without tripping the new URL-progress guard.
+    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=methode_paiement"
     players = MagicMock()
     players.count.return_value = 0
     submit = MagicMock()
@@ -669,21 +711,154 @@ def test_submit_validation_step_completes_with_minimal_page(monkeypatch) -> None
     assert submit.click.called is True
 
 
-def test_submit_payment_step_handles_missing_ticket_card(monkeypatch) -> None:
-    """Payment step should continue to submit even when ticket card selector is absent."""
+def test_submit_validation_step_raises_when_url_does_not_advance(monkeypatch) -> None:
+    """Validation step must raise when URL stays on reservation_creneau after submit."""
 
     client = _authenticated_client()
     page = MagicMock()
-    card = MagicMock()
-    card.count.return_value = 0
+    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=reservation_creneau"
+    players = MagicMock()
+    players.count.return_value = 2
     submit = MagicMock()
     page.locator.side_effect = lambda selector: (
-        card if selector == "table[paymentmode='existingTicket']" else submit
+        players if selector == "input[name='player1']" else submit
+    )
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    with pytest.raises(BookingError):
+        client._submit_validation_step()
+
+
+def _payment_page_locator_router(
+    *,
+    cards_by_mode: dict[str, MagicMock],
+    missing_card: MagicMock,
+    submit: MagicMock,
+):
+    """Build a locator side-effect that distinguishes paymentmode selectors from #submit."""
+
+    def _router(selector: str) -> MagicMock:
+        for mode, card in cards_by_mode.items():
+            if selector == f"table[paymentmode='{mode}']":
+                return card
+        if selector.startswith("table[paymentmode="):
+            return missing_card
+        return submit
+
+    return _router
+
+
+def test_submit_payment_step_refuses_when_only_paid_ticket_mode_available(
+    monkeypatch,
+) -> None:
+    """Account without prepaid balance must raise instead of clicking into payfip."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.evaluate.return_value = ["ticket"]
+    missing_card = MagicMock()
+    missing_card.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = _payment_page_locator_router(
+        cards_by_mode={},
+        missing_card=missing_card,
+        submit=submit,
+    )
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    with pytest.raises(BookingError) as excinfo:
+        client._submit_payment_step()
+    # The error must flag that a paid option was deliberately skipped so the
+    # user can decide to top up or book a different venue.
+    assert (
+        submit.click.called is False
+        and "payfip" in str(excinfo.value)
+        and "ticket" in str(excinfo.value)
+    )
+
+
+def test_submit_payment_step_prefers_wallet_over_legacy_existing_ticket(
+    monkeypatch,
+) -> None:
+    """Wallet (current prepaid naming) must win against existingTicket (legacy)."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=reservation_confirmation"
+    page.evaluate.return_value = ["wallet", "wallet", "existingTicket"]
+    wallet_card = MagicMock()
+    wallet_card.count.return_value = 2
+    wallet_card.first = MagicMock()
+    existing_card = MagicMock()
+    existing_card.count.return_value = 1
+    existing_card.first = MagicMock()
+    missing_card = MagicMock()
+    missing_card.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = _payment_page_locator_router(
+        cards_by_mode={
+            "wallet": wallet_card,
+            "existingTicket": existing_card,
+        },
+        missing_card=missing_card,
+        submit=submit,
     )
     monkeypatch.setattr(client, "_require_page", lambda: page)
     monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
     client._submit_payment_step()
-    assert submit.click.called is True
+    assert (
+        wallet_card.first.click.called is True
+        and existing_card.first.click.called is False
+    )
+
+
+def test_submit_payment_step_raises_when_redirected_to_payfip(monkeypatch) -> None:
+    """Any payfip redirect must abort the flow so we never silently auto-charge."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.url = "https://www.payfip.gouv.fr/tpa/tpa.web"
+    page.evaluate.return_value = ["wallet"]
+    wallet_card = MagicMock()
+    wallet_card.count.return_value = 1
+    wallet_card.first = MagicMock()
+    missing_card = MagicMock()
+    missing_card.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = _payment_page_locator_router(
+        cards_by_mode={"wallet": wallet_card},
+        missing_card=missing_card,
+        submit=submit,
+    )
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    with pytest.raises(BookingError) as excinfo:
+        client._submit_payment_step()
+    assert "payfip" in str(excinfo.value)
+
+
+def test_submit_payment_step_raises_with_diagnostic_when_url_does_not_advance(
+    monkeypatch,
+) -> None:
+    """Payment step must raise a diagnostic error when URL stays at methode_paiement."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=methode_paiement"
+    page.evaluate.return_value = ["creditCard"]
+    missing_card = MagicMock()
+    missing_card.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = _payment_page_locator_router(
+        cards_by_mode={},
+        missing_card=missing_card,
+        submit=submit,
+    )
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    with pytest.raises(BookingError) as excinfo:
+        client._submit_payment_step()
+    assert "creditCard" in str(excinfo.value)
 
 
 def test_clear_pending_booking_handles_reservation_captcha_flow(monkeypatch) -> None:
@@ -814,6 +989,7 @@ def test_submit_validation_step_fills_two_player_fields(monkeypatch) -> None:
 
     client = _authenticated_client()
     page = MagicMock()
+    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=methode_paiement"
     players = MagicMock()
     players.count.return_value = 2
     first = MagicMock()
@@ -832,21 +1008,30 @@ def test_submit_validation_step_fills_two_player_fields(monkeypatch) -> None:
     )
 
 
-def test_submit_payment_step_clicks_ticket_card_when_present(monkeypatch) -> None:
-    """Payment helper should click the ticket card before final submit when available."""
+def test_submit_payment_step_clicks_existing_ticket_as_legacy_fallback(
+    monkeypatch,
+) -> None:
+    """Legacy accounts that only expose existingTicket must still book successfully."""
 
     client = _authenticated_client()
     page = MagicMock()
+    page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=reservation_confirmation"
+    page.evaluate.return_value = ["existingTicket"]
     card = MagicMock()
     card.count.return_value = 1
+    card.first = MagicMock()
+    missing_card = MagicMock()
+    missing_card.count.return_value = 0
     submit = MagicMock()
-    page.locator.side_effect = lambda selector: (
-        card if selector == "table[paymentmode='existingTicket']" else submit
+    page.locator.side_effect = _payment_page_locator_router(
+        cards_by_mode={"existingTicket": card},
+        missing_card=missing_card,
+        submit=submit,
     )
     monkeypatch.setattr(client, "_require_page", lambda: page)
     monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
     client._submit_payment_step()
-    assert card.click.called is True
+    assert card.first.click.called is True
 
 
 def test_book_first_available_falls_back_to_all_venues_when_none_available(

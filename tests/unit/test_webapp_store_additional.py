@@ -92,10 +92,11 @@ def test_update_user_enabled_returns_updated_user(tmp_path: Path) -> None:
     assert updated.is_enabled is False
 
 
-def test_initialize_backfills_weekday_from_legacy_date_iso(tmp_path: Path) -> None:
-    """Legacy rows should preserve original weekday instead of defaulting to Monday."""
+def _seed_legacy_saved_search_database(
+    *, database_path: Path, date_iso: str = "12/04/2026", slot_index: int = 3
+) -> None:
+    """Create one pre-migration DB snapshot so migration behavior can be tested explicitly."""
 
-    database_path = tmp_path / "legacy.sqlite3"
     with sqlite3.connect(database_path) as connection:
         connection.executescript("""
             CREATE TABLE users (
@@ -165,18 +166,52 @@ def test_initialize_backfills_weekday_from_legacy_date_iso(tmp_path: Path) -> No
                 1,
                 "Legacy Sunday",
                 "Alain Mimoun",
-                "12/04/2026",
+                date_iso,
                 8,
                 10,
                 "[]",
                 '["V"]',
-                3,
+                slot_index,
                 1,
             ),
         )
         connection.commit()
 
+
+def test_initialize_backfills_weekday_from_legacy_date_iso(tmp_path: Path) -> None:
+    """Legacy rows should preserve original weekday instead of defaulting to Monday."""
+
+    database_path = tmp_path / "legacy.sqlite3"
+    _seed_legacy_saved_search_database(database_path=database_path)
+
     store = WebAppStore(database_path)
     store.initialize()
     migrated = store.list_saved_searches(user_id=1)[0]
     assert migrated.weekday == "sunday"
+
+
+def test_initialize_normalizes_legacy_slot_index_to_first_slot(tmp_path: Path) -> None:
+    """Migration should flatten obsolete slot indexes now that UI always books first slot."""
+
+    database_path = tmp_path / "legacy-slot.sqlite3"
+    _seed_legacy_saved_search_database(database_path=database_path, slot_index=7)
+    store = WebAppStore(database_path)
+    store.initialize()
+    assert store.list_saved_searches(user_id=1)[0].slot_index == 1
+
+
+def test_initialize_keeps_legacy_date_iso_column_data(tmp_path: Path) -> None:
+    """Weekday backfill should not overwrite the historical date_iso column content."""
+
+    database_path = tmp_path / "legacy-date.sqlite3"
+    _seed_legacy_saved_search_database(
+        database_path=database_path,
+        date_iso="13/04/2026",
+    )
+    store = WebAppStore(database_path)
+    store.initialize()
+    with sqlite3.connect(database_path) as connection:
+        persisted_date_iso = connection.execute(
+            "SELECT date_iso FROM saved_searches WHERE id = 1"
+        ).fetchone()[0]
+    assert persisted_date_iso == "13/04/2026"

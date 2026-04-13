@@ -5,9 +5,11 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import sqlite3
+import threading
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Form, Request, Response, status
@@ -19,6 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from paris_tennis_api.client import ParisTennisClient
 from paris_tennis_api.exceptions import BookingError, ParisTennisError, ValidationError
 from paris_tennis_api.models import SearchCatalog, SearchRequest
+from paris_tennis_api.webapp.sessions import UserSessionManager
 from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.store import AllowedUser, SavedSearch, WebAppStore
 
@@ -57,7 +60,31 @@ def create_app(
     app_store = store or WebAppStore(app_settings.database_path)
     app_store.initialize()
 
-    app = FastAPI(title="RainClaude Tennis Booker", version="0.1.0")
+    session_manager = UserSessionManager(
+        client_factory=client_factory,
+        captcha_api_key=app_settings.captcha_api_key,
+        headless=app_settings.headless,
+        catalog_ttl_seconds=app_settings.catalog_ttl_seconds,
+    )
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Lifespan hook: warm per-user catalog caches on boot, close sessions on exit."""
+
+        if app_settings.warm_on_startup:
+            _warm_catalogs_in_background(
+                store=app_store,
+                manager=session_manager,
+            )
+        try:
+            yield
+        finally:
+            # Shutdown closes every persistent Playwright browser we spun up.
+            session_manager.shutdown()
+
+    app = FastAPI(
+        title="RainClaude Tennis Booker", version="0.1.0", lifespan=_lifespan
+    )
     app.add_middleware(
         SessionMiddleware,
         # Signed cookie sessions avoid a dedicated cache/database dependency.
@@ -70,6 +97,7 @@ def create_app(
     app.state.settings = app_settings
     app.state.store = app_store
     app.state.client_factory = client_factory
+    app.state.session_manager = session_manager
 
     @app.get("/healthz")
     def healthz(request: Request) -> dict[str, object]:
@@ -330,6 +358,19 @@ def create_app(
             LOGGER.warning("Booking failed for user %s: %s", user.id, error)
             _set_flash(request, str(error), "error")
             return _redirect("/searches")
+        except Exception as error:  # noqa: BLE001
+            # Playwright/network/JS errors bubble up as non-domain exceptions.
+            # Log with a full traceback for postmortem, but keep the UI alive
+            # with a flash message instead of 500ing the booking form.
+            LOGGER.exception(
+                "Unexpected booking error for user %s: %s", user.id, error
+            )
+            _set_flash(
+                request,
+                f"Unexpected booking error: {error}",
+                "error",
+            )
+            return _redirect("/searches")
 
         _set_flash(request, "Booking created and saved to history.", "success")
         return _redirect("/history")
@@ -340,32 +381,56 @@ def create_app(
         if user is None:
             return _redirect("/login")
 
+        # The page renders immediately; the live reservation fetch is deferred
+        # to `/history/pending` (loaded async by the template).  This keeps the
+        # user-visible navigation snappy even on the first request.
+        return _render(
+            request,
+            "history.html",
+            user=user,
+            records=_store(request).list_booking_history(user_id=user.id),
+            flash=_pop_flash(request),
+            active_page="history",
+        )
+
+    @app.get("/history/pending", response_class=HTMLResponse)
+    def history_pending_fragment(request: Request) -> Response:
+        """Return just the pending-reservation block so /history can defer it."""
+
+        user = _get_current_user(request)
+        if user is None:
+            # Keep the fragment tiny; the wrapper page already handles redirects.
+            return HTMLResponse(
+                '<p class="muted">Not authenticated.</p>',
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
         pending = None
         pending_error = ""
         try:
-            with _client_factory(request)(
-                email=user.paris_username,
-                password=user.paris_password,
-                captcha_api_key=_settings(request).captcha_api_key,
-                headless=_settings(request).headless,
-            ) as client:
-                client.login()
-                pending = client.get_current_reservation()
+            session = _session_manager(request).get_session(
+                user_id=user.id,
+                paris_username=user.paris_username,
+                paris_password=user.paris_password,
+            )
+            # Dispatch onto the session's worker thread; Playwright sync is
+            # thread-bound and a plain lock is not enough across FastAPI's
+            # threadpool.
+            pending = session.run(lambda client: client.get_current_reservation())
         except ParisTennisError as error:
             pending_error = str(error)
             LOGGER.warning(
                 "Pending reservation fetch failed for user %s: %s", user.id, error
             )
 
-        return _render(
-            request,
-            "history.html",
-            user=user,
-            pending=pending,
-            pending_error=pending_error,
-            records=_store(request).list_booking_history(user_id=user.id),
-            flash=_pop_flash(request),
-            active_page="history",
+        return TEMPLATES.TemplateResponse(
+            request=request,
+            name="_history_pending.html",
+            context={
+                "request": request,
+                "pending": pending,
+                "pending_error": pending_error,
+            },
         )
 
     @app.get("/admin/users", response_class=HTMLResponse)
@@ -487,20 +552,44 @@ def _book_saved_search(
 
     settings = _settings(request)
     if not _has_captcha_key(settings):
-        raise BookingError("Missing PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY for booking.")
+        raise BookingError(
+            "Missing captcha key for booking. Set PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY, "
+            "PARIS_TENNIS_CAPTCHA_API_KEY, or CAPTCHA_API_KEY."
+        )
 
     target_date_iso = _resolve_next_weekday_date_iso(
         weekday=saved_search.weekday,
         timezone_name=settings.timezone,
     )
 
-    with _client_factory(request)(
-        email=user.paris_username,
-        password=user.paris_password,
-        captcha_api_key=settings.captcha_api_key,
-        headless=settings.headless,
-    ) as client:
-        client.login()
+    session = _session_manager(request).get_session(
+        user_id=user.id,
+        paris_username=user.paris_username,
+        paris_password=user.paris_password,
+    )
+
+    # Match CLI `book_first_available` behavior: when the saved search did not
+    # narrow surface/indoor filters, broaden to "all" from the live catalog.
+    # Sending empty lists tells the site's search JS to uncheck every
+    # checkbox, which some venues interpret as "no match" rather than "any".
+    catalog = session.get_catalog_cached()
+    all_surface_ids = (
+        tuple(catalog.surface_options.keys()) if catalog is not None else tuple()
+    )
+    all_in_out_codes = (
+        tuple(catalog.in_out_options.keys()) if catalog is not None else tuple()
+    )
+    effective_in_out_codes = saved_search.in_out_codes or all_in_out_codes
+
+    def _booking_task(client: Any) -> tuple[str, Any]:
+        """Run the entire booking flow on the session's worker thread.
+
+        Wrapping the whole sequence in one dispatched task is required:
+        Playwright sync mode is thread-bound, and splitting each client call
+        into a separate ``session.run`` would still be safe but would also
+        drop the implicit atomicity we want (same browser, same cookies, same
+        pending-booking wizard state from search → book → verify).
+        """
 
         chosen_venue_name = ""
         chosen_result = None
@@ -511,9 +600,20 @@ def _book_saved_search(
                     date_iso=target_date_iso,
                     hour_start=saved_search.hour_start,
                     hour_end=saved_search.hour_end,
-                    surface_ids=tuple(),
-                    in_out_codes=saved_search.in_out_codes,
+                    # Send all known surfaces so empty user selection does not
+                    # accidentally filter every slot out, same as CLI.
+                    surface_ids=all_surface_ids,
+                    in_out_codes=effective_in_out_codes,
                 )
+            )
+            # Per-venue DEBUG trace makes it easy to tell whether the upstream
+            # search returned 0 slots vs whether booking downstream failed.
+            LOGGER.debug(
+                "Saved search %s @ %s: %d slot(s) found (captcha=%s)",
+                saved_search.id,
+                venue_name,
+                len(result.slots),
+                bool(result.captcha_request_id),
             )
             if result.slots:
                 chosen_venue_name = venue_name
@@ -530,12 +630,30 @@ def _book_saved_search(
         # Slot index selection was removed from the UI; booking always takes the first
         # available slot to keep legacy rows deterministic and avoid hidden failures.
         slot = chosen_result.slots[0]
+        # INFO-level chosen slot log so operators can correlate a booking
+        # attempt with the exact (venue, court, date) tuple we passed forward.
+        LOGGER.info(
+            "Saved search %s booking slot @ %s: equipment=%s court=%s %s→%s",
+            saved_search.id,
+            chosen_venue_name,
+            slot.equipment_id,
+            slot.court_id,
+            slot.date_deb,
+            slot.date_fin,
+        )
         client.book_slot(slot=slot, captcha_request_id=chosen_result.captcha_request_id)
         reservation = client.get_current_reservation()
         if not reservation.has_active_reservation:
+            # Include the raw profile summary so logs reveal whether the site
+            # even landed on a reservation confirmation page.  Helpful when
+            # the client-side step checks did not catch the failure earlier.
             raise BookingError(
-                "Booking flow finished but no active reservation was detected."
+                "Booking flow finished but no active reservation was detected "
+                f"(profile_summary={reservation.raw_text!r})."
             )
+        return chosen_venue_name, slot
+
+    chosen_venue_name, slot = session.run(_booking_task)
 
     _store(request).add_booking_record(
         user_id=user.id,
@@ -628,21 +746,59 @@ def _today_in_timezone(timezone_name: str) -> dt.date:
 def _load_search_catalog_for_user(
     *, request: Request, user: AllowedUser
 ) -> SearchCatalog | None:
-    """Fetch live search catalog so forms only expose values accepted by tennis.paris.fr."""
+    """Return TTL-cached catalog so dashboard renders don't pay login latency."""
 
     try:
-        with _client_factory(request)(
-            email=user.paris_username,
-            password=user.paris_password,
-            captcha_api_key=_settings(request).captcha_api_key,
-            headless=_settings(request).headless,
-        ) as client:
-            client.login()
-            return client.get_search_catalog()
+        session = _session_manager(request).get_session(
+            user_id=user.id,
+            paris_username=user.paris_username,
+            paris_password=user.paris_password,
+        )
+        return session.get_catalog_cached()
     except Exception as error:  # noqa: BLE001
         # Catalog loading is best-effort and must never crash the dashboard.
         LOGGER.warning("Could not load search catalog for user %s: %s", user.id, error)
         return None
+
+
+def _warm_catalogs_in_background(
+    *, store: WebAppStore, manager: UserSessionManager
+) -> None:
+    """Pre-populate per-user catalog caches so the first /searches is fast.
+
+    Runs on a daemon thread so startup does not block on the OAuth round-trip.
+    Failures are logged and ignored — a missed warm-up only means the first
+    request pays the usual cost, it does not break the app.
+    """
+
+    def _runner() -> None:
+        for user in store.list_users():
+            if not user.is_enabled:
+                continue
+            try:
+                session = manager.get_session(
+                    user_id=user.id,
+                    paris_username=user.paris_username,
+                    paris_password=user.paris_password,
+                )
+                catalog = session.get_catalog_cached()
+            except Exception as error:  # noqa: BLE001
+                LOGGER.warning(
+                    "Catalog warm-up failed for user %s: %s", user.id, error
+                )
+                continue
+            LOGGER.info(
+                "Catalog warmed for user %s (%s): %s",
+                user.id,
+                user.display_name,
+                "ok" if catalog is not None else "unavailable",
+            )
+
+    threading.Thread(
+        target=_runner,
+        name="catalog-warmer",
+        daemon=True,
+    ).start()
 
 
 def _build_venue_options(
@@ -735,6 +891,10 @@ def _settings(request: Request) -> WebAppSettings:
 
 def _client_factory(request: Request) -> type[ParisTennisClient]:
     return request.app.state.client_factory
+
+
+def _session_manager(request: Request) -> UserSessionManager:
+    return request.app.state.session_manager
 
 
 app = create_app()

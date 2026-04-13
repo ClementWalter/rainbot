@@ -575,6 +575,14 @@ class WebAppStore:
               AND (venue_names = '[]' OR venue_names = '')
             """
         )
+        # Slot index is no longer user-controlled; normalize legacy values to first slot.
+        connection.execute(
+            """
+            UPDATE saved_searches
+            SET slot_index = 1
+            WHERE slot_index != 1
+            """
+        )
         rows = connection.execute(
             "SELECT id, date_iso, weekday FROM saved_searches"
         ).fetchall()
@@ -589,10 +597,10 @@ class WebAppStore:
                 connection.execute(
                     """
                     UPDATE saved_searches
-                    SET weekday = ?, date_iso = ?, updated_at = CURRENT_TIMESTAMP
+                    SET weekday = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                     """,
-                    (inferred_weekday, inferred_weekday, int(row["id"])),
+                    (inferred_weekday, int(row["id"])),
                 )
 
 
