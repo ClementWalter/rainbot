@@ -62,6 +62,43 @@ class _FailingHistoryClient(_HappyClient):
         raise BookingError("history failed")
 
 
+class _NoSlotsClient(_HappyClient):
+    """Fake client variant that returns no slots to cover booking error branch."""
+
+    def search_slots(self, _request) -> SearchResult:
+        return SearchResult(slots=(), captcha_request_id="captcha-request")
+
+
+class _NoCaptchaClient(_HappyClient):
+    """Fake client variant that omits captcha request id for booking branch coverage."""
+
+    def search_slots(self, _request) -> SearchResult:
+        return SearchResult(
+            slots=(
+                SlotOffer(
+                    equipment_id="eq-1",
+                    court_id="court-1",
+                    date_deb="2026/04/12 08:00:00",
+                    date_fin="2026/04/12 09:00:00",
+                    price_eur="12",
+                    price_label="Tarif plein",
+                ),
+            ),
+            captcha_request_id="",
+        )
+
+
+class _InactiveReservationClient(_HappyClient):
+    """Fake client variant that reports no active reservation after booking."""
+
+    def get_current_reservation(self) -> ReservationSummary:
+        return ReservationSummary(
+            has_active_reservation=False,
+            cancellation_token="",
+            raw_text="none",
+        )
+
+
 def _build_bundle(
     tmp_path: Path,
     *,
@@ -371,6 +408,14 @@ def test_history_page_renders_error_message_when_client_fails(tmp_path: Path) ->
     assert "history failed" in response.text
 
 
+def test_history_route_redirects_when_anonymous(tmp_path: Path) -> None:
+    """History endpoint should require login and redirect anonymous users."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.get("/history", follow_redirects=False)
+    assert response.headers["location"] == "/login"
+
+
 def test_admin_users_route_rejects_non_admin_users(tmp_path: Path) -> None:
     """Admin pages should reject authenticated users without admin role."""
 
@@ -410,6 +455,23 @@ def test_admin_create_user_requires_non_empty_fields(tmp_path: Path) -> None:
     assert response.headers["location"] == "/admin/users"
 
 
+def test_admin_create_user_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous admin-create calls should redirect to login."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.post(
+        "/admin/users",
+        data={
+            "display_name": "Anon",
+            "paris_username": "anon@example.com",
+            "paris_password": "secret",
+            "is_admin": "false",
+        },
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "/login"
+
+
 def test_admin_create_user_rejects_duplicate_username(tmp_path: Path) -> None:
     """Duplicate usernames should follow sqlite integrity error handling branch."""
 
@@ -439,6 +501,34 @@ def test_admin_toggle_admin_handles_missing_target(tmp_path: Path) -> None:
     assert response.headers["location"] == "/admin/users"
 
 
+def test_admin_toggle_admin_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous toggle-admin calls should redirect to login."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.post("/admin/users/1/toggle-admin", follow_redirects=False)
+    assert response.headers["location"] == "/login"
+
+
+def test_admin_toggle_admin_rejects_non_admin_user(tmp_path: Path) -> None:
+    """Non-admin users should be blocked from toggle-admin operations."""
+
+    client, store = _build_bundle(tmp_path)
+    store.create_user(
+        display_name="User",
+        paris_username="user2@example.com",
+        paris_password="secret",
+        is_admin=False,
+    )
+    with client:
+        client.post(
+            "/login",
+            data={"paris_username": "user2@example.com", "paris_password": "secret"},
+            follow_redirects=False,
+        )
+        response = client.post("/admin/users/1/toggle-admin", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
+
+
 def test_admin_toggle_admin_blocks_last_admin_self_demotion(tmp_path: Path) -> None:
     """Last admin should not be able to remove its own admin role."""
 
@@ -446,6 +536,22 @@ def test_admin_toggle_admin_blocks_last_admin_self_demotion(tmp_path: Path) -> N
     with client:
         _login_admin(client)
         response = client.post("/admin/users/1/toggle-admin", follow_redirects=False)
+    assert response.headers["location"] == "/admin/users"
+
+
+def test_admin_toggle_admin_updates_target_role_on_success(tmp_path: Path) -> None:
+    """Admin toggle should update target role when safeguards do not block action."""
+
+    client, store = _build_bundle(tmp_path)
+    store.create_user(
+        display_name="Second Admin",
+        paris_username="second-admin@example.com",
+        paris_password="secret",
+        is_admin=True,
+    )
+    with client:
+        _login_admin(client)
+        response = client.post("/admin/users/2/toggle-admin", follow_redirects=False)
     assert response.headers["location"] == "/admin/users"
 
 
@@ -459,6 +565,34 @@ def test_admin_toggle_enabled_handles_missing_target(tmp_path: Path) -> None:
     assert response.headers["location"] == "/admin/users"
 
 
+def test_admin_toggle_enabled_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous toggle-enabled calls should redirect to login."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.post("/admin/users/1/toggle-enabled", follow_redirects=False)
+    assert response.headers["location"] == "/login"
+
+
+def test_admin_toggle_enabled_rejects_non_admin_user(tmp_path: Path) -> None:
+    """Non-admin users should not be able to toggle enabled status."""
+
+    client, store = _build_bundle(tmp_path)
+    store.create_user(
+        display_name="User",
+        paris_username="user3@example.com",
+        paris_password="secret",
+        is_admin=False,
+    )
+    with client:
+        client.post(
+            "/login",
+            data={"paris_username": "user3@example.com", "paris_password": "secret"},
+            follow_redirects=False,
+        )
+        response = client.post("/admin/users/1/toggle-enabled", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
+
+
 def test_admin_toggle_enabled_blocks_last_active_admin_disable(tmp_path: Path) -> None:
     """Last active admin cannot be disabled to prevent administrative lockout."""
 
@@ -467,3 +601,135 @@ def test_admin_toggle_enabled_blocks_last_active_admin_disable(tmp_path: Path) -
         _login_admin(client)
         response = client.post("/admin/users/1/toggle-enabled", follow_redirects=False)
     assert response.headers["location"] == "/admin/users"
+
+
+def test_admin_toggle_enabled_updates_target_status_on_success(tmp_path: Path) -> None:
+    """Admin toggle-enabled should update other users when safeguards allow it."""
+
+    client, store = _build_bundle(tmp_path)
+    store.create_user(
+        display_name="Operator",
+        paris_username="operator2@example.com",
+        paris_password="secret",
+        is_admin=False,
+    )
+    with client:
+        _login_admin(client)
+        response = client.post("/admin/users/2/toggle-enabled", follow_redirects=False)
+    assert response.headers["location"] == "/admin/users"
+
+
+def test_delete_saved_search_success_path_redirects_to_searches(tmp_path: Path) -> None:
+    """Delete endpoint should remove owned searches and redirect back to dashboard."""
+
+    client, store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        client.post(
+            "/searches",
+            data={
+                "label": "Delete me",
+                "venue_name": "Alain Mimoun",
+                "date_iso": "12/04/2026",
+                "hour_start": 8,
+                "hour_end": 9,
+                "surface_ids": "1324",
+                "in_out_codes": "V",
+                "slot_index": 1,
+            },
+            follow_redirects=False,
+        )
+        search = store.list_saved_searches(user_id=1)[0]
+        response = client.post(f"/searches/{search.id}/delete", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
+
+
+def test_toggle_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous toggle requests should redirect instead of mutating state."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.post("/searches/1/toggle", follow_redirects=False)
+    assert response.headers["location"] == "/login"
+
+
+def test_book_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous book requests should redirect to login route."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.post("/searches/1/book", follow_redirects=False)
+    assert response.headers["location"] == "/login"
+
+
+def test_book_saved_search_handles_no_slot_result(tmp_path: Path) -> None:
+    """Booking should fail with no-slot client responses instead of writing history."""
+
+    client, store = _build_bundle(tmp_path, client_factory=_NoSlotsClient)
+    with client:
+        _login_admin(client)
+        client.post(
+            "/searches",
+            data={
+                "label": "Book",
+                "venue_name": "Alain Mimoun",
+                "date_iso": "12/04/2026",
+                "hour_start": 8,
+                "hour_end": 9,
+                "surface_ids": "1324",
+                "in_out_codes": "V",
+                "slot_index": 1,
+            },
+            follow_redirects=False,
+        )
+        search = store.list_saved_searches(user_id=1)[0]
+        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
+
+
+def test_book_saved_search_handles_missing_captcha_request_id(tmp_path: Path) -> None:
+    """Booking should fail when search result is not bookable due missing captcha id."""
+
+    client, store = _build_bundle(tmp_path, client_factory=_NoCaptchaClient)
+    with client:
+        _login_admin(client)
+        client.post(
+            "/searches",
+            data={
+                "label": "Book",
+                "venue_name": "Alain Mimoun",
+                "date_iso": "12/04/2026",
+                "hour_start": 8,
+                "hour_end": 9,
+                "surface_ids": "1324",
+                "in_out_codes": "V",
+                "slot_index": 1,
+            },
+            follow_redirects=False,
+        )
+        search = store.list_saved_searches(user_id=1)[0]
+        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
+
+
+def test_book_saved_search_handles_inactive_reservation_after_booking(tmp_path: Path) -> None:
+    """Booking should fail if post-booking reservation check is inactive."""
+
+    client, store = _build_bundle(tmp_path, client_factory=_InactiveReservationClient)
+    with client:
+        _login_admin(client)
+        client.post(
+            "/searches",
+            data={
+                "label": "Book",
+                "venue_name": "Alain Mimoun",
+                "date_iso": "12/04/2026",
+                "hour_start": 8,
+                "hour_end": 9,
+                "surface_ids": "1324",
+                "in_out_codes": "V",
+                "slot_index": 1,
+            },
+            follow_redirects=False,
+        )
+        search = store.list_saved_searches(user_id=1)[0]
+        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
