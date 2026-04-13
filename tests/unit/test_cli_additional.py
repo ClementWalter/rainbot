@@ -51,18 +51,102 @@ class _FakeClient:
         return _Tickets()
 
 
-def test_main_requires_username() -> None:
-    """Missing username should fail before the client factory is called."""
+def test_main_requires_username_for_authenticated_commands() -> None:
+    """Missing username should fail for commands that hit the profile/booking API."""
 
-    exit_code = main(argv=["--password", "p", "list-courts"], env={})
+    exit_code = main(argv=["--password", "p", "cancel"], env={})
     assert exit_code == 1
 
 
-def test_main_requires_password() -> None:
-    """Missing password should fail fast for all commands using authenticated session."""
+def test_main_requires_password_for_authenticated_commands() -> None:
+    """Missing password should fail for commands that hit the profile/booking API."""
 
-    exit_code = main(argv=["--username", "u", "list-courts"], env={})
+    exit_code = main(argv=["--username", "u", "cancel"], env={})
     assert exit_code == 1
+
+
+def test_main_allows_anonymous_list_courts_without_credentials() -> None:
+    """list-courts is a public read, so missing credentials must not block it."""
+
+    fake = _FakeClient()
+    exit_code = main(
+        argv=["list-courts"],
+        env={},
+        client_factory=lambda **_: fake,
+    )
+    assert exit_code == 0
+
+
+def test_main_allows_anonymous_search_slots_without_credentials() -> None:
+    """search-slots is a public read, so missing credentials must not block it."""
+
+    fake = _FakeClient()
+    exit_code = main(
+        argv=["search-slots", "--venue", "Alain Mimoun", "--date", "12/04/2026"],
+        env={},
+        client_factory=lambda **_: fake,
+    )
+    assert exit_code == 0
+
+
+def test_main_does_not_call_login_for_anonymous_commands() -> None:
+    """Anonymous commands must skip login() so they can run without credentials."""
+
+    fake = _FakeClient()
+    login_calls = {"count": 0}
+
+    def _login() -> None:
+        login_calls["count"] += 1
+
+    fake.login = _login  # type: ignore[method-assign]
+    main(argv=["list-courts"], env={}, client_factory=lambda **_: fake)
+    assert login_calls["count"] == 0
+
+
+def test_search_slots_login_flag_requires_credentials() -> None:
+    """--login must flip the credential validator on for the otherwise-anonymous command."""
+
+    exit_code = main(
+        argv=[
+            "search-slots",
+            "--venue",
+            "Alain Mimoun",
+            "--date",
+            "12/04/2026",
+            "--login",
+        ],
+        env={},
+    )
+    assert exit_code == 1
+
+
+def test_search_slots_login_flag_authenticates_before_searching() -> None:
+    """--login must call client.login() before running the search."""
+
+    fake = _FakeClient()
+    login_calls = {"count": 0}
+
+    def _login() -> None:
+        login_calls["count"] += 1
+
+    fake.login = _login  # type: ignore[method-assign]
+    main(
+        argv=[
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "search-slots",
+            "--venue",
+            "Alain Mimoun",
+            "--date",
+            "12/04/2026",
+            "--login",
+        ],
+        env={},
+        client_factory=lambda **_: fake,
+    )
+    assert login_calls["count"] == 1
 
 
 def test_main_returns_error_for_unknown_command(monkeypatch) -> None:

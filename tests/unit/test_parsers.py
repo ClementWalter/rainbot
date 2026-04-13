@@ -50,7 +50,7 @@ def test_parse_search_result_extracts_captcha_request_id() -> None:
 
 
 def test_parse_search_result_anonymous_returns_empty_slots() -> None:
-    """Anonymous sessions have no captchaRequestId and no slot buttons."""
+    """Anonymous sessions have no captchaRequestId and no tennis-court rows."""
 
     html = """
     <html>
@@ -65,6 +65,58 @@ def test_parse_search_result_anonymous_returns_empty_slots() -> None:
     result = parse_search_result(html)
     assert result.captcha_request_id == ""
     assert result.slots == ()
+
+
+def test_parse_search_result_anonymous_extracts_tennis_court_rows_with_hour() -> None:
+    """Anonymous pages group courts under hour headings; each slot must carry its hour."""
+
+    # Mirrors the real accordion shape: a panel-title heading above a group
+    # of tennis-court rows belonging to that hour.
+    html = """
+    <html>
+      <body>
+        <div class="panel">
+          <a href="#collapseJulesLadoumègue08h">
+            <div class="panel-heading"><h4 class="panel-title">08h</h4></div>
+          </a>
+          <div class="panel-collapse">
+            <div class="row tennis-court">
+              <div><span class="court">Court N°4 - Résine - Eclairé</span></div>
+              <div>
+                <div class="amount">
+                  <span class="price">12 €</span>
+                  <small class="price-description">Tarif réduit<br>Couvert</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <a href="#collapseJulesLadoumègue09h">
+            <div class="panel-heading"><h4 class="panel-title">09h</h4></div>
+          </a>
+          <div class="panel-collapse">
+            <div class="row tennis-court">
+              <div><span class="court">Court N°5 - Résine - Eclairé</span></div>
+              <div>
+                <div class="amount">
+                  <span class="price">20 €</span>
+                  <small class="price-description">Tarif plein<br>Couvert</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+
+    result = parse_search_result(html)
+    first, second = result.slots
+    # Each slot must be tagged with the hour heading it was nested under.
+    assert (first.date_deb, second.date_deb) == ("08h", "09h")
+    assert (first.price_eur, second.price_eur) == ("12 €", "20 €")
+    assert "Court N°4" in first.price_label and "Court N°5" in second.price_label
 
 
 def test_parse_profile_reservation_detects_empty_state() -> None:

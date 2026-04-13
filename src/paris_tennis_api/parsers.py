@@ -163,9 +163,11 @@ def parse_search_catalog(html: str) -> SearchCatalog:
 def parse_search_result(html: str) -> SearchResult:
     """Parse reservable slots and reservation captcha request id from result HTML.
 
-    Anonymous sessions see availability but no bookable buttons.  The parser
-    returns an empty slot list and blank ``captcha_request_id`` in that case
-    instead of raising.
+    Authenticated pages render bookable ``button.buttonAllOk`` elements with
+    every identifier the booking form needs.  Anonymous pages swap that
+    button for a "Se connecter" call-to-action but still render one
+    ``div.row.tennis-court`` per available court — we parse that as a
+    read-only slot so callers can see what's available without logging in.
     """
 
     soup = BeautifulSoup(html, "lxml")
@@ -178,7 +180,6 @@ def parse_search_result(html: str) -> SearchResult:
         str(captcha_field.get("value", "")).strip() if captcha_field else ""
     )
 
-    # Bookable slot buttons are only rendered for logged-in users.
     slots: list[SlotOffer] = []
     for button in soup.select("button.buttonAllOk"):
         equipment_id = str(button.get("equipmentid", "")).strip()
@@ -197,6 +198,47 @@ def parse_search_result(html: str) -> SearchResult:
                 price_label=str(button.get("typeprice", "")).strip(),
             )
         )
+
+    if not slots:
+        # Anonymous fallback: no bookable buttons, but each available court
+        # is still rendered as a ``div.row.tennis-court`` card, grouped by
+        # hour under an accordion heading like ``<h4 class="panel-title">08h</h4>``.
+        # Walk the document in source order so each row picks up the last
+        # hour header seen above it.
+        current_hour = ""
+        for element in soup.find_all(["h4", "div"]):
+            classes = element.get("class") or []
+            if element.name == "h4" and "panel-title" in classes:
+                current_hour = element.get_text(" ", strip=True)
+                continue
+            if element.name != "div" or "tennis-court" not in classes:
+                continue
+            court_el = element.select_one("span.court")
+            price_el = element.select_one("span.price")
+            desc_el = element.select_one("small.price-description")
+            court_label = court_el.get_text(" ", strip=True) if court_el else ""
+            price_eur = price_el.get_text(" ", strip=True) if price_el else ""
+            price_description = (
+                desc_el.get_text(" ", strip=True) if desc_el else ""
+            )
+            if not (court_label or price_eur):
+                continue
+            label = " — ".join(
+                part for part in (court_label, price_description) if part
+            )
+            slots.append(
+                SlotOffer(
+                    equipment_id="",
+                    court_id="",
+                    # Anonymous HTML only exposes the hour label (e.g. "08h"),
+                    # not a full datetime; we still surface it via date_deb
+                    # so the CLI can render start times without a new field.
+                    date_deb=current_hour,
+                    date_fin="",
+                    price_eur=price_eur,
+                    price_label=label,
+                )
+            )
 
     return SearchResult(
         slots=tuple(slots),

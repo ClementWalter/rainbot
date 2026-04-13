@@ -81,6 +81,18 @@ def build_parser(*, env: Mapping[str, str] | None = None) -> argparse.ArgumentPa
         help="Search bookable slots for one venue and date.",
     )
     _add_search_arguments(search_parser)
+    # Anonymous search is the cheap/quick default; authenticated search is
+    # opt-in because the site only exposes bookable slot details + captcha
+    # request id to logged-in sessions.
+    search_parser.add_argument(
+        "--login",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Authenticate before searching so results include bookable slot "
+            "details and captchaRequestId. Default: anonymous."
+        ),
+    )
 
     book_parser = subparsers.add_parser(
         "book",
@@ -149,17 +161,36 @@ def _configure_logging(verbose: bool) -> None:
     logging.basicConfig(level=level, format="%(message)s", stream=sys.stdout)
 
 
+# Commands that always drive profile/booking endpoints and therefore require
+# auth.  `list-courts` and `search-slots` only read public search data by
+# default; `search-slots --login` opts into auth for bookable slot details.
+_AUTHENTICATED_COMMANDS: frozenset[str] = frozenset(
+    {"book", "cancel", "tickets"}
+)
+
+
+def _needs_login(args: argparse.Namespace) -> bool:
+    """Return True when the parsed command must authenticate before running."""
+
+    if args.command in _AUTHENTICATED_COMMANDS:
+        return True
+    if args.command == "search-slots" and getattr(args, "login", False):
+        return True
+    return False
+
+
 def _validate_common_credentials(args: argparse.Namespace) -> None:
     """Fail early with explicit guidance instead of browser errors later in the flow."""
 
-    if not args.username:
-        raise ValidationError(
-            "Missing username. Use --username or set PARIS_TENNIS_USERNAME/PARIS_TENNIS_EMAIL."
-        )
-    if not args.password:
-        raise ValidationError(
-            "Missing password. Use --password or set PARIS_TENNIS_PASSWORD."
-        )
+    if _needs_login(args):
+        if not args.username:
+            raise ValidationError(
+                "Missing username. Use --username or set PARIS_TENNIS_USERNAME/PARIS_TENNIS_EMAIL."
+            )
+        if not args.password:
+            raise ValidationError(
+                "Missing password. Use --password or set PARIS_TENNIS_PASSWORD."
+            )
     if args.command == "book" and not args.captcha_api_key:
         raise ValidationError(
             "Missing captcha API key. Use --captcha-api-key or set CAPTCHA_API_KEY."
@@ -184,6 +215,13 @@ def _build_search_request(
 def _log_slot(index: int, slot: SlotOffer) -> None:
     """Centralize slot formatting so search and booking output stay aligned."""
 
+    # Anonymous search has no court_id/equipment_id/datetime attrs on the
+    # slot; collapse the line to the visible fields so the output stays
+    # useful for read-only availability checks.
+    if not slot.court_id:
+        parts = [part for part in (slot.date_deb, slot.price_eur, slot.price_label) if part]
+        LOGGER.info("[%d] %s", index, " — ".join(parts))
+        return
     LOGGER.info(
         "[%d] court=%s equipment=%s start=%s end=%s price=%s (%s)",
         index,
@@ -302,7 +340,11 @@ def main(
             captcha_api_key=args.captcha_api_key,
             headless=args.headless,
         ) as client:
-            client.login()
+            # Skip the OAuth round-trip for anonymous reads so availability
+            # checks do not require credentials; `search-slots --login` opts
+            # back into auth to get bookable slot details.
+            if _needs_login(args):
+                client.login()
             if args.command == "list-courts":
                 return _handle_list_courts(client)
             if args.command == "search-slots":

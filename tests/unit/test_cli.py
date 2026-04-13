@@ -133,15 +133,15 @@ def test_build_parser_reads_username_and_password_from_env() -> None:
     assert (args.username, args.password) == ("user@example.com", "secret")
 
 
-def test_main_list_courts_logs_in_and_loads_catalog() -> None:
-    """Listing courts should authenticate once and hit the catalog endpoint once."""
+def test_main_list_courts_loads_catalog_without_login() -> None:
+    """Listing courts is anonymous: it hits the catalog but never logs in."""
 
     fake_client = FakeClient()
     exit_code = main(
-        argv=["--username", "u", "--password", "p", "list-courts"],
+        argv=["list-courts"],
         client_factory=FakeClientFactory(client=fake_client),
     )
-    assert (exit_code, fake_client.login_calls, fake_client.catalog_calls) == (0, 1, 1)
+    assert (exit_code, fake_client.login_calls, fake_client.catalog_calls) == (0, 0, 1)
 
 
 def test_main_search_slots_uses_catalog_defaults_when_filters_are_missing() -> None:
