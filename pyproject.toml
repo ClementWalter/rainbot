@@ -22,9 +22,6 @@ dependencies = [
 paris-tennis = "paris_tennis_api.cli:main"
 paris-tennis-webapp = "paris_tennis_api.webapp.server:main"
 
-[project.optional-dependencies]
-dev = ["pytest>=8.3.3"]
-
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
@@ -36,3 +33,9 @@ packages = ["src/paris_tennis_api"]
 addopts = "-q"
 testpaths = ["tests"]
 markers = ["e2e: marks live end-to-end tests that hit tennis.paris.fr"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-cov>=7.1.0",
+]

@@ -9,3 +9,5 @@ smithers.db
 smithers.db-shm
 smithers.db-wal
 data/
+.coverage
+.coverage.*
