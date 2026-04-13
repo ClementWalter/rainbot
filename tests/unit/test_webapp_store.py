@@ -50,13 +50,12 @@ def test_store_toggle_saved_search_changes_active_state(tmp_path: Path) -> None:
     search = store.create_saved_search(
         user_id=user.id,
         label="Morning",
-        venue_name="Alain Mimoun",
-        date_iso="12/04/2026",
+        venue_names=("Alain Mimoun",),
+        court_ids=tuple(),
+        weekday="monday",
         hour_start=8,
         hour_end=10,
-        surface_ids=("1324",),
         in_out_codes=("V",),
-        slot_index=1,
     )
     toggled = store.toggle_saved_search(user_id=user.id, search_id=search.id)
     assert toggled.is_active is False
@@ -75,13 +74,12 @@ def test_store_records_booking_history_from_slot_offer(tmp_path: Path) -> None:
     search = store.create_saved_search(
         user_id=user.id,
         label="Evening",
-        venue_name="Mimoun",
-        date_iso="12/04/2026",
+        venue_names=("Mimoun",),
+        court_ids=tuple(),
+        weekday="friday",
         hour_start=18,
         hour_end=20,
-        surface_ids=("1324",),
         in_out_codes=("V",),
-        slot_index=1,
     )
     store.add_booking_record(
         user_id=user.id,

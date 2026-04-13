@@ -420,6 +420,34 @@ def test_toggle_saved_search_success_redirects_to_searches(tmp_path: Path) -> No
     assert response.headers["location"] == "/searches"
 
 
+def test_set_saved_search_state_success_redirects_to_searches(tmp_path: Path) -> None:
+    """Radio state endpoint should set active/inactive deterministically."""
+
+    client, store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        search = store.create_saved_search(
+            user_id=1,
+            label="Morning",
+            venue_name="Alain Mimoun",
+            date_iso="12/04/2026",
+            hour_start=8,
+            hour_end=9,
+            surface_ids=("1324",),
+            in_out_codes=("V",),
+            slot_index=1,
+        )
+        response = client.post(
+            f"/searches/{search.id}/state",
+            data={"is_active": 0},
+            follow_redirects=False,
+        )
+    assert (
+        response.headers["location"],
+        store.get_saved_search(user_id=1, search_id=search.id).is_active,
+    ) == ("/searches", False)
+
+
 def test_delete_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
     """Delete endpoint should require session ownership before modifying data."""
 

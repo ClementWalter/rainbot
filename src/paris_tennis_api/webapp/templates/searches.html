@@ -2,24 +2,27 @@
 endblock %} {% block content %}
 <section class="card">
   <h2>New saved search</h2>
-  <p class="muted">Set one booking alarm and toggle it on/off any time.</p>
+  <p class="muted">Set one booking alarm and keep options aligned with live venue data.</p>
   <form method="post" action="/searches" class="stack-form">
     <label>
       Label
-      <input type="text" name="label" placeholder="Morning clay" required />
+      <input type="text" name="label" placeholder="Morning weekdays" required />
     </label>
     <label>
-      Venue name
-      <input
-        type="text"
-        name="venue_name"
-        placeholder="Alain Mimoun"
-        required
-      />
+      Venues (multi-select)
+      <select name="venue_names" multiple required size="7">
+        {% for option in venue_options %}
+        <option value="{{ option.venue_name }}">{{ option.label }}</option>
+        {% endfor %}
+      </select>
     </label>
     <label>
-      Date (DD/MM/YYYY)
-      <input type="text" name="date_iso" placeholder="12/04/2026" required />
+      Weekday
+      <select name="weekday" required>
+        {% for value, label in weekday_options %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
     </label>
     <div class="grid two-col">
       <label>
@@ -45,18 +48,17 @@ endblock %} {% block content %}
         />
       </label>
     </div>
-    <label>
-      Surface IDs (comma-separated)
-      <input type="text" name="surface_ids" placeholder="1324" />
-    </label>
-    <label>
-      Indoor/outdoor codes (comma-separated)
-      <input type="text" name="in_out_codes" placeholder="V" />
-    </label>
-    <label>
-      Slot index to book
-      <input type="number" name="slot_index" min="1" value="1" required />
-    </label>
+    <fieldset class="filter-fieldset">
+      <legend>Indoor / outdoor</legend>
+      <div class="grid two-col">
+        {% for code, label in in_out_options %}
+        <label class="checkbox-row">
+          <input type="checkbox" name="in_out_codes" value="{{ code }}" />
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
     <button type="submit" class="primary-button">Save search</button>
   </form>
 </section>
@@ -78,24 +80,45 @@ endblock %} {% block content %}
     >
       <header>
         <h3>{{ search.label }}</h3>
-        <span
-          class="pill {% if search.is_active %}success{% else %}muted{% endif %}"
-        >
-          {% if search.is_active %}Active{% else %}Inactive{% endif %}
-        </span>
+        <form action="/searches/{{ search.id }}/state" method="post" class="state-form">
+          <label class="radio-chip">
+            <input
+              type="radio"
+              name="is_active"
+              value="1"
+              {% if search.is_active %}checked{% endif %}
+              onchange="this.form.submit()"
+            />
+            <span>Active</span>
+          </label>
+          <label class="radio-chip">
+            <input
+              type="radio"
+              name="is_active"
+              value="0"
+              {% if not search.is_active %}checked{% endif %}
+              onchange="this.form.submit()"
+            />
+            <span>Inactive</span>
+          </label>
+          <noscript>
+            <button type="submit" class="secondary-button">Apply</button>
+          </noscript>
+        </form>
       </header>
       <p>
-        {{ search.venue_name }} · {{ search.date_iso }} · {{ search.hour_start
-        }}-{{ search.hour_end }}
+        {{ search.venue_names|join(', ') }} · {{
+        weekday_labels.get(search.weekday, search.weekday) }} · next {{
+        next_dates.get(search.id, '') }} · {{ search.hour_start }}-{{ search.hour_end
+        }}
       </p>
       <p class="muted">
-        surfaces={{ search.surface_ids|join(',') or 'any' }} · in/out={{
-        search.in_out_codes|join(',') or 'any' }} · slot={{ search.slot_index }}
+        indoor/outdoor=
+        {% if search.in_out_codes %}
+        {% for code in search.in_out_codes %}{{ in_out_label_map.get(code, code) }}{% if not loop.last %}, {% endif %}{% endfor %}
+        {% else %}any{% endif %}
       </p>
       <div class="button-row">
-        <form action="/searches/{{ search.id }}/toggle" method="post">
-          <button type="submit" class="secondary-button">Toggle</button>
-        </form>
         <form action="/searches/{{ search.id }}/book" method="post">
           <button
             type="submit"

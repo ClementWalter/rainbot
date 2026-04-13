@@ -5,8 +5,10 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Form, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,13 +18,31 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from paris_tennis_api.client import ParisTennisClient
 from paris_tennis_api.exceptions import BookingError, ParisTennisError, ValidationError
-from paris_tennis_api.models import SearchRequest
+from paris_tennis_api.models import SearchCatalog, SearchRequest
 from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.store import AllowedUser, SavedSearch, WebAppStore
 
 LOGGER = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+WEEKDAY_OPTIONS = (
+    ("monday", "Monday"),
+    ("tuesday", "Tuesday"),
+    ("wednesday", "Wednesday"),
+    ("thursday", "Thursday"),
+    ("friday", "Friday"),
+    ("saturday", "Saturday"),
+    ("sunday", "Sunday"),
+)
+WEEKDAY_LABELS = {value: label for value, label in WEEKDAY_OPTIONS}
+
+
+@dataclass(frozen=True, slots=True)
+class VenueOption:
+    """One venue option rendered in the saved-search form select field."""
+
+    venue_name: str
+    label: str
 
 
 def create_app(
@@ -144,41 +164,82 @@ def create_app(
         if user is None:
             return _redirect("/login")
 
+        searches = _store(request).list_saved_searches(user_id=user.id)
+        catalog = _load_search_catalog_for_user(request=request, user=user)
+        venue_options = _build_venue_options(
+            catalog=catalog,
+            searches=searches,
+        )
+        in_out_options = _build_in_out_options(catalog=catalog)
+        in_out_label_map = {code: label for code, label in in_out_options}
+        next_dates: dict[int, str] = {}
+        for search in searches:
+            try:
+                next_dates[search.id] = _resolve_next_weekday_date_iso(
+                    weekday=search.weekday,
+                    timezone_name=_settings(request).timezone,
+                )
+            except ValidationError:
+                next_dates[search.id] = ""
+
         return _render(
             request,
             "searches.html",
             user=user,
-            searches=_store(request).list_saved_searches(user_id=user.id),
+            searches=searches,
+            venue_options=venue_options,
+            weekday_options=WEEKDAY_OPTIONS,
+            in_out_options=in_out_options,
+            in_out_label_map=in_out_label_map,
+            weekday_labels=WEEKDAY_LABELS,
+            next_dates=next_dates,
             flash=_pop_flash(request),
             active_page="searches",
-            captcha_configured=bool(_settings(request).captcha_api_key),
+            captcha_configured=_has_captcha_key(_settings(request)),
         )
 
     @app.post("/searches")
     def create_saved_search(
         request: Request,
         label: str = Form(...),
-        venue_name: str = Form(...),
-        date_iso: str = Form(...),
+        venue_names: list[str] = Form(default=[]),
+        weekday: str = Form(""),
+        venue_name: str = Form(""),
+        date_iso: str = Form(""),
         hour_start: int = Form(...),
         hour_end: int = Form(...),
-        surface_ids: str = Form(""),
-        in_out_codes: str = Form(""),
-        slot_index: int = Form(1),
+        in_out_codes: list[str] = Form(default=[]),
     ) -> Response:
         user = _get_current_user(request)
         if user is None:
             return _redirect("/login")
 
+        catalog = _load_search_catalog_for_user(request=request, user=user)
+        normalized_venues = _normalize_form_values(venue_names)
+        if not normalized_venues and venue_name.strip():
+            normalized_venues = (venue_name.strip(),)
+        normalized_in_out_codes = _normalize_form_values(in_out_codes)
+
         try:
             if hour_start >= hour_end:
                 raise ValidationError("hour_start must be lower than hour_end.")
-            if slot_index < 1:
-                raise ValidationError("slot_index must be >= 1.")
-            dt.datetime.strptime(date_iso.strip(), "%d/%m/%Y")
-        except ValueError as error:
-            _set_flash(request, f"Date must use DD/MM/YYYY format: {error}", "error")
-            return _redirect("/searches")
+            if not normalized_venues:
+                raise ValidationError("Select at least one venue.")
+            if weekday.strip():
+                normalized_weekday = _normalize_weekday(weekday)
+            elif date_iso.strip():
+                normalized_weekday = _weekday_from_date_iso(date_iso)
+            else:
+                raise ValidationError("Select a weekday.")
+            if catalog is not None:
+                for venue_name in normalized_venues:
+                    if venue_name not in catalog.venues:
+                        raise ValidationError(f"Unknown venue '{venue_name}'.")
+                for in_out_code in normalized_in_out_codes:
+                    if in_out_code not in catalog.in_out_options:
+                        raise ValidationError(
+                            f"Unknown indoor/outdoor option '{in_out_code}'."
+                        )
         except ValidationError as error:
             _set_flash(request, str(error), "error")
             return _redirect("/searches")
@@ -186,15 +247,37 @@ def create_app(
         _store(request).create_saved_search(
             user_id=user.id,
             label=label,
-            venue_name=venue_name,
-            date_iso=date_iso,
+            venue_names=normalized_venues,
+            court_ids=tuple(),
+            weekday=normalized_weekday,
             hour_start=hour_start,
             hour_end=hour_end,
-            surface_ids=_split_csv(surface_ids),
-            in_out_codes=_split_csv(in_out_codes),
-            slot_index=slot_index,
+            in_out_codes=normalized_in_out_codes,
         )
         _set_flash(request, "Saved search created.", "success")
+        return _redirect("/searches")
+
+    @app.post("/searches/{search_id}/state")
+    def set_saved_search_state(
+        request: Request,
+        search_id: int,
+        is_active: int = Form(...),
+    ) -> Response:
+        user = _get_current_user(request)
+        if user is None:
+            return _redirect("/login")
+
+        search = _store(request).set_saved_search_active(
+            user_id=user.id,
+            search_id=search_id,
+            is_active=bool(is_active),
+        )
+        if search is None:
+            _set_flash(request, "Saved search not found.", "error")
+            return _redirect("/searches")
+
+        state = "active" if search.is_active else "inactive"
+        _set_flash(request, f"Saved search switched to {state}.", "info")
         return _redirect("/searches")
 
     @app.post("/searches/{search_id}/toggle")
@@ -403,8 +486,13 @@ def _book_saved_search(
     """Run search and booking from one saved-search record and persist a history row."""
 
     settings = _settings(request)
-    if not settings.captcha_api_key:
+    if not _has_captcha_key(settings):
         raise BookingError("Missing PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY for booking.")
+
+    target_date_iso = _resolve_next_weekday_date_iso(
+        weekday=saved_search.weekday,
+        timezone_name=settings.timezone,
+    )
 
     with _client_factory(request)(
         email=user.paris_username,
@@ -413,32 +501,40 @@ def _book_saved_search(
         headless=settings.headless,
     ) as client:
         client.login()
-        result = client.search_slots(
-            SearchRequest(
-                venue_name=saved_search.venue_name,
-                date_iso=saved_search.date_iso,
-                hour_start=saved_search.hour_start,
-                hour_end=saved_search.hour_end,
-                surface_ids=saved_search.surface_ids,
-                in_out_codes=saved_search.in_out_codes,
-            )
-        )
 
-        if not result.slots:
+        chosen_venue_name = ""
+        chosen_result = None
+        for venue_name in saved_search.venue_names:
+            result = client.search_slots(
+                SearchRequest(
+                    venue_name=venue_name,
+                    date_iso=target_date_iso,
+                    hour_start=saved_search.hour_start,
+                    hour_end=saved_search.hour_end,
+                    surface_ids=tuple(),
+                    in_out_codes=saved_search.in_out_codes,
+                )
+            )
+            if result.slots:
+                chosen_venue_name = venue_name
+                chosen_result = result
+                break
+
+        if chosen_result is None:
             raise BookingError("No slot available for this saved search.")
-        if not result.captcha_request_id:
+        if not chosen_result.captcha_request_id:
             raise BookingError(
                 "Search result is not bookable (missing captcha request id)."
             )
 
         selected_index = saved_search.slot_index - 1
-        if selected_index < 0 or selected_index >= len(result.slots):
+        if selected_index < 0 or selected_index >= len(chosen_result.slots):
             raise BookingError(
-                f"slot_index={saved_search.slot_index} exceeds {len(result.slots)} available slot(s)."
+                f"slot_index={saved_search.slot_index} exceeds {len(chosen_result.slots)} available slot(s)."
             )
 
-        slot = result.slots[selected_index]
-        client.book_slot(slot=slot, captcha_request_id=result.captcha_request_id)
+        slot = chosen_result.slots[selected_index]
+        client.book_slot(slot=slot, captcha_request_id=chosen_result.captcha_request_id)
         reservation = client.get_current_reservation()
         if not reservation.has_active_reservation:
             raise BookingError(
@@ -448,7 +544,7 @@ def _book_saved_search(
     _store(request).add_booking_record(
         user_id=user.id,
         search_id=saved_search.id,
-        venue_name=saved_search.venue_name,
+        venue_name=chosen_venue_name,
         slot=slot,
     )
 
@@ -473,6 +569,125 @@ def _split_csv(raw_value: str) -> tuple[str, ...]:
 
     values = [piece.strip() for piece in raw_value.split(",") if piece.strip()]
     return tuple(values)
+
+
+def _normalize_form_values(values: list[str]) -> tuple[str, ...]:
+    """Normalize multi-select and checkbox form values into unique, stable tuples."""
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        value = raw_value.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return tuple(normalized)
+
+
+def _normalize_weekday(raw_weekday: str) -> str:
+    """Validate weekday select values so booking date resolution is always deterministic."""
+
+    weekday = raw_weekday.strip().lower()
+    if weekday not in WEEKDAY_LABELS:
+        raise ValidationError("Weekday must be one of Monday-Sunday.")
+    return weekday
+
+
+def _weekday_from_date_iso(raw_date_iso: str) -> str:
+    """Map legacy DD/MM/YYYY date payloads to weekday names for backward compatibility."""
+
+    try:
+        parsed = dt.datetime.strptime(raw_date_iso.strip(), "%d/%m/%Y")
+    except ValueError as error:
+        raise ValidationError(f"Date must use DD/MM/YYYY format: {error}") from error
+    return parsed.strftime("%A").lower()
+
+
+def _resolve_next_weekday_date_iso(*, weekday: str, timezone_name: str) -> str:
+    """Resolve selected weekday to the next upcoming DD/MM/YYYY date in app timezone."""
+
+    normalized_weekday = _normalize_weekday(weekday)
+    day_index = [value for value, _ in WEEKDAY_OPTIONS].index(normalized_weekday)
+    today = _today_in_timezone(timezone_name)
+    days_until_target = (day_index - today.weekday()) % 7
+    if days_until_target == 0:
+        # Same-day selection should book the *next* occurrence, not today's slots.
+        days_until_target = 7
+    target = today + dt.timedelta(days=days_until_target)
+    return target.strftime("%d/%m/%Y")
+
+
+def _today_in_timezone(timezone_name: str) -> dt.date:
+    """Return today's date in configured timezone, with UTC fallback for invalid tz names."""
+
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        LOGGER.warning("Unknown timezone '%s'. Falling back to UTC.", timezone_name)
+        timezone = dt.timezone.utc
+    return dt.datetime.now(timezone).date()
+
+
+def _load_search_catalog_for_user(
+    *, request: Request, user: AllowedUser
+) -> SearchCatalog | None:
+    """Fetch live search catalog so forms only expose values accepted by tennis.paris.fr."""
+
+    try:
+        with _client_factory(request)(
+            email=user.paris_username,
+            password=user.paris_password,
+            captcha_api_key=_settings(request).captcha_api_key,
+            headless=_settings(request).headless,
+        ) as client:
+            client.login()
+            return client.get_search_catalog()
+    except (ParisTennisError, AttributeError) as error:
+        LOGGER.warning("Could not load search catalog for user %s: %s", user.id, error)
+        return None
+
+
+def _build_venue_options(
+    *,
+    catalog: SearchCatalog | None,
+    searches: tuple[SavedSearch, ...],
+) -> tuple[VenueOption, ...]:
+    """Build form options from live catalog, with saved-search fallback when unavailable."""
+
+    if catalog is not None and catalog.venues:
+        options: list[VenueOption] = []
+        for venue in sorted(catalog.venues.values(), key=lambda value: value.name.lower()):
+            if venue.courts:
+                preview = ", ".join(
+                    court.name for court in venue.courts[:2] if court.name.strip()
+                )
+                suffix = f" ({preview})" if preview else ""
+            else:
+                suffix = ""
+            options.append(VenueOption(venue_name=venue.name, label=f"{venue.name}{suffix}"))
+        return tuple(options)
+
+    # Preserve usability during transient upstream failures by falling back to existing searches.
+    fallback_names = sorted({name for search in searches for name in search.venue_names})
+    return tuple(VenueOption(venue_name=name, label=name) for name in fallback_names)
+
+
+def _build_in_out_options(catalog: SearchCatalog | None) -> tuple[tuple[str, str], ...]:
+    """Expose indoor/outdoor checkbox options with sensible defaults."""
+
+    if catalog is not None and catalog.in_out_options:
+        return tuple(catalog.in_out_options.items())
+    return (
+        ("V", "Indoor"),
+        ("E", "Outdoor"),
+    )
+
+
+def _has_captcha_key(settings: WebAppSettings) -> bool:
+    """Share one captcha-enabled check across templates and booking flow guards."""
+
+    return bool(settings.captcha_api_key.strip())
 
 
 def _redirect(path: str) -> RedirectResponse:

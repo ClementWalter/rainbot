@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -32,16 +33,34 @@ class SavedSearch:
     id: int
     user_id: int
     label: str
-    venue_name: str
-    date_iso: str
+    venue_names: tuple[str, ...]
+    court_ids: tuple[str, ...]
+    weekday: str
     hour_start: int
     hour_end: int
-    surface_ids: tuple[str, ...]
     in_out_codes: tuple[str, ...]
     slot_index: int
     is_active: bool
     created_at: str
     updated_at: str
+
+    @property
+    def venue_name(self) -> str:
+        """Keep legacy accessors for routes/tests that still reference one venue string."""
+
+        return self.venue_names[0] if self.venue_names else ""
+
+    @property
+    def date_iso(self) -> str:
+        """Expose weekday via historical attribute name for compatibility with old templates."""
+
+        return self.weekday
+
+    @property
+    def surface_ids(self) -> tuple[str, ...]:
+        """Surface filters were removed from UI; keep stable empty tuple for compatibility."""
+
+        return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,13 +117,16 @@ class WebAppStore:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     label TEXT NOT NULL,
-                    venue_name TEXT NOT NULL,
-                    date_iso TEXT NOT NULL,
+                    venue_name TEXT NOT NULL DEFAULT '',
+                    date_iso TEXT NOT NULL DEFAULT '',
                     hour_start INTEGER NOT NULL,
                     hour_end INTEGER NOT NULL,
-                    surface_ids TEXT NOT NULL,
-                    in_out_codes TEXT NOT NULL,
+                    surface_ids TEXT NOT NULL DEFAULT '[]',
+                    in_out_codes TEXT NOT NULL DEFAULT '[]',
                     slot_index INTEGER NOT NULL DEFAULT 1,
+                    venue_names TEXT NOT NULL DEFAULT '[]',
+                    court_ids TEXT NOT NULL DEFAULT '[]',
+                    weekday TEXT NOT NULL DEFAULT 'monday',
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -124,6 +146,7 @@ class WebAppStore:
                     booked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 """)
+            self._migrate_saved_searches_table(connection)
             connection.commit()
 
     def count_users(self) -> int:
@@ -240,16 +263,30 @@ class WebAppStore:
         *,
         user_id: int,
         label: str,
-        venue_name: str,
-        date_iso: str,
         hour_start: int,
         hour_end: int,
-        surface_ids: tuple[str, ...],
-        in_out_codes: tuple[str, ...],
-        slot_index: int,
+        venue_names: tuple[str, ...] | None = None,
+        court_ids: tuple[str, ...] | None = None,
+        weekday: str = "",
+        in_out_codes: tuple[str, ...] | None = None,
+        venue_name: str = "",
+        date_iso: str = "",
+        surface_ids: tuple[str, ...] | None = None,
+        slot_index: int = 1,
     ) -> SavedSearch:
         """Create one saved-search alarm bound to a single user."""
 
+        normalized_venue_names = venue_names or tuple()
+        if not normalized_venue_names and venue_name.strip():
+            normalized_venue_names = (venue_name.strip(),)
+        normalized_court_ids = court_ids or tuple()
+        normalized_weekday = weekday.strip().lower() if weekday.strip() else ""
+        if not normalized_weekday:
+            normalized_weekday = _weekday_from_date_iso(date_iso)
+        normalized_in_out_codes = in_out_codes or tuple()
+        normalized_slot_index = slot_index
+        _ = surface_ids
+        primary_venue = normalized_venue_names[0] if normalized_venue_names else ""
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -262,20 +299,26 @@ class WebAppStore:
                     hour_end,
                     surface_ids,
                     in_out_codes,
-                    slot_index
+                    slot_index,
+                    venue_names,
+                    court_ids,
+                    weekday
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
                     label.strip(),
-                    venue_name.strip(),
-                    date_iso.strip(),
+                    primary_venue.strip(),
+                    normalized_weekday,
                     hour_start,
                     hour_end,
-                    self._serialize_collection(surface_ids),
-                    self._serialize_collection(in_out_codes),
-                    slot_index,
+                    self._serialize_collection(tuple()),
+                    self._serialize_collection(normalized_in_out_codes),
+                    normalized_slot_index,
+                    self._serialize_collection(normalized_venue_names),
+                    self._serialize_collection(normalized_court_ids),
+                    normalized_weekday,
                 ),
             )
             connection.commit()
@@ -322,6 +365,28 @@ class WebAppStore:
                 WHERE id = ? AND user_id = ?
                 """,
                 (search_id, user_id),
+            )
+            connection.commit()
+            row = connection.execute(
+                "SELECT * FROM saved_searches WHERE id = ? AND user_id = ?",
+                (search_id, user_id),
+            ).fetchone()
+        return self._row_to_saved_search(row) if row else None
+
+    def set_saved_search_active(
+        self, *, user_id: int, search_id: int, is_active: bool
+    ) -> SavedSearch | None:
+        """Set active flag explicitly so radio-based controls map to deterministic state."""
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE saved_searches
+                SET is_active = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+                """,
+                (int(is_active), search_id, user_id),
             )
             connection.commit()
             row = connection.execute(
@@ -423,15 +488,35 @@ class WebAppStore:
         )
 
     def _row_to_saved_search(self, row: sqlite3.Row) -> SavedSearch:
+        columns = set(row.keys())
+        if "venue_names" in columns:
+            venue_names = self._deserialize_collection(str(row["venue_names"]))
+        else:
+            venue_names = tuple()
+        if not venue_names:
+            legacy_venue = str(row["venue_name"]) if "venue_name" in columns else ""
+            if legacy_venue:
+                venue_names = (legacy_venue,)
+
+        if "court_ids" in columns:
+            court_ids = self._deserialize_collection(str(row["court_ids"]))
+        else:
+            court_ids = tuple()
+
+        weekday = str(row["weekday"]).strip().lower() if "weekday" in columns else ""
+        if not weekday:
+            legacy_date = str(row["date_iso"]) if "date_iso" in columns else ""
+            weekday = _weekday_from_date_iso(legacy_date)
+
         return SavedSearch(
             id=int(row["id"]),
             user_id=int(row["user_id"]),
             label=str(row["label"]),
-            venue_name=str(row["venue_name"]),
-            date_iso=str(row["date_iso"]),
+            venue_names=venue_names,
+            court_ids=court_ids,
+            weekday=weekday,
             hour_start=int(row["hour_start"]),
             hour_end=int(row["hour_end"]),
-            surface_ids=self._deserialize_collection(str(row["surface_ids"])),
             in_out_codes=self._deserialize_collection(str(row["in_out_codes"])),
             slot_index=int(row["slot_index"]),
             is_active=bool(row["is_active"]),
@@ -453,3 +538,39 @@ class WebAppStore:
             price_label=str(row["price_label"]),
             booked_at=str(row["booked_at"]),
         )
+
+    def _migrate_saved_searches_table(self, connection: sqlite3.Connection) -> None:
+        """Add new saved-search columns in place so existing local DBs remain usable."""
+
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(saved_searches)").fetchall()
+        }
+        migrations = (
+            ("venue_names", "ALTER TABLE saved_searches ADD COLUMN venue_names TEXT NOT NULL DEFAULT '[]'"),
+            ("court_ids", "ALTER TABLE saved_searches ADD COLUMN court_ids TEXT NOT NULL DEFAULT '[]'"),
+            ("weekday", "ALTER TABLE saved_searches ADD COLUMN weekday TEXT NOT NULL DEFAULT 'monday'"),
+        )
+        for column_name, sql in migrations:
+            if column_name not in columns:
+                connection.execute(sql)
+
+        # Backfill old rows once so runtime booking can rely on the new fields.
+        connection.execute(
+            """
+            UPDATE saved_searches
+            SET venue_names = json_array(venue_name)
+            WHERE venue_name != ''
+              AND (venue_names = '[]' OR venue_names = '')
+            """
+        )
+
+
+def _weekday_from_date_iso(value: str) -> str:
+    """Infer weekday from legacy DD/MM/YYYY payloads to preserve old saved-search rows."""
+
+    try:
+        parsed = dt.datetime.strptime(value.strip(), "%d/%m/%Y")
+    except ValueError:
+        return "monday"
+    return parsed.strftime("%A").lower()

@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 @dataclass(frozen=True, slots=True)
 class WebAppSettings:
@@ -17,11 +19,14 @@ class WebAppSettings:
     headless: bool
     host: str
     port: int
+    timezone: str = "Europe/Paris"
 
     @classmethod
     def from_env(cls) -> "WebAppSettings":
         """Load settings from env with safe local defaults for low-maintenance setup."""
 
+        # Keep webapp startup consistent with CLI behavior by honoring local `.env` files.
+        load_dotenv(".env")
         database_path = Path(
             os.getenv("PARIS_TENNIS_WEBAPP_DB", "data/paris_tennis_webapp.sqlite3")
         )
@@ -29,8 +34,10 @@ class WebAppSettings:
         database_path.parent.mkdir(parents=True, exist_ok=True)
 
         session_secret = os.getenv("PARIS_TENNIS_WEBAPP_SESSION_SECRET", "dev-session")
-        captcha_api_key = os.getenv(
-            "PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY", os.getenv("CAPTCHA_API_KEY", "")
+        captcha_api_key = _first_non_empty_env(
+            "PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY",
+            "PARIS_TENNIS_CAPTCHA_API_KEY",
+            "CAPTCHA_API_KEY",
         )
         headless = os.getenv(
             "PARIS_TENNIS_WEBAPP_HEADLESS", os.getenv("PARIS_TENNIS_HEADLESS", "true")
@@ -38,6 +45,8 @@ class WebAppSettings:
         host = os.getenv("PARIS_TENNIS_WEBAPP_HOST", "127.0.0.1").strip() or "127.0.0.1"
         port_raw = os.getenv("PARIS_TENNIS_WEBAPP_PORT", "8000").strip()
         port = int(port_raw) if port_raw.isdigit() else 8000
+        timezone = os.getenv("PARIS_TENNIS_WEBAPP_TIMEZONE", "Europe/Paris").strip()
+        timezone = timezone or "Europe/Paris"
 
         return cls(
             database_path=database_path,
@@ -46,4 +55,15 @@ class WebAppSettings:
             headless=headless,
             host=host,
             port=port,
+            timezone=timezone,
         )
+
+
+def _first_non_empty_env(*keys: str) -> str:
+    """Return the first non-empty env value so deployments can rename secrets safely."""
+
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return ""

@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
 
-from paris_tennis_api.webapp.main import _get_current_user, _pop_flash, _split_csv
+import pytest
+
+from paris_tennis_api.exceptions import ValidationError
+from paris_tennis_api.webapp.main import (
+    _get_current_user,
+    _normalize_weekday,
+    _pop_flash,
+    _resolve_next_weekday_date_iso,
+    _split_csv,
+)
 from paris_tennis_api.webapp.store import WebAppStore
 
 
@@ -74,3 +84,26 @@ def test_get_current_user_removes_session_for_disabled_user(tmp_path: Path) -> N
     request = _request_stub(store, {"user_id": user.id})
     _get_current_user(request)
     assert "user_id" not in request.session
+
+
+def test_normalize_weekday_rejects_unknown_values() -> None:
+    """Weekday parser should fail fast on invalid values so booking dates stay predictable."""
+
+    with pytest.raises(ValidationError):
+        _normalize_weekday("funday")
+
+
+def test_resolve_next_weekday_rolls_to_following_week_for_same_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Selecting today's weekday should schedule the next week's occurrence."""
+
+    monkeypatch.setattr(
+        "paris_tennis_api.webapp.main._today_in_timezone",
+        lambda _timezone_name: dt.date(2026, 4, 13),
+    )
+    resolved = _resolve_next_weekday_date_iso(
+        weekday="monday",
+        timezone_name="Europe/Paris",
+    )
+    assert resolved == "20/04/2026"

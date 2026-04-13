@@ -18,6 +18,9 @@ def _disable_env_file_loading(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "paris_tennis_api.config.load_dotenv", lambda *_args, **_kwargs: None
     )
+    monkeypatch.setattr(
+        "paris_tennis_api.webapp.settings.load_dotenv", lambda *_args, **_kwargs: None
+    )
 
 
 def test_paris_tennis_settings_reads_expected_env_values(
@@ -89,6 +92,30 @@ def test_webapp_settings_falls_back_to_global_captcha_key(
     monkeypatch.setenv("CAPTCHA_API_KEY", "fallback-key")
     settings = WebAppSettings.from_env()
     assert settings.captcha_api_key == "fallback-key"
+
+
+def test_webapp_settings_uses_legacy_webapp_captcha_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy env aliases should keep old deployments working after config refactors."""
+
+    monkeypatch.delenv("PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY", raising=False)
+    monkeypatch.delenv("CAPTCHA_API_KEY", raising=False)
+    monkeypatch.setenv("PARIS_TENNIS_CAPTCHA_API_KEY", "legacy-key")
+    settings = WebAppSettings.from_env()
+    assert settings.captcha_api_key == "legacy-key"
+
+
+def test_webapp_settings_strips_whitespace_captcha_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whitespace-only captcha values must normalize to empty so UI state is accurate."""
+
+    monkeypatch.delenv("PARIS_TENNIS_CAPTCHA_API_KEY", raising=False)
+    monkeypatch.delenv("CAPTCHA_API_KEY", raising=False)
+    monkeypatch.setenv("PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY", "  \n\t")
+    settings = WebAppSettings.from_env()
+    assert settings.captcha_api_key == ""
 
 
 def test_webapp_settings_invalid_port_falls_back_to_default(

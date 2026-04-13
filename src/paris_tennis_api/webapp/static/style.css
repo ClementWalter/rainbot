@@ -137,13 +137,18 @@ body {
 
 input[type="text"],
 input[type="password"],
-input[type="number"] {
+input[type="number"],
+select {
   width: 100%;
   border: 1px solid rgba(17, 32, 39, 0.22);
   border-radius: 10px;
   padding: 0.55rem 0.65rem;
   font-size: 1rem;
   background: var(--paper);
+}
+
+select[multiple] {
+  min-height: 8.2rem;
 }
 
 button {
@@ -287,6 +292,36 @@ button {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.filter-fieldset {
+  margin: 0;
+  border: 1px solid rgba(17, 32, 39, 0.14);
+  border-radius: 10px;
+  padding: 0.6rem 0.65rem;
+}
+
+.filter-fieldset legend {
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0 0.2rem;
+}
+
+.state-form {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.radio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid rgba(17, 32, 39, 0.16);
+  border-radius: 999px;
+  padding: 0.2rem 0.45rem;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 0.8rem;
 }
 
 @media (min-width: 720px) {
