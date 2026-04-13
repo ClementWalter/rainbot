@@ -1,4 +1,9 @@
-"""FastAPI application for the local low-maintenance Paris Tennis web UI."""
+"""FastAPI JSON API backing the React webapp for Paris Tennis bookings.
+
+All UI lives under ``web/`` (built with Vite) and hits ``/api/*`` here.  This
+module keeps the persistent per-user browser session, catalog TTL cache and
+SQLite store set up by previous iterations; only the HTTP surface changed.
+"""
 
 from __future__ import annotations
 
@@ -7,15 +12,15 @@ import logging
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, Form, Request, Response, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
 from paris_tennis_api.client import ParisTennisClient
@@ -27,8 +32,10 @@ from paris_tennis_api.webapp.store import AllowedUser, SavedSearch, WebAppStore
 
 LOGGER = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-WEEKDAY_OPTIONS = (
+# Vite build output.  Resolved relative to the repo root so the webapp works
+# regardless of the CWD the process was launched from.
+WEB_DIST_DIR = BASE_DIR.parent.parent.parent / "web" / "dist"
+WEEKDAY_OPTIONS: tuple[tuple[str, str], ...] = (
     ("monday", "Monday"),
     ("tuesday", "Tuesday"),
     ("wednesday", "Wednesday"),
@@ -37,15 +44,61 @@ WEEKDAY_OPTIONS = (
     ("saturday", "Saturday"),
     ("sunday", "Sunday"),
 )
-WEEKDAY_LABELS = {value: label for value, label in WEEKDAY_OPTIONS}
+_WEEKDAY_LABELS = {value: label for value, label in WEEKDAY_OPTIONS}
 
 
-@dataclass(frozen=True, slots=True)
-class VenueOption:
-    """One venue option rendered in the saved-search form select field."""
+# ---------------------------------------------------------------------------
+# Pydantic request bodies — FastAPI validates shape + types before our code.
+# ---------------------------------------------------------------------------
 
-    venue_name: str
+
+class LoginBody(BaseModel):
+    paris_username: str
+    paris_password: str
+
+
+class BootstrapAdminBody(BaseModel):
+    display_name: str
+    paris_username: str
+    paris_password: str
+
+
+class CreateSearchBody(BaseModel):
     label: str
+    venue_names: list[str] = Field(default_factory=list)
+    weekday: str
+    hour_start: int
+    hour_end: int
+    in_out_codes: list[str] = Field(default_factory=list)
+
+
+class UpdateSearchBody(BaseModel):
+    """All fields optional — partial PATCHes are how the SPA toggles or edits."""
+
+    is_active: bool | None = None
+    label: str | None = None
+    venue_names: list[str] | None = None
+    weekday: str | None = None
+    hour_start: int | None = None
+    hour_end: int | None = None
+    in_out_codes: list[str] | None = None
+
+
+class CreateUserBody(BaseModel):
+    display_name: str
+    paris_username: str
+    paris_password: str
+    is_admin: bool = False
+
+
+class UpdateUserBody(BaseModel):
+    is_admin: bool | None = None
+    is_enabled: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# App factory
+# ---------------------------------------------------------------------------
 
 
 def create_app(
@@ -72,193 +125,143 @@ def create_app(
         """Lifespan hook: warm per-user catalog caches on boot, close sessions on exit."""
 
         if app_settings.warm_on_startup:
-            _warm_catalogs_in_background(
-                store=app_store,
-                manager=session_manager,
-            )
+            _warm_catalogs_in_background(store=app_store, manager=session_manager)
         try:
             yield
         finally:
-            # Shutdown closes every persistent Playwright browser we spun up.
             session_manager.shutdown()
 
     app = FastAPI(
-        title="RainClaude Tennis Booker", version="0.1.0", lifespan=_lifespan
+        title="RainClaude Tennis Booker", version="0.2.0", lifespan=_lifespan
     )
     app.add_middleware(
         SessionMiddleware,
-        # Signed cookie sessions avoid a dedicated cache/database dependency.
         secret_key=app_settings.session_secret,
         same_site="lax",
         https_only=False,
     )
-    app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-
     app.state.settings = app_settings
     app.state.store = app_store
     app.state.client_factory = client_factory
     app.state.session_manager = session_manager
 
+    # ----------------------------------------------------------- infra
     @app.get("/healthz")
     def healthz(request: Request) -> dict[str, object]:
-        """Expose a minimal unauthenticated probe for deployment health checks."""
+        """Unauthenticated probe for deployment health checks."""
 
         store = _store(request)
-        # Keep this payload stable so infrastructure probes can alert on drift.
         return {
             "status": "ok",
             "users": store.count_users(),
             "enabled_admins": store.count_admin_users(),
         }
 
-    @app.get("/", response_class=HTMLResponse)
-    def root(request: Request) -> Response:
+    # ----------------------------------------------------------- session
+    @app.get("/api/me")
+    def api_me(request: Request) -> JSONResponse:
+        """Return the authenticated user or a bootstrap hint for the SPA."""
+
         user = _get_current_user(request)
         if user is None:
-            return _redirect("/login")
-        return _redirect("/searches")
+            return JSONResponse(
+                {
+                    "user": None,
+                    "needs_bootstrap": _store(request).count_users() == 0,
+                }
+            )
+        return JSONResponse({"user": _user_payload(user), "needs_bootstrap": False})
 
-    @app.get("/login", response_class=HTMLResponse)
-    def login_page(request: Request) -> Response:
-        user = _get_current_user(request)
-        if user is not None:
-            return _redirect("/searches")
+    @app.post("/api/session")
+    def api_login(request: Request, body: LoginBody) -> JSONResponse:
+        """Authenticate against the local allow-list and set the session cookie."""
 
-        return _render(
-            request,
-            "login.html",
-            needs_bootstrap=_store(request).count_users() == 0,
-            flash=_pop_flash(request),
-            active_page="login",
+        user = _store(request).get_user_by_credentials(
+            paris_username=body.paris_username,
+            paris_password=body.paris_password,
         )
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials or user is not allow-listed.",
+            )
+        request.session["user_id"] = user.id
+        return JSONResponse({"user": _user_payload(user)})
 
-    @app.post("/bootstrap-admin")
-    def bootstrap_admin(
-        request: Request,
-        display_name: str = Form(...),
-        paris_username: str = Form(...),
-        paris_password: str = Form(...),
-    ) -> Response:
+    @app.delete("/api/session")
+    def api_logout(request: Request) -> JSONResponse:
+        """Clear the session cookie.  Idempotent so the client can fire-and-forget."""
+
+        request.session.clear()
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/bootstrap-admin", status_code=status.HTTP_201_CREATED)
+    def api_bootstrap_admin(
+        request: Request, body: BootstrapAdminBody
+    ) -> JSONResponse:
+        """Create the very first admin account — only works on an empty store."""
+
         app_store = _store(request)
         if app_store.count_users() > 0:
-            _set_flash(
-                request, "Bootstrap is only available for the first account.", "error"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bootstrap is only available for the first account.",
             )
-            return _redirect("/login")
-        if not display_name.strip() or not paris_username.strip() or not paris_password:
-            _set_flash(request, "All admin bootstrap fields are required.", "error")
-            return _redirect("/login")
-
+        if (
+            not body.display_name.strip()
+            or not body.paris_username.strip()
+            or not body.paris_password
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="All admin bootstrap fields are required.",
+            )
         user = app_store.create_user(
-            display_name=display_name,
-            paris_username=paris_username,
-            paris_password=paris_password,
+            display_name=body.display_name,
+            paris_username=body.paris_username,
+            paris_password=body.paris_password,
             is_admin=True,
             is_enabled=True,
         )
         request.session["user_id"] = user.id
-        _set_flash(request, "Admin account created.", "success")
-        return _redirect("/searches")
+        return JSONResponse({"user": _user_payload(user)}, status_code=201)
 
-    @app.post("/login")
-    def login(
-        request: Request,
-        paris_username: str = Form(...),
-        paris_password: str = Form(...),
-    ) -> Response:
-        user = _store(request).get_user_by_credentials(
-            paris_username=paris_username,
-            paris_password=paris_password,
-        )
-        if user is None:
-            _set_flash(
-                request, "Invalid credentials or user is not allow-listed.", "error"
-            )
-            return _redirect("/login")
+    # ----------------------------------------------------------- catalog
+    @app.get("/api/catalog")
+    def api_catalog(request: Request) -> JSONResponse:
+        """Return live venue + filter options so the SPA can populate the form."""
 
-        request.session["user_id"] = user.id
-        _set_flash(request, f"Welcome back {user.display_name}.", "success")
-        return _redirect("/searches")
+        user = _require_user(request)
+        catalog = _load_search_catalog_for_user(request=request, user=user)
+        return JSONResponse(_catalog_payload(catalog))
 
-    @app.post("/logout")
-    def logout(request: Request) -> Response:
-        request.session.clear()
-        _set_flash(request, "Logged out.", "info")
-        return _redirect("/login")
+    # ----------------------------------------------------------- searches
+    @app.get("/api/searches")
+    def api_list_searches(request: Request) -> JSONResponse:
+        """List the current user's saved searches with resolved next booking dates."""
 
-    @app.get("/searches", response_class=HTMLResponse)
-    def searches_page(request: Request) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-
+        user = _require_user(request)
         searches = _store(request).list_saved_searches(user_id=user.id)
+        payload = [
+            _search_payload(search, _settings(request).timezone) for search in searches
+        ]
+        return JSONResponse({"searches": payload})
+
+    @app.post("/api/searches", status_code=status.HTTP_201_CREATED)
+    def api_create_search(request: Request, body: CreateSearchBody) -> JSONResponse:
+        """Create a new saved search with locally validated venue/weekday choices."""
+
+        user = _require_user(request)
         catalog = _load_search_catalog_for_user(request=request, user=user)
-        venue_options = _build_venue_options(
-            catalog=catalog,
-            searches=searches,
-        )
-        in_out_options = _build_in_out_options(catalog=catalog)
-        in_out_label_map = {code: label for code, label in in_out_options}
-        next_dates: dict[int, str] = {}
-        for search in searches:
-            try:
-                next_dates[search.id] = _resolve_next_weekday_date_iso(
-                    weekday=search.weekday,
-                    timezone_name=_settings(request).timezone,
-                )
-            except ValidationError:
-                next_dates[search.id] = ""
-
-        return _render(
-            request,
-            "searches.html",
-            user=user,
-            searches=searches,
-            venue_options=venue_options,
-            weekday_options=WEEKDAY_OPTIONS,
-            in_out_options=in_out_options,
-            in_out_label_map=in_out_label_map,
-            weekday_labels=WEEKDAY_LABELS,
-            next_dates=next_dates,
-            flash=_pop_flash(request),
-            active_page="searches",
-            captcha_configured=_has_captcha_key(_settings(request)),
-        )
-
-    @app.post("/searches")
-    def create_saved_search(
-        request: Request,
-        label: str = Form(...),
-        venue_names: list[str] = Form(default=[]),
-        weekday: str = Form(""),
-        venue_name: str = Form(""),
-        date_iso: str = Form(""),
-        hour_start: int = Form(...),
-        hour_end: int = Form(...),
-        in_out_codes: list[str] = Form(default=[]),
-    ) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-
-        catalog = _load_search_catalog_for_user(request=request, user=user)
-        normalized_venues = _normalize_form_values(venue_names)
-        if not normalized_venues and venue_name.strip():
-            normalized_venues = (venue_name.strip(),)
-        normalized_in_out_codes = _normalize_form_values(in_out_codes)
+        normalized_venues = _normalize_form_values(body.venue_names)
+        normalized_in_out_codes = _normalize_form_values(body.in_out_codes)
 
         try:
-            if hour_start >= hour_end:
+            if body.hour_start >= body.hour_end:
                 raise ValidationError("hour_start must be lower than hour_end.")
             if not normalized_venues:
                 raise ValidationError("Select at least one venue.")
-            if weekday.strip():
-                normalized_weekday = _normalize_weekday(weekday)
-            elif date_iso.strip():
-                normalized_weekday = _weekday_from_date_iso(date_iso)
-            else:
-                raise ValidationError("Select a weekday.")
+            normalized_weekday = _normalize_weekday(body.weekday)
             if catalog is not None:
                 for venue_name in normalized_venues:
                     if venue_name not in catalog.venues:
@@ -269,277 +272,448 @@ def create_app(
                             f"Unknown indoor/outdoor option '{in_out_code}'."
                         )
         except ValidationError as error:
-            _set_flash(request, str(error), "error")
-            return _redirect("/searches")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+            ) from error
 
-        _store(request).create_saved_search(
+        search = _store(request).create_saved_search(
             user_id=user.id,
-            label=label,
+            label=body.label,
             venue_names=normalized_venues,
             court_ids=tuple(),
             weekday=normalized_weekday,
-            hour_start=hour_start,
-            hour_end=hour_end,
+            hour_start=body.hour_start,
+            hour_end=body.hour_end,
             in_out_codes=normalized_in_out_codes,
         )
-        _set_flash(request, "Saved search created.", "success")
-        return _redirect("/searches")
-
-    @app.post("/searches/{search_id}/state")
-    def set_saved_search_state(
-        request: Request,
-        search_id: int,
-        is_active: int = Form(...),
-    ) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-
-        search = _store(request).set_saved_search_active(
-            user_id=user.id,
-            search_id=search_id,
-            is_active=bool(is_active),
+        return JSONResponse(
+            {"search": _search_payload(search, _settings(request).timezone)},
+            status_code=201,
         )
-        if search is None:
-            _set_flash(request, "Saved search not found.", "error")
-            return _redirect("/searches")
 
-        state = "active" if search.is_active else "inactive"
-        _set_flash(request, f"Saved search switched to {state}.", "info")
-        return _redirect("/searches")
+    @app.patch("/api/searches/{search_id}")
+    def api_update_search(
+        request: Request, search_id: int, body: UpdateSearchBody
+    ) -> JSONResponse:
+        """Patch any subset of editable fields on a saved search."""
 
-    @app.post("/searches/{search_id}/toggle")
-    def toggle_saved_search(request: Request, search_id: int) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-
-        search = _store(request).toggle_saved_search(
+        user = _require_user(request)
+        existing = _store(request).get_saved_search(
             user_id=user.id, search_id=search_id
         )
-        if search is None:
-            _set_flash(request, "Saved search not found.", "error")
-            return _redirect("/searches")
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Saved search not found.")
 
-        state = "active" if search.is_active else "inactive"
-        _set_flash(request, f"Saved search switched to {state}.", "info")
-        return _redirect("/searches")
+        # Validate any editable fields the client sent.  Reuse the same rules
+        # as create so the contract stays consistent across endpoints.
+        catalog = _load_search_catalog_for_user(request=request, user=user)
+        normalized_venues: tuple[str, ...] | None = None
+        normalized_in_out_codes: tuple[str, ...] | None = None
+        normalized_weekday: str | None = None
+        try:
+            if body.venue_names is not None:
+                normalized_venues = _normalize_form_values(body.venue_names)
+                if not normalized_venues:
+                    raise ValidationError("Select at least one venue.")
+            if body.in_out_codes is not None:
+                normalized_in_out_codes = _normalize_form_values(body.in_out_codes)
+            if body.weekday is not None:
+                normalized_weekday = _normalize_weekday(body.weekday)
+            new_start = body.hour_start if body.hour_start is not None else existing.hour_start
+            new_end = body.hour_end if body.hour_end is not None else existing.hour_end
+            if new_start >= new_end:
+                raise ValidationError("hour_start must be lower than hour_end.")
+            if catalog is not None:
+                check_venues = (
+                    normalized_venues
+                    if normalized_venues is not None
+                    else existing.venue_names
+                )
+                for venue_name in check_venues:
+                    if venue_name not in catalog.venues:
+                        raise ValidationError(f"Unknown venue '{venue_name}'.")
+                check_in_out = (
+                    normalized_in_out_codes
+                    if normalized_in_out_codes is not None
+                    else existing.in_out_codes
+                )
+                for in_out_code in check_in_out:
+                    if in_out_code not in catalog.in_out_options:
+                        raise ValidationError(
+                            f"Unknown indoor/outdoor option '{in_out_code}'."
+                        )
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+            ) from error
 
-    @app.post("/searches/{search_id}/delete")
-    def delete_saved_search(request: Request, search_id: int) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
+        search = existing
+        # `is_active` keeps its dedicated setter so existing tests + the
+        # toggle button do not need to reach through the larger update path.
+        if body.is_active is not None:
+            updated = _store(request).set_saved_search_active(
+                user_id=user.id, search_id=search_id, is_active=body.is_active
+            )
+            if updated is not None:
+                search = updated
 
+        # Apply field edits in one SQL statement so the row update is atomic.
+        if any(
+            value is not None
+            for value in (
+                body.label,
+                normalized_venues,
+                normalized_weekday,
+                body.hour_start,
+                body.hour_end,
+                normalized_in_out_codes,
+            )
+        ):
+            updated = _store(request).update_saved_search(
+                user_id=user.id,
+                search_id=search_id,
+                label=body.label,
+                venue_names=normalized_venues,
+                weekday=normalized_weekday,
+                hour_start=body.hour_start,
+                hour_end=body.hour_end,
+                in_out_codes=normalized_in_out_codes,
+            )
+            if updated is not None:
+                search = updated
+
+        return JSONResponse(
+            {"search": _search_payload(search, _settings(request).timezone)}
+        )
+
+    @app.delete("/api/searches/{search_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def api_delete_search(request: Request, search_id: int) -> Response:
+        """Remove one owned saved search.
+
+        204 responses must have an empty body — return a bare ``Response`` so
+        h11 does not raise ``Too much data for declared Content-Length``.
+        """
+
+        user = _require_user(request)
         _store(request).delete_saved_search(user_id=user.id, search_id=search_id)
-        _set_flash(request, "Saved search deleted.", "info")
-        return _redirect("/searches")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    @app.post("/searches/{search_id}/book")
-    def book_from_saved_search(request: Request, search_id: int) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
+    @app.post("/api/searches/{search_id}/book")
+    def api_book_saved_search(request: Request, search_id: int) -> JSONResponse:
+        """Run the booking flow for one saved search and return success/error JSON."""
 
+        user = _require_user(request)
         saved_search = _store(request).get_saved_search(
             user_id=user.id, search_id=search_id
         )
         if saved_search is None:
-            _set_flash(request, "Saved search not found.", "error")
-            return _redirect("/searches")
-
+            raise HTTPException(status_code=404, detail="Saved search not found.")
         try:
-            _book_saved_search(
-                request=request,
-                user=user,
-                saved_search=saved_search,
-            )
+            _book_saved_search(request=request, user=user, saved_search=saved_search)
         except ParisTennisError as error:
             LOGGER.warning("Booking failed for user %s: %s", user.id, error)
-            _set_flash(request, str(error), "error")
-            return _redirect("/searches")
+            raise HTTPException(status_code=400, detail=str(error)) from error
         except Exception as error:  # noqa: BLE001
-            # Playwright/network/JS errors bubble up as non-domain exceptions.
-            # Log with a full traceback for postmortem, but keep the UI alive
-            # with a flash message instead of 500ing the booking form.
-            LOGGER.exception(
-                "Unexpected booking error for user %s: %s", user.id, error
-            )
-            _set_flash(
-                request,
-                f"Unexpected booking error: {error}",
-                "error",
-            )
-            return _redirect("/searches")
+            LOGGER.exception("Unexpected booking error for user %s", user.id)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return JSONResponse({"ok": True})
 
-        _set_flash(request, "Booking created and saved to history.", "success")
-        return _redirect("/history")
+    @app.post("/api/searches/{search_id}/check-availability")
+    def api_check_availability(request: Request, search_id: int) -> JSONResponse:
+        """Run an anonymous search across the saved venues and return raw slots.
 
-    @app.get("/history", response_class=HTMLResponse)
-    def history_page(request: Request) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
+        No login, no captcha, no booking — purely a "is anything available
+        right now?" probe.  Slots come back without bookable ids because the
+        site only exposes those to authenticated sessions.
+        """
 
-        # The page renders immediately; the live reservation fetch is deferred
-        # to `/history/pending` (loaded async by the template).  This keeps the
-        # user-visible navigation snappy even on the first request.
-        return _render(
-            request,
-            "history.html",
-            user=user,
-            records=_store(request).list_booking_history(user_id=user.id),
-            flash=_pop_flash(request),
-            active_page="history",
+        user = _require_user(request)
+        saved_search = _store(request).get_saved_search(
+            user_id=user.id, search_id=search_id
+        )
+        if saved_search is None:
+            raise HTTPException(status_code=404, detail="Saved search not found.")
+
+        target_date_iso = _resolve_next_weekday_date_iso(
+            weekday=saved_search.weekday,
+            timezone_name=_settings(request).timezone,
         )
 
-    @app.get("/history/pending", response_class=HTMLResponse)
-    def history_pending_fragment(request: Request) -> Response:
-        """Return just the pending-reservation block so /history can defer it."""
+        def _probe(client: Any) -> list[dict[str, object]]:
+            results: list[dict[str, object]] = []
+            for venue_name in saved_search.venue_names:
+                venue_payload: dict[str, object] = {
+                    "name": venue_name,
+                    "slots": [],
+                    "error": "",
+                }
+                try:
+                    result = client.search_slots(
+                        SearchRequest(
+                            venue_name=venue_name,
+                            date_iso=target_date_iso,
+                            hour_start=saved_search.hour_start,
+                            hour_end=saved_search.hour_end,
+                            surface_ids=tuple(),
+                            in_out_codes=saved_search.in_out_codes,
+                        )
+                    )
+                except ParisTennisError as error:
+                    venue_payload["error"] = str(error)
+                else:
+                    venue_payload["slots"] = [
+                        {
+                            "hour": slot.date_deb,
+                            "price": slot.price_eur,
+                            "label": slot.price_label,
+                        }
+                        for slot in result.slots
+                    ]
+                results.append(venue_payload)
+            return results
 
-        user = _get_current_user(request)
-        if user is None:
-            # Keep the fragment tiny; the wrapper page already handles redirects.
-            return HTMLResponse(
-                '<p class="muted">Not authenticated.</p>',
-                status_code=status.HTTP_401_UNAUTHORIZED,
+        session = _session_manager(request).get_anonymous_session()
+        try:
+            venues = session.run(_probe)
+        except Exception as error:  # noqa: BLE001
+            LOGGER.exception("Anonymous availability check failed for user %s", user.id)
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+        return JSONResponse({"date": target_date_iso, "venues": venues})
+
+    @app.post("/api/searches/{search_id}/duplicate", status_code=status.HTTP_201_CREATED)
+    def api_duplicate_search(request: Request, search_id: int) -> JSONResponse:
+        """Clone a saved search so the user can tweak a copy without losing the original."""
+
+        user = _require_user(request)
+        original = _store(request).get_saved_search(
+            user_id=user.id, search_id=search_id
+        )
+        if original is None:
+            raise HTTPException(status_code=404, detail="Saved search not found.")
+        copy = _store(request).create_saved_search(
+            user_id=user.id,
+            label=f"{original.label} (copy)",
+            venue_names=original.venue_names,
+            court_ids=original.court_ids,
+            weekday=original.weekday,
+            hour_start=original.hour_start,
+            hour_end=original.hour_end,
+            in_out_codes=original.in_out_codes,
+        )
+        return JSONResponse(
+            {"search": _search_payload(copy, _settings(request).timezone)},
+            status_code=201,
+        )
+
+    # ----------------------------------------------------------- history
+    @app.get("/api/history")
+    def api_history(request: Request) -> JSONResponse:
+        """Return locally recorded booking history enriched with court labels."""
+
+        user = _require_user(request)
+        records = _store(request).list_booking_history(user_id=user.id)
+        # Resolve human-readable court names from the catalog so the SPA does
+        # not have to display raw ids like "court=4387".  The lookup is keyed
+        # by (venue_name, court_id) because court ids are not globally unique.
+        catalog = _load_search_catalog_for_user(request=request, user=user)
+        court_names: dict[tuple[str, str], str] = {}
+        if catalog is not None:
+            for venue in catalog.venues.values():
+                for court in venue.courts:
+                    court_names[(venue.name, court.court_id)] = court.name
+        enriched = []
+        for record in records:
+            payload = asdict(record)
+            payload["court_name"] = court_names.get(
+                (record.venue_name, record.court_id), ""
             )
+            enriched.append(payload)
+        return JSONResponse({"records": enriched})
 
-        pending = None
-        pending_error = ""
+    @app.get("/api/history/pending")
+    def api_history_pending(request: Request) -> JSONResponse:
+        """Fetch the live reservation status — slow, so it has its own endpoint."""
+
+        user = _require_user(request)
         try:
             session = _session_manager(request).get_session(
                 user_id=user.id,
                 paris_username=user.paris_username,
                 paris_password=user.paris_password,
             )
-            # Dispatch onto the session's worker thread; Playwright sync is
-            # thread-bound and a plain lock is not enough across FastAPI's
-            # threadpool.
             pending = session.run(lambda client: client.get_current_reservation())
         except ParisTennisError as error:
-            pending_error = str(error)
             LOGGER.warning(
                 "Pending reservation fetch failed for user %s: %s", user.id, error
             )
-
-        return TEMPLATES.TemplateResponse(
-            request=request,
-            name="_history_pending.html",
-            context={
-                "request": request,
-                "pending": pending,
-                "pending_error": pending_error,
-            },
+            return JSONResponse({"pending": None, "error": str(error)})
+        return JSONResponse(
+            {
+                "pending": {
+                    "has_active_reservation": pending.has_active_reservation,
+                    "raw_text": pending.raw_text,
+                    "details": (
+                        asdict(pending.details) if pending.details is not None else None
+                    ),
+                },
+                "error": "",
+            }
         )
 
-    @app.get("/admin/users", response_class=HTMLResponse)
-    def admin_users_page(request: Request) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-        if not user.is_admin:
-            _set_flash(request, "Admin role required.", "error")
-            return _redirect("/searches")
+    @app.delete("/api/history/pending")
+    def api_cancel_pending(request: Request) -> JSONResponse:
+        """Cancel the live reservation by driving the same API the CLI uses."""
 
-        return _render(
-            request,
-            "admin_users.html",
-            user=user,
-            users=_store(request).list_users(),
-            flash=_pop_flash(request),
-            active_page="admin",
-        )
-
-    @app.post("/admin/users")
-    def admin_create_user(
-        request: Request,
-        display_name: str = Form(...),
-        paris_username: str = Form(...),
-        paris_password: str = Form(...),
-        is_admin: bool = Form(False),
-    ) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-        if not user.is_admin:
-            _set_flash(request, "Admin role required.", "error")
-            return _redirect("/searches")
-        if not display_name.strip() or not paris_username.strip() or not paris_password:
-            _set_flash(request, "All fields are required when adding a user.", "error")
-            return _redirect("/admin/users")
-
+        user = _require_user(request)
         try:
-            _store(request).create_user(
-                display_name=display_name,
-                paris_username=paris_username,
-                paris_password=paris_password,
-                is_admin=is_admin,
+            session = _session_manager(request).get_session(
+                user_id=user.id,
+                paris_username=user.paris_username,
+                paris_password=user.paris_password,
             )
-        except sqlite3.IntegrityError:
-            _set_flash(request, "That Paris username already exists.", "error")
-            return _redirect("/admin/users")
+            canceled = session.run(
+                lambda client: client.cancel_current_reservation()
+            )
+        except ParisTennisError as error:
+            LOGGER.warning("Cancellation failed for user %s: %s", user.id, error)
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except Exception as error:  # noqa: BLE001
+            LOGGER.exception("Unexpected cancellation error for user %s", user.id)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return JSONResponse({"canceled": bool(canceled)})
 
-        _set_flash(request, "User added to allow-list.", "success")
-        return _redirect("/admin/users")
+    # ----------------------------------------------------------- admin
+    @app.get("/api/admin/users")
+    def api_admin_list_users(request: Request) -> JSONResponse:
+        """Return every user in the allow-list.  Admin only."""
 
-    @app.post("/admin/users/{target_user_id}/toggle-admin")
-    def admin_toggle_admin_role(request: Request, target_user_id: int) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-        if not user.is_admin:
-            _set_flash(request, "Admin role required.", "error")
-            return _redirect("/searches")
+        _require_admin(request)
+        return JSONResponse(
+            {"users": [_user_payload(u) for u in _store(request).list_users()]}
+        )
 
+    @app.post("/api/admin/users", status_code=status.HTTP_201_CREATED)
+    def api_admin_create_user(
+        request: Request, body: CreateUserBody
+    ) -> JSONResponse:
+        """Create a new allow-listed user.  Admin only."""
+
+        _require_admin(request)
+        if (
+            not body.display_name.strip()
+            or not body.paris_username.strip()
+            or not body.paris_password
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="All fields are required when adding a user.",
+            )
+        try:
+            user = _store(request).create_user(
+                display_name=body.display_name,
+                paris_username=body.paris_username,
+                paris_password=body.paris_password,
+                is_admin=body.is_admin,
+            )
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That Paris username already exists.",
+            ) from error
+        return JSONResponse({"user": _user_payload(user)}, status_code=201)
+
+    @app.patch("/api/admin/users/{target_user_id}")
+    def api_admin_update_user(
+        request: Request, target_user_id: int, body: UpdateUserBody
+    ) -> JSONResponse:
+        """Toggle admin/enabled flags with the same lockout guards as the old UI."""
+
+        actor = _require_admin(request)
         target = _store(request).get_user(target_user_id)
         if target is None:
-            _set_flash(request, "Target user not found.", "error")
-            return _redirect("/admin/users")
+            raise HTTPException(status_code=404, detail="Target user not found.")
 
-        if (
-            target.id == user.id
-            and target.is_admin
-            and _store(request).count_admin_users() == 1
-        ):
-            _set_flash(request, "Cannot remove the last admin role.", "error")
-            return _redirect("/admin/users")
+        updated = target
+        if body.is_admin is not None:
+            # Guard: the last remaining admin cannot be demoted.
+            if (
+                target.is_admin
+                and not body.is_admin
+                and _store(request).count_admin_users() == 1
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot remove the last admin role.",
+                )
+            updated = (
+                _store(request).update_user_admin(
+                    user_id=target.id, is_admin=body.is_admin
+                )
+                or updated
+            )
+        if body.is_enabled is not None:
+            # Guard: the last active admin cannot be disabled out of the system.
+            if (
+                target.id == actor.id
+                and target.is_enabled
+                and not body.is_enabled
+                and _store(request).count_admin_users() == 1
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot disable the last active admin.",
+                )
+            updated = (
+                _store(request).update_user_enabled(
+                    user_id=target.id, is_enabled=body.is_enabled
+                )
+                or updated
+            )
+        return JSONResponse({"user": _user_payload(updated)})
 
-        _store(request).update_user_admin(
-            user_id=target.id, is_admin=not target.is_admin
+    # ----------------------------------------------------------- SPA
+    # In production the Vite build is mounted at / and any unknown path
+    # returns index.html so client-side React Router can handle it.  In dev
+    # the frontend runs on :5173 and proxies /api to this server, so these
+    # routes are only hit when someone opens the FastAPI port directly.
+    if WEB_DIST_DIR.exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(WEB_DIST_DIR / "assets")),
+            name="assets",
         )
-        _set_flash(request, "Admin role updated.", "success")
-        return _redirect("/admin/users")
 
-    @app.post("/admin/users/{target_user_id}/toggle-enabled")
-    def admin_toggle_enabled(request: Request, target_user_id: int) -> Response:
-        user = _get_current_user(request)
-        if user is None:
-            return _redirect("/login")
-        if not user.is_admin:
-            _set_flash(request, "Admin role required.", "error")
-            return _redirect("/searches")
+        @app.get("/{full_path:path}")
+        def spa_catch_all(full_path: str) -> FileResponse:
+            # Serve real files if present (e.g. favicon.ico), otherwise
+            # hand back the SPA shell so React Router can route the URL.
+            candidate = WEB_DIST_DIR / full_path if full_path else None
+            if candidate and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(WEB_DIST_DIR / "index.html")
+    else:
+        @app.get("/")
+        def spa_missing_hint() -> JSONResponse:
+            """Helpful 503 when the dev run forgot to build the SPA."""
 
-        target = _store(request).get_user(target_user_id)
-        if target is None:
-            _set_flash(request, "Target user not found.", "error")
-            return _redirect("/admin/users")
-
-        if (
-            target.id == user.id
-            and target.is_enabled
-            and _store(request).count_admin_users() == 1
-        ):
-            _set_flash(request, "Cannot disable the last active admin.", "error")
-            return _redirect("/admin/users")
-
-        _store(request).update_user_enabled(
-            user_id=target.id, is_enabled=not target.is_enabled
-        )
-        _set_flash(request, "User status updated.", "success")
-        return _redirect("/admin/users")
+            return JSONResponse(
+                {
+                    "detail": (
+                        "web/dist not found. Run `cd web && bun install && bun run "
+                        "build`, or start the Vite dev server on :5173."
+                    )
+                },
+                status_code=503,
+            )
 
     return app
+
+
+# ---------------------------------------------------------------------------
+# Booking core — unchanged from the Jinja version, still runs through the
+# per-user session worker so Playwright stays thread-bound.
+# ---------------------------------------------------------------------------
 
 
 def _book_saved_search(
@@ -568,10 +742,6 @@ def _book_saved_search(
         paris_password=user.paris_password,
     )
 
-    # Match CLI `book_first_available` behavior: when the saved search did not
-    # narrow surface/indoor filters, broaden to "all" from the live catalog.
-    # Sending empty lists tells the site's search JS to uncheck every
-    # checkbox, which some venues interpret as "no match" rather than "any".
     catalog = session.get_catalog_cached()
     all_surface_ids = (
         tuple(catalog.surface_options.keys()) if catalog is not None else tuple()
@@ -582,15 +752,6 @@ def _book_saved_search(
     effective_in_out_codes = saved_search.in_out_codes or all_in_out_codes
 
     def _booking_task(client: Any) -> tuple[str, Any]:
-        """Run the entire booking flow on the session's worker thread.
-
-        Wrapping the whole sequence in one dispatched task is required:
-        Playwright sync mode is thread-bound, and splitting each client call
-        into a separate ``session.run`` would still be safe but would also
-        drop the implicit atomicity we want (same browser, same cookies, same
-        pending-booking wizard state from search → book → verify).
-        """
-
         chosen_venue_name = ""
         chosen_result = None
         for venue_name in saved_search.venue_names:
@@ -600,14 +761,10 @@ def _book_saved_search(
                     date_iso=target_date_iso,
                     hour_start=saved_search.hour_start,
                     hour_end=saved_search.hour_end,
-                    # Send all known surfaces so empty user selection does not
-                    # accidentally filter every slot out, same as CLI.
                     surface_ids=all_surface_ids,
                     in_out_codes=effective_in_out_codes,
                 )
             )
-            # Per-venue DEBUG trace makes it easy to tell whether the upstream
-            # search returned 0 slots vs whether booking downstream failed.
             LOGGER.debug(
                 "Saved search %s @ %s: %d slot(s) found (captcha=%s)",
                 saved_search.id,
@@ -627,11 +784,7 @@ def _book_saved_search(
                 "Search result is not bookable (missing captcha request id)."
             )
 
-        # Slot index selection was removed from the UI; booking always takes the first
-        # available slot to keep legacy rows deterministic and avoid hidden failures.
         slot = chosen_result.slots[0]
-        # INFO-level chosen slot log so operators can correlate a booking
-        # attempt with the exact (venue, court, date) tuple we passed forward.
         LOGGER.info(
             "Saved search %s booking slot @ %s: equipment=%s court=%s %s→%s",
             saved_search.id,
@@ -644,9 +797,6 @@ def _book_saved_search(
         client.book_slot(slot=slot, captcha_request_id=chosen_result.captcha_request_id)
         reservation = client.get_current_reservation()
         if not reservation.has_active_reservation:
-            # Include the raw profile summary so logs reveal whether the site
-            # even landed on a reservation confirmation page.  Helpful when
-            # the client-side step checks did not catch the failure earlier.
             raise BookingError(
                 "Booking flow finished but no active reservation was detected "
                 f"(profile_summary={reservation.raw_text!r})."
@@ -663,84 +813,81 @@ def _book_saved_search(
     )
 
 
-def _render(request: Request, template_name: str, **context: Any) -> HTMLResponse:
-    """Inject global template values once so each route stays concise."""
-
-    user = _get_current_user(request)
-    return TEMPLATES.TemplateResponse(
-        request=request,
-        name=template_name,
-        context={
-            "request": request,
-            "current_user": user,
-            **context,
-        },
-    )
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-def _split_csv(raw_value: str) -> tuple[str, ...]:
-    """Normalize comma-separated form input into stable tuple storage."""
+def _user_payload(user: AllowedUser) -> dict[str, object]:
+    """Serialize a user for the API without leaking the password hash column."""
 
-    values = [piece.strip() for piece in raw_value.split(",") if piece.strip()]
-    return tuple(values)
-
-
-def _normalize_form_values(values: list[str]) -> tuple[str, ...]:
-    """Normalize multi-select and checkbox form values into unique, stable tuples."""
-
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for raw_value in values:
-        value = raw_value.strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        normalized.append(value)
-    return tuple(normalized)
+    return {
+        "id": user.id,
+        "display_name": user.display_name,
+        "paris_username": user.paris_username,
+        "is_admin": user.is_admin,
+        "is_enabled": user.is_enabled,
+        "created_at": user.created_at,
+    }
 
 
-def _normalize_weekday(raw_weekday: str) -> str:
-    """Validate weekday select values so booking date resolution is always deterministic."""
+def _catalog_payload(catalog: SearchCatalog | None) -> dict[str, object]:
+    """Shape the catalog for the React form: list venues + in/out options."""
 
-    weekday = raw_weekday.strip().lower()
-    if weekday not in WEEKDAY_LABELS:
-        raise ValidationError("Weekday must be one of Monday-Sunday.")
-    return weekday
+    if catalog is None:
+        return {
+            "venues": [],
+            "in_out_options": [{"code": "V", "label": "Indoor"},
+                               {"code": "E", "label": "Outdoor"}],
+            "min_hour": 8,
+            "max_hour": 22,
+            "available": False,
+        }
+    venues = [
+        {
+            "name": venue.name,
+            "available_now": venue.available_now,
+            "courts": [{"id": c.court_id, "name": c.name} for c in venue.courts],
+        }
+        for venue in sorted(
+            catalog.venues.values(), key=lambda value: value.name.lower()
+        )
+    ]
+    in_out_options = [
+        {"code": code, "label": label} for code, label in catalog.in_out_options.items()
+    ]
+    return {
+        "venues": venues,
+        "in_out_options": in_out_options
+        or [{"code": "V", "label": "Indoor"}, {"code": "E", "label": "Outdoor"}],
+        "min_hour": catalog.min_hour,
+        "max_hour": catalog.max_hour,
+        "available": True,
+    }
 
 
-def _weekday_from_date_iso(raw_date_iso: str) -> str:
-    """Map legacy DD/MM/YYYY date payloads to weekday names for backward compatibility."""
-
-    try:
-        parsed = dt.datetime.strptime(raw_date_iso.strip(), "%d/%m/%Y")
-    except ValueError as error:
-        raise ValidationError(f"Date must use DD/MM/YYYY format: {error}") from error
-    return parsed.strftime("%A").lower()
-
-
-def _resolve_next_weekday_date_iso(*, weekday: str, timezone_name: str) -> str:
-    """Resolve selected weekday to the next upcoming DD/MM/YYYY date in app timezone."""
-
-    normalized_weekday = _normalize_weekday(weekday)
-    day_index = [value for value, _ in WEEKDAY_OPTIONS].index(normalized_weekday)
-    today = _today_in_timezone(timezone_name)
-    days_until_target = (day_index - today.weekday()) % 7
-    if days_until_target == 0:
-        # Same-day selection should book the *next* occurrence, not today's slots.
-        days_until_target = 7
-    target = today + dt.timedelta(days=days_until_target)
-    return target.strftime("%d/%m/%Y")
-
-
-def _today_in_timezone(timezone_name: str) -> dt.date:
-    """Return today's date in configured timezone, with UTC fallback for invalid tz names."""
+def _search_payload(search: SavedSearch, timezone_name: str) -> dict[str, object]:
+    """Serialize one saved search plus the resolved next-booking date."""
 
     try:
-        timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        LOGGER.warning("Unknown timezone '%s'. Falling back to UTC.", timezone_name)
-        timezone = dt.timezone.utc
-    return dt.datetime.now(timezone).date()
+        next_date = _resolve_next_weekday_date_iso(
+            weekday=search.weekday, timezone_name=timezone_name
+        )
+    except ValidationError:
+        next_date = ""
+    return {
+        "id": search.id,
+        "label": search.label,
+        "venue_names": list(search.venue_names),
+        "weekday": search.weekday,
+        "weekday_label": _WEEKDAY_LABELS.get(search.weekday, search.weekday),
+        "hour_start": search.hour_start,
+        "hour_end": search.hour_end,
+        "in_out_codes": list(search.in_out_codes),
+        "is_active": search.is_active,
+        "next_date": next_date,
+        "created_at": search.created_at,
+    }
 
 
 def _load_search_catalog_for_user(
@@ -756,7 +903,6 @@ def _load_search_catalog_for_user(
         )
         return session.get_catalog_cached()
     except Exception as error:  # noqa: BLE001
-        # Catalog loading is best-effort and must never crash the dashboard.
         LOGGER.warning("Could not load search catalog for user %s: %s", user.id, error)
         return None
 
@@ -764,12 +910,7 @@ def _load_search_catalog_for_user(
 def _warm_catalogs_in_background(
     *, store: WebAppStore, manager: UserSessionManager
 ) -> None:
-    """Pre-populate per-user catalog caches so the first /searches is fast.
-
-    Runs on a daemon thread so startup does not block on the OAuth round-trip.
-    Failures are logged and ignored — a missed warm-up only means the first
-    request pays the usual cost, it does not break the app.
-    """
+    """Pre-populate per-user catalog caches so the first /searches is fast."""
 
     def _runner() -> None:
         for user in store.list_users():
@@ -801,70 +942,55 @@ def _warm_catalogs_in_background(
     ).start()
 
 
-def _build_venue_options(
-    *,
-    catalog: SearchCatalog | None,
-    searches: tuple[SavedSearch, ...],
-) -> tuple[VenueOption, ...]:
-    """Build form options from live catalog, with saved-search fallback when unavailable."""
+def _normalize_form_values(values: list[str]) -> tuple[str, ...]:
+    """Normalize multi-select values into unique stable tuples."""
 
-    if catalog is not None and catalog.venues:
-        options: list[VenueOption] = []
-        for venue in sorted(catalog.venues.values(), key=lambda value: value.name.lower()):
-            if venue.courts:
-                preview = ", ".join(
-                    court.name for court in venue.courts[:2] if court.name.strip()
-                )
-                suffix = f" ({preview})" if preview else ""
-            else:
-                suffix = ""
-            options.append(VenueOption(venue_name=venue.name, label=f"{venue.name}{suffix}"))
-        return tuple(options)
-
-    # Preserve usability during transient upstream failures by falling back to existing searches.
-    fallback_names = sorted({name for search in searches for name in search.venue_names})
-    return tuple(VenueOption(venue_name=name, label=name) for name in fallback_names)
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        value = raw_value.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return tuple(normalized)
 
 
-def _build_in_out_options(catalog: SearchCatalog | None) -> tuple[tuple[str, str], ...]:
-    """Expose indoor/outdoor checkbox options with sensible defaults."""
+def _normalize_weekday(raw_weekday: str) -> str:
+    """Validate weekday select values so booking date resolution is deterministic."""
 
-    if catalog is not None and catalog.in_out_options:
-        return tuple(catalog.in_out_options.items())
-    return (
-        ("V", "Indoor"),
-        ("E", "Outdoor"),
-    )
+    weekday = raw_weekday.strip().lower()
+    if weekday not in _WEEKDAY_LABELS:
+        raise ValidationError("Weekday must be one of Monday-Sunday.")
+    return weekday
+
+
+def _resolve_next_weekday_date_iso(*, weekday: str, timezone_name: str) -> str:
+    """Resolve selected weekday to the next upcoming DD/MM/YYYY date in app timezone."""
+
+    normalized_weekday = _normalize_weekday(weekday)
+    day_index = [value for value, _ in WEEKDAY_OPTIONS].index(normalized_weekday)
+    today = _today_in_timezone(timezone_name)
+    days_until_target = (day_index - today.weekday()) % 7
+    if days_until_target == 0:
+        days_until_target = 7
+    target = today + dt.timedelta(days=days_until_target)
+    return target.strftime("%d/%m/%Y")
+
+
+def _today_in_timezone(timezone_name: str) -> dt.date:
+    """Return today's date in configured timezone, with UTC fallback."""
+
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        LOGGER.warning("Unknown timezone '%s'. Falling back to UTC.", timezone_name)
+        timezone = dt.timezone.utc
+    return dt.datetime.now(timezone).date()
 
 
 def _has_captcha_key(settings: WebAppSettings) -> bool:
-    """Share one captcha-enabled check across templates and booking flow guards."""
-
     return bool(settings.captcha_api_key.strip())
-
-
-def _redirect(path: str) -> RedirectResponse:
-    """Use HTTP 303 to keep browser refreshes from resubmitting forms."""
-
-    return RedirectResponse(path, status_code=status.HTTP_303_SEE_OTHER)
-
-
-def _set_flash(request: Request, message: str, level: str) -> None:
-    """Store one-shot UI messages in the signed session cookie."""
-
-    request.session["flash"] = {"message": message, "level": level}
-
-
-def _pop_flash(request: Request) -> dict[str, str] | None:
-    """Read and clear a one-shot flash message in one operation."""
-
-    value = request.session.pop("flash", None)
-    if isinstance(value, dict):
-        message = str(value.get("message", "")).strip()
-        level = str(value.get("level", "info")).strip() or "info"
-        if message:
-            return {"message": message, "level": level}
-    return None
 
 
 def _get_current_user(request: Request) -> AllowedUser | None:
@@ -875,9 +1001,26 @@ def _get_current_user(request: Request) -> AllowedUser | None:
         return None
     user = _store(request).get_user(raw_user_id)
     if user is None or not user.is_enabled:
-        # Invalid or disabled users are actively removed from the session.
         request.session.pop("user_id", None)
         return None
+    return user
+
+
+def _require_user(request: Request) -> AllowedUser:
+    """Raise 401 instead of redirecting — the SPA handles the nav after a 401."""
+
+    user = _get_current_user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return user
+
+
+def _require_admin(request: Request) -> AllowedUser:
+    """Raise 403 when a non-admin hits an admin-only endpoint."""
+
+    user = _require_user(request)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin role required.")
     return user
 
 
@@ -887,10 +1030,6 @@ def _store(request: Request) -> WebAppStore:
 
 def _settings(request: Request) -> WebAppSettings:
     return request.app.state.settings
-
-
-def _client_factory(request: Request) -> type[ParisTennisClient]:
-    return request.app.state.client_factory
 
 
 def _session_manager(request: Request) -> UserSessionManager:

@@ -1,4 +1,4 @@
-"""Route-level tests for webapp branches not covered by the base flow suite."""
+"""Route-level JSON API tests for the React-backed webapp."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from paris_tennis_api.webapp.store import WebAppStore
 
 
 class _HappyClient:
-    """Local fake client that returns deterministic search/booking responses."""
+    """Local fake client returning deterministic search/booking responses."""
 
     def __init__(self, **_: object) -> None:
         return None
@@ -82,28 +82,21 @@ class _HappyClient:
 
 
 class _FailingHistoryClient(_HappyClient):
-    """Fake client variant that fails login to cover history error rendering path."""
+    """Fake variant whose login() fails — used to cover pending-error path."""
 
     def login(self) -> None:
         raise BookingError("history failed")
 
 
-class _CatalogTimeoutClient(_HappyClient):
-    """Fake client variant that raises a non-domain error while loading catalog."""
-
-    def login(self) -> None:
-        raise TimeoutError("catalog timeout")
-
-
 class _NoSlotsClient(_HappyClient):
-    """Fake client variant that returns no slots to cover booking error branch."""
+    """Fake variant returning no slots so booking raises the domain error."""
 
     def search_slots(self, _request) -> SearchResult:
         return SearchResult(slots=(), captcha_request_id="captcha-request")
 
 
 class _NoCaptchaClient(_HappyClient):
-    """Fake client variant that omits captcha request id for booking branch coverage."""
+    """Fake variant that omits captchaRequestId so booking aborts with 400."""
 
     def search_slots(self, _request) -> SearchResult:
         return SearchResult(
@@ -121,15 +114,8 @@ class _NoCaptchaClient(_HappyClient):
         )
 
 
-class _PlaywrightExplodingClient(_HappyClient):
-    """Simulates a raw Playwright TypeError bubbling out of search_slots."""
-
-    def search_slots(self, _request) -> SearchResult:
-        raise TypeError("Cannot set properties of null (setting 'innerHTML')")
-
-
 class _InactiveReservationClient(_HappyClient):
-    """Fake client variant that reports no active reservation after booking."""
+    """Fake variant whose post-booking check reports no active reservation."""
 
     def get_current_reservation(self) -> ReservationSummary:
         return ReservationSummary(
@@ -139,13 +125,20 @@ class _InactiveReservationClient(_HappyClient):
         )
 
 
+class _PlaywrightExplodingClient(_HappyClient):
+    """Simulates a raw Playwright TypeError bubbling out of search_slots."""
+
+    def search_slots(self, _request) -> SearchResult:
+        raise TypeError("Cannot set properties of null (setting 'innerHTML')")
+
+
 def _build_bundle(
     tmp_path: Path,
     *,
     captcha_api_key: str = "captcha-key",
     client_factory=_HappyClient,
 ) -> tuple[TestClient, WebAppStore]:
-    """Build isolated app+store pair for route tests with deterministic dependencies."""
+    """Build isolated app+store pair with a seeded admin for JSON route tests."""
 
     settings = WebAppSettings(
         database_path=tmp_path / "webapp.sqlite3",
@@ -154,8 +147,6 @@ def _build_bundle(
         headless=True,
         host="127.0.0.1",
         port=8000,
-        # Tests run the background warmer would race per-client state; off by
-        # default, and a tight TTL keeps cache paths exercised in other tests.
         warm_on_startup=False,
         catalog_ttl_seconds=60,
     )
@@ -172,106 +163,99 @@ def _build_bundle(
 
 
 def _login_admin(client: TestClient) -> None:
-    """Centralize admin login so tests can focus on route-specific behavior."""
+    """Authenticate the seeded admin to share session cookies across calls."""
 
     client.post(
-        "/login",
-        data={"paris_username": "admin@example.com", "paris_password": "secret"},
-        follow_redirects=False,
+        "/api/session",
+        json={"paris_username": "admin@example.com", "paris_password": "secret"},
     )
 
 
-def _saved_search_form(
+def _saved_search_payload(
     *,
     label: str = "Morning",
-    venue_name: str = "Alain Mimoun",
+    venue_names: tuple[str, ...] = ("Alain Mimoun",),
     weekday: str = "sunday",
     hour_start: int = 8,
     hour_end: int = 9,
     in_out_codes: tuple[str, ...] = ("V",),
-) -> dict[str, str | list[str]]:
-    """Build form payloads using the new multi-select/weekday contract."""
+) -> dict[str, object]:
+    """Build JSON payloads matching the API contract for saved-search creation."""
 
     return {
         "label": label,
-        "venue_names": [venue_name],
+        "venue_names": list(venue_names),
         "weekday": weekday,
-        "hour_start": str(hour_start),
-        "hour_end": str(hour_end),
+        "hour_start": hour_start,
+        "hour_end": hour_end,
         "in_out_codes": list(in_out_codes),
     }
 
 
-def test_healthz_route_is_public(tmp_path: Path) -> None:
-    """Health checks must work without session state for simple infra probes."""
+# ------------------------------------------------------------------ infra
+def test_healthz_is_public(tmp_path: Path) -> None:
+    """Health checks must work without auth for infra probes."""
 
     client, _store = _build_bundle(tmp_path)
     response = client.get("/healthz")
     assert response.status_code == 200
 
 
-def test_healthz_route_reports_store_counts(tmp_path: Path) -> None:
-    """Health payload should expose user/admin counts for operational visibility."""
+def test_healthz_reports_store_counts(tmp_path: Path) -> None:
+    """Health payload exposes user/admin counts for operational visibility."""
 
     client, _store = _build_bundle(tmp_path)
     response = client.get("/healthz")
     assert response.json() == {"status": "ok", "users": 1, "enabled_admins": 1}
 
 
-def test_root_redirects_to_login_when_session_is_missing(tmp_path: Path) -> None:
-    """Anonymous root access should route to login page."""
+# ------------------------------------------------------------------ session
+def test_me_returns_null_when_anonymous(tmp_path: Path) -> None:
+    """/api/me for unauthenticated callers returns user=null but still 200."""
 
     client, _store = _build_bundle(tmp_path)
-    response = client.get("/", follow_redirects=False)
-    assert response.headers["location"] == "/login"
+    response = client.get("/api/me")
+    assert (response.status_code, response.json()["user"]) == (200, None)
 
 
-def test_root_redirects_to_searches_when_logged_in(tmp_path: Path) -> None:
-    """Authenticated root access should go directly to saved searches dashboard."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.get("/", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_login_page_redirects_for_authenticated_user(tmp_path: Path) -> None:
-    """Logged-in users should not see login form again."""
+def test_login_sets_session_cookie_and_returns_user(tmp_path: Path) -> None:
+    """POST /api/session must authenticate and echo the user payload."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
-        _login_admin(client)
-        response = client.get("/login", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
+        response = client.post(
+            "/api/session",
+            json={"paris_username": "admin@example.com", "paris_password": "secret"},
+        )
+    assert (response.status_code, response.json()["user"]["display_name"]) == (
+        200,
+        "Admin",
+    )
 
 
-def test_login_page_renders_for_anonymous_user(tmp_path: Path) -> None:
-    """Anonymous users should receive the login page HTML."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.get("/login")
-    assert response.status_code == 200
-
-
-def test_bootstrap_admin_rejects_when_users_already_exist(tmp_path: Path) -> None:
-    """Bootstrap endpoint should be one-time only once any user exists."""
+def test_login_rejects_bad_credentials_with_401(tmp_path: Path) -> None:
+    """Unknown credentials should 401 with a detail message."""
 
     client, _store = _build_bundle(tmp_path)
     response = client.post(
-        "/bootstrap-admin",
-        data={
-            "display_name": "Owner",
-            "paris_username": "owner@example.com",
-            "paris_password": "secret",
-        },
-        follow_redirects=False,
+        "/api/session",
+        json={"paris_username": "nobody", "paris_password": "nothing"},
     )
-    assert response.headers["location"] == "/login"
+    assert response.status_code == 401
+
+
+def test_logout_clears_session(tmp_path: Path) -> None:
+    """DELETE /api/session must return 200 and drop the cookie."""
+
+    client, _store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        response = client.delete("/api/session")
+    assert response.status_code == 200
 
 
 def test_bootstrap_admin_requires_non_empty_fields(tmp_path: Path) -> None:
-    """Bootstrap should reject empty values to prevent unusable first-admin records."""
+    """Bootstrap must reject blank values to prevent unusable admin records."""
 
     settings = WebAppSettings(
         database_path=tmp_path / "bootstrap.sqlite3",
@@ -288,366 +272,162 @@ def test_bootstrap_admin_requires_non_empty_fields(tmp_path: Path) -> None:
     app = create_app(settings=settings, store=store, client_factory=_HappyClient)
     client = TestClient(app)
     response = client.post(
-        "/bootstrap-admin",
-        data={
+        "/api/bootstrap-admin",
+        json={
             "display_name": " ",
             "paris_username": "owner@example.com",
             "paris_password": "secret",
         },
-        follow_redirects=False,
     )
-    assert response.headers["location"] == "/login"
+    assert response.status_code == 422
 
 
-def test_bootstrap_admin_success_redirects_to_searches(tmp_path: Path) -> None:
-    """Bootstrap should create the first admin and continue to the dashboard."""
+def test_bootstrap_admin_blocks_when_users_already_exist(tmp_path: Path) -> None:
+    """Bootstrap is only valid on an empty store; 409 once a user exists."""
 
-    settings = WebAppSettings(
-        database_path=tmp_path / "bootstrap-success.sqlite3",
-        session_secret="test-secret",
-        captcha_api_key="captcha-key",
-        headless=True,
-        host="127.0.0.1",
-        port=8000,
-        warm_on_startup=False,
-        catalog_ttl_seconds=60,
-    )
-    store = WebAppStore(settings.database_path)
-    store.initialize()
-    app = create_app(settings=settings, store=store, client_factory=_HappyClient)
-    client = TestClient(app)
+    client, _store = _build_bundle(tmp_path)
     response = client.post(
-        "/bootstrap-admin",
-        data={
+        "/api/bootstrap-admin",
+        json={
             "display_name": "Owner",
             "paris_username": "owner@example.com",
             "paris_password": "secret",
         },
-        follow_redirects=False,
     )
-    assert response.headers["location"] == "/searches"
+    assert response.status_code == 409
 
 
-def test_login_rejects_invalid_credentials(tmp_path: Path) -> None:
-    """Unknown credentials should redirect back to login with error flash."""
+# ------------------------------------------------------------------ searches
+def test_searches_endpoint_requires_authentication(tmp_path: Path) -> None:
+    """Anonymous callers get 401 instead of an HTML redirect."""
 
     client, _store = _build_bundle(tmp_path)
-    response = client.post(
-        "/login",
-        data={"paris_username": "bad@example.com", "paris_password": "bad"},
-        follow_redirects=False,
-    )
-    assert response.headers["location"] == "/login"
+    response = client.get("/api/searches")
+    assert response.status_code == 401
 
 
-def test_logout_clears_session_and_redirects(tmp_path: Path) -> None:
-    """Logout should clear session cookie state and return to login route."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post("/logout", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_searches_route_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Search dashboard requires authentication and should reject anonymous access."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.get("/searches", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_searches_route_renders_for_authenticated_user(tmp_path: Path) -> None:
-    """Authenticated users should receive the saved-searches dashboard page."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.get("/searches")
-    assert response.status_code == 200
-
-
-def test_searches_route_handles_catalog_timeout_error(tmp_path: Path) -> None:
-    """Catalog loading failures should degrade gracefully instead of returning HTTP 500."""
-
-    client, _store = _build_bundle(tmp_path, client_factory=_CatalogTimeoutClient)
-    with client:
-        _login_admin(client)
-        response = client.get("/searches")
-    assert response.status_code == 200
-
-
-def test_searches_route_hides_captcha_warning_when_legacy_alias_is_configured(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Configured captcha keys from legacy aliases should hide the disabled banner."""
-
-    monkeypatch.setattr(
-        "paris_tennis_api.webapp.settings.load_dotenv",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setenv(
-        "PARIS_TENNIS_WEBAPP_DB",
-        str(tmp_path / "alias-captcha.sqlite3"),
-    )
-    monkeypatch.delenv("PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY", raising=False)
-    monkeypatch.delenv("CAPTCHA_API_KEY", raising=False)
-    monkeypatch.setenv("PARIS_TENNIS_CAPTCHA_API_KEY", "legacy-captcha")
-    settings = WebAppSettings.from_env()
-    store = WebAppStore(settings.database_path)
-    store.initialize()
-    store.create_user(
-        display_name="Admin",
-        paris_username="admin@example.com",
-        paris_password="secret",
-        is_admin=True,
-    )
-    app = create_app(settings=settings, store=store, client_factory=_HappyClient)
-    with TestClient(app) as client:
-        _login_admin(client)
-        response = client.get("/searches")
-    assert "Booking disabled: missing captcha key" not in response.text
-
-
-def test_create_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Creating saved searches should require logged-in user context."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post(
-        "/searches",
-        data=_saved_search_form(),
-        follow_redirects=False,
-    )
-    assert response.headers["location"] == "/login"
-
-
-def test_create_saved_search_rejects_invalid_hour_range(tmp_path: Path) -> None:
-    """Hour start >= hour end should be rejected to avoid invalid search requests."""
+def test_create_search_rejects_invalid_hour_range(tmp_path: Path) -> None:
+    """hour_start >= hour_end must return 422 with a clear message."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
         response = client.post(
-            "/searches",
-            data=_saved_search_form(label="Invalid", hour_start=10, hour_end=10),
-            follow_redirects=False,
+            "/api/searches",
+            json=_saved_search_payload(label="Invalid", hour_start=10, hour_end=10),
         )
-    assert response.headers["location"] == "/searches"
+    assert response.status_code == 422
 
 
-def test_create_saved_search_rejects_invalid_weekday(tmp_path: Path) -> None:
-    """Weekday input must be constrained to the Monday-Sunday select values."""
+def test_create_search_rejects_invalid_weekday(tmp_path: Path) -> None:
+    """Weekday input must be constrained to Monday-Sunday."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
         response = client.post(
-            "/searches",
-            data=_saved_search_form(label="Invalid", weekday="funday"),
-            follow_redirects=False,
+            "/api/searches",
+            json=_saved_search_payload(label="Invalid", weekday="funday"),
         )
-    assert response.headers["location"] == "/searches"
+    assert response.status_code == 422
 
 
-def test_create_saved_search_requires_weekday_selection(tmp_path: Path) -> None:
-    """Submitting without weekday should fail because booking date is auto-resolved."""
+def test_update_search_returns_404_for_unknown_id(tmp_path: Path) -> None:
+    """Unknown saved-search ids must 404 instead of silently succeeding."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
-        response = client.post(
-            "/searches",
-            data={
-                "label": "Invalid",
-                "venue_names": ["Alain Mimoun"],
-                "hour_start": "8",
-                "hour_end": "9",
-                "in_out_codes": ["V"],
-            },
-            follow_redirects=False,
-        )
-    assert response.headers["location"] == "/searches"
+        response = client.patch("/api/searches/999", json={"is_active": True})
+    assert response.status_code == 404
 
 
-def test_set_saved_search_state_reports_missing_entry(tmp_path: Path) -> None:
-    """State updates for unknown search ids should redirect with missing-search error path."""
+def test_book_saved_search_returns_400_when_no_slots(tmp_path: Path) -> None:
+    """No-slot responses should surface as 400 with the domain error message."""
 
-    client, _store = _build_bundle(tmp_path)
+    client, store = _build_bundle(tmp_path, client_factory=_NoSlotsClient)
     with client:
         _login_admin(client)
-        response = client.post(
-            "/searches/999/state",
-            data={"is_active": 1},
-            follow_redirects=False,
-        )
-    assert response.headers["location"] == "/searches"
+        created = client.post("/api/searches", json=_saved_search_payload())
+        search_id = created.json()["search"]["id"]
+        response = client.post(f"/api/searches/{search_id}/book")
+    assert (response.status_code, len(store.list_booking_history(user_id=1))) == (
+        400,
+        0,
+    )
 
 
-def test_set_saved_search_state_success_redirects_to_searches(tmp_path: Path) -> None:
-    """Setting an existing saved search state should return to the dashboard."""
+def test_book_saved_search_returns_400_when_captcha_missing(tmp_path: Path) -> None:
+    """Missing captcha_request_id is a domain error, surfaced as 400."""
 
-    client, store = _build_bundle(tmp_path)
+    client, _store = _build_bundle(tmp_path, client_factory=_NoCaptchaClient)
     with client:
         _login_admin(client)
-        search = store.create_saved_search(
-            user_id=1,
-            label="Morning",
-            venue_names=("Alain Mimoun",),
-            weekday="sunday",
-            hour_start=8,
-            hour_end=9,
-            in_out_codes=("V",),
-        )
-        response = client.post(
-            f"/searches/{search.id}/state",
-            data={"is_active": 0},
-            follow_redirects=False,
-        )
-    assert response.headers["location"] == "/searches"
+        created = client.post("/api/searches", json=_saved_search_payload())
+        search_id = created.json()["search"]["id"]
+        response = client.post(f"/api/searches/{search_id}/book")
+    assert response.status_code == 400
 
 
-def test_set_saved_search_state_updates_active_flag(tmp_path: Path) -> None:
-    """Radio state endpoint should set active/inactive deterministically."""
-
-    client, store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        search = store.create_saved_search(
-            user_id=1,
-            label="Morning",
-            venue_names=("Alain Mimoun",),
-            weekday="sunday",
-            hour_start=8,
-            hour_end=9,
-            in_out_codes=("V",),
-        )
-        response = client.post(
-            f"/searches/{search.id}/state",
-            data={"is_active": 0},
-            follow_redirects=False,
-        )
-    assert (
-        response.headers["location"],
-        store.get_saved_search(user_id=1, search_id=search.id).is_active,
-    ) == ("/searches", False)
-
-
-def test_delete_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Delete endpoint should require session ownership before modifying data."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post("/searches/1/delete", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_book_saved_search_reports_missing_entry(tmp_path: Path) -> None:
-    """Booking endpoint should handle unknown saved search ids gracefully."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post("/searches/999/book", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_book_saved_search_handles_missing_captcha_key(tmp_path: Path) -> None:
-    """Booking should fail early when webapp captcha config is absent."""
-
-    client, store = _build_bundle(tmp_path, captcha_api_key="")
-    with client:
-        _login_admin(client)
-        client.post(
-            "/searches",
-            data=_saved_search_form(label="Book"),
-            follow_redirects=False,
-        )
-        search = store.list_saved_searches(user_id=1)[0]
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_book_saved_search_missing_captcha_flash_mentions_all_supported_env_keys(
+def test_book_saved_search_returns_400_when_reservation_not_active(
     tmp_path: Path,
 ) -> None:
-    """Error text should mention every accepted captcha env key to speed troubleshooting."""
+    """Post-booking inactive reservation must raise, not silently succeed."""
 
-    client, store = _build_bundle(tmp_path, captcha_api_key="")
+    client, _store = _build_bundle(tmp_path, client_factory=_InactiveReservationClient)
     with client:
         _login_admin(client)
-        client.post(
-            "/searches",
-            data=_saved_search_form(label="Book"),
-            follow_redirects=False,
-        )
-        search = store.list_saved_searches(user_id=1)[0]
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=True)
-    assert "PARIS_TENNIS_CAPTCHA_API_KEY" in response.text
+        created = client.post("/api/searches", json=_saved_search_payload())
+        search_id = created.json()["search"]["id"]
+        response = client.post(f"/api/searches/{search_id}/book")
+    assert response.status_code == 400
 
 
-def test_book_saved_search_ignores_legacy_slot_index_from_store(
+def test_book_saved_search_returns_500_for_unexpected_exceptions(
     tmp_path: Path,
 ) -> None:
-    """Booking should still work for legacy rows that persisted slot_index values."""
+    """Raw Playwright errors must bubble up as 500 with logged context."""
 
-    client, store = _build_bundle(tmp_path)
+    client, _store = _build_bundle(tmp_path, client_factory=_PlaywrightExplodingClient)
     with client:
         _login_admin(client)
-        search = store.create_saved_search(
-            user_id=1,
-            label="Legacy",
-            venue_names=("Alain Mimoun",),
-            weekday="sunday",
-            hour_start=8,
-            hour_end=9,
-            in_out_codes=("V",),
-            slot_index=999,
-        )
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/history"
+        created = client.post("/api/searches", json=_saved_search_payload())
+        search_id = created.json()["search"]["id"]
+        response = client.post(f"/api/searches/{search_id}/book")
+    assert response.status_code == 500
 
 
-def test_history_pending_fragment_renders_error_when_client_fails(tmp_path: Path) -> None:
-    """Pending fragment should render error state when live reservation fetch fails."""
+def test_book_saved_search_returns_400_when_captcha_key_missing(tmp_path: Path) -> None:
+    """Missing captcha config should fail before the browser session spins up."""
+
+    client, _store = _build_bundle(tmp_path, captcha_api_key="")
+    with client:
+        _login_admin(client)
+        created = client.post("/api/searches", json=_saved_search_payload())
+        search_id = created.json()["search"]["id"]
+        response = client.post(f"/api/searches/{search_id}/book")
+    assert response.status_code == 400
+
+
+# ------------------------------------------------------------------ history
+def test_history_pending_reports_client_errors_without_500(tmp_path: Path) -> None:
+    """A failing pending fetch should return JSON with error, not HTTP 500."""
 
     client, _store = _build_bundle(tmp_path, client_factory=_FailingHistoryClient)
     with client:
         _login_admin(client)
-        response = client.get("/history/pending")
-    assert "history failed" in response.text
+        response = client.get("/api/history/pending")
+    body = response.json()
+    assert (response.status_code, body["pending"], "history failed" in body["error"]) == (
+        200,
+        None,
+        True,
+    )
 
 
-def test_history_pending_fragment_renders_live_reservation_on_success(
-    tmp_path: Path,
-) -> None:
-    """Pending fragment should display the live pending reservation summary on success."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.get("/history/pending")
-    assert "Reservation active" in response.text
-
-
-def test_history_pending_fragment_requires_authentication(tmp_path: Path) -> None:
-    """Unauthenticated callers should receive a short 401 fragment, not the page."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.get("/history/pending")
-    assert response.status_code == 401 and "Not authenticated" in response.text
-
-
-def test_history_route_redirects_when_anonymous(tmp_path: Path) -> None:
-    """History endpoint should require login and redirect anonymous users."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.get("/history", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_admin_users_route_rejects_non_admin_users(tmp_path: Path) -> None:
-    """Admin pages should reject authenticated users without admin role."""
+# ------------------------------------------------------------------ admin
+def test_admin_users_rejects_non_admin_users(tmp_path: Path) -> None:
+    """Non-admin sessions must receive 403 on admin endpoints."""
 
     client, store = _build_bundle(tmp_path)
     store.create_user(
@@ -658,384 +438,56 @@ def test_admin_users_route_rejects_non_admin_users(tmp_path: Path) -> None:
     )
     with client:
         client.post(
-            "/login",
-            data={"paris_username": "user@example.com", "paris_password": "secret"},
-            follow_redirects=False,
+            "/api/session",
+            json={"paris_username": "user@example.com", "paris_password": "secret"},
         )
-        response = client.get("/admin/users", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_admin_users_route_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous access to admin users page should redirect to login."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.get("/admin/users", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_admin_users_route_renders_for_admin(tmp_path: Path) -> None:
-    """Admin users page should render successfully for authenticated admins."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.get("/admin/users")
-    assert response.status_code == 200
-
-
-def test_admin_create_user_requires_non_empty_fields(tmp_path: Path) -> None:
-    """Admin creation route should reject empty required fields."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post(
-            "/admin/users",
-            data={
-                "display_name": " ",
-                "paris_username": "new@example.com",
-                "paris_password": "secret",
-                "is_admin": "true",
-            },
-            follow_redirects=False,
-        )
-    assert response.headers["location"] == "/admin/users"
-
-
-def test_admin_create_user_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous admin-create calls should redirect to login."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post(
-        "/admin/users",
-        data={
-            "display_name": "Anon",
-            "paris_username": "anon@example.com",
-            "paris_password": "secret",
-            "is_admin": "false",
-        },
-        follow_redirects=False,
-    )
-    assert response.headers["location"] == "/login"
-
-
-def test_admin_create_user_rejects_non_admin_user(tmp_path: Path) -> None:
-    """Non-admin users should be blocked from creating new allow-listed accounts."""
-
-    client, store = _build_bundle(tmp_path)
-    store.create_user(
-        display_name="User",
-        paris_username="user4@example.com",
-        paris_password="secret",
-        is_admin=False,
-    )
-    with client:
-        client.post(
-            "/login",
-            data={"paris_username": "user4@example.com", "paris_password": "secret"},
-            follow_redirects=False,
-        )
-        response = client.post(
-            "/admin/users",
-            data={
-                "display_name": "Blocked",
-                "paris_username": "blocked@example.com",
-                "paris_password": "secret",
-                "is_admin": "false",
-            },
-            follow_redirects=False,
-        )
-    assert response.headers["location"] == "/searches"
+        response = client.get("/api/admin/users")
+    assert response.status_code == 403
 
 
 def test_admin_create_user_rejects_duplicate_username(tmp_path: Path) -> None:
-    """Duplicate usernames should follow sqlite integrity error handling branch."""
+    """Duplicate usernames must 409 rather than 500 on IntegrityError."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
         response = client.post(
-            "/admin/users",
-            data={
+            "/api/admin/users",
+            json={
                 "display_name": "Dup",
                 "paris_username": "admin@example.com",
                 "paris_password": "secret",
-                "is_admin": "true",
+                "is_admin": True,
             },
-            follow_redirects=False,
         )
-    assert response.headers["location"] == "/admin/users"
+    assert response.status_code == 409
 
 
-def test_admin_create_user_success_redirects_to_admin_users(tmp_path: Path) -> None:
-    """Admin user creation should follow the success redirect branch."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post(
-            "/admin/users",
-            data={
-                "display_name": "Operator",
-                "paris_username": "operator@example.com",
-                "paris_password": "secret",
-                "is_admin": "false",
-            },
-            follow_redirects=False,
-        )
-    assert response.headers["location"] == "/admin/users"
-
-
-def test_admin_toggle_admin_handles_missing_target(tmp_path: Path) -> None:
-    """Toggle-admin endpoint should reject unknown target users cleanly."""
+def test_admin_update_user_blocks_last_admin_demotion(tmp_path: Path) -> None:
+    """Removing admin from the only admin must 409 to prevent lockout."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
-        response = client.post("/admin/users/999/toggle-admin", follow_redirects=False)
-    assert response.headers["location"] == "/admin/users"
+        response = client.patch("/api/admin/users/1", json={"is_admin": False})
+    assert response.status_code == 409
 
 
-def test_admin_toggle_admin_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous toggle-admin calls should redirect to login."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post("/admin/users/1/toggle-admin", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_admin_toggle_admin_rejects_non_admin_user(tmp_path: Path) -> None:
-    """Non-admin users should be blocked from toggle-admin operations."""
-
-    client, store = _build_bundle(tmp_path)
-    store.create_user(
-        display_name="User",
-        paris_username="user2@example.com",
-        paris_password="secret",
-        is_admin=False,
-    )
-    with client:
-        client.post(
-            "/login",
-            data={"paris_username": "user2@example.com", "paris_password": "secret"},
-            follow_redirects=False,
-        )
-        response = client.post("/admin/users/1/toggle-admin", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_admin_toggle_admin_blocks_last_admin_self_demotion(tmp_path: Path) -> None:
-    """Last admin should not be able to remove its own admin role."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post("/admin/users/1/toggle-admin", follow_redirects=False)
-    assert response.headers["location"] == "/admin/users"
-
-
-def test_admin_toggle_admin_updates_target_role_on_success(tmp_path: Path) -> None:
-    """Admin toggle should update target role when safeguards do not block action."""
-
-    client, store = _build_bundle(tmp_path)
-    store.create_user(
-        display_name="Second Admin",
-        paris_username="second-admin@example.com",
-        paris_password="secret",
-        is_admin=True,
-    )
-    with client:
-        _login_admin(client)
-        response = client.post("/admin/users/2/toggle-admin", follow_redirects=False)
-    assert response.headers["location"] == "/admin/users"
-
-
-def test_admin_toggle_enabled_handles_missing_target(tmp_path: Path) -> None:
-    """Toggle-enabled endpoint should handle unknown user ids without crashing."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post(
-            "/admin/users/999/toggle-enabled", follow_redirects=False
-        )
-    assert response.headers["location"] == "/admin/users"
-
-
-def test_admin_toggle_enabled_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous toggle-enabled calls should redirect to login."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post("/admin/users/1/toggle-enabled", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_admin_toggle_enabled_rejects_non_admin_user(tmp_path: Path) -> None:
-    """Non-admin users should not be able to toggle enabled status."""
-
-    client, store = _build_bundle(tmp_path)
-    store.create_user(
-        display_name="User",
-        paris_username="user3@example.com",
-        paris_password="secret",
-        is_admin=False,
-    )
-    with client:
-        client.post(
-            "/login",
-            data={"paris_username": "user3@example.com", "paris_password": "secret"},
-            follow_redirects=False,
-        )
-        response = client.post("/admin/users/1/toggle-enabled", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_admin_toggle_enabled_blocks_last_active_admin_disable(tmp_path: Path) -> None:
-    """Last active admin cannot be disabled to prevent administrative lockout."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post("/admin/users/1/toggle-enabled", follow_redirects=False)
-    assert response.headers["location"] == "/admin/users"
-
-
-def test_admin_toggle_enabled_updates_target_status_on_success(tmp_path: Path) -> None:
-    """Admin toggle-enabled should update other users when safeguards allow it."""
+def test_admin_update_user_toggles_enabled_flag(tmp_path: Path) -> None:
+    """PATCH with is_enabled must flip the flag when safeguards allow it."""
 
     client, store = _build_bundle(tmp_path)
     store.create_user(
         display_name="Operator",
-        paris_username="operator2@example.com",
+        paris_username="operator@example.com",
         paris_password="secret",
         is_admin=False,
     )
     with client:
         _login_admin(client)
-        response = client.post("/admin/users/2/toggle-enabled", follow_redirects=False)
-    assert response.headers["location"] == "/admin/users"
+        response = client.patch("/api/admin/users/2", json={"is_enabled": False})
+    assert (response.status_code, response.json()["user"]["is_enabled"]) == (200, False)
 
 
-def test_delete_saved_search_success_path_redirects_to_searches(tmp_path: Path) -> None:
-    """Delete endpoint should remove owned searches and redirect back to dashboard."""
-
-    client, store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        client.post(
-            "/searches",
-            data=_saved_search_form(label="Delete me"),
-            follow_redirects=False,
-        )
-        search = store.list_saved_searches(user_id=1)[0]
-        response = client.post(f"/searches/{search.id}/delete", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_set_saved_search_state_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous state updates should redirect instead of mutating state."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post(
-        "/searches/1/state",
-        data={"is_active": 1},
-        follow_redirects=False,
-    )
-    assert response.headers["location"] == "/login"
-
-
-def test_book_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous book requests should redirect to login route."""
-
-    client, _store = _build_bundle(tmp_path)
-    response = client.post("/searches/1/book", follow_redirects=False)
-    assert response.headers["location"] == "/login"
-
-
-def test_book_saved_search_handles_no_slot_result(tmp_path: Path) -> None:
-    """Booking should fail with no-slot client responses instead of writing history."""
-
-    client, store = _build_bundle(tmp_path, client_factory=_NoSlotsClient)
-    with client:
-        _login_admin(client)
-        client.post(
-            "/searches",
-            data=_saved_search_form(label="Book"),
-            follow_redirects=False,
-        )
-        search = store.list_saved_searches(user_id=1)[0]
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_book_saved_search_handles_missing_captcha_request_id(tmp_path: Path) -> None:
-    """Booking should fail when search result is not bookable due missing captcha id."""
-
-    client, store = _build_bundle(tmp_path, client_factory=_NoCaptchaClient)
-    with client:
-        _login_admin(client)
-        client.post(
-            "/searches",
-            data=_saved_search_form(label="Book"),
-            follow_redirects=False,
-        )
-        search = store.list_saved_searches(user_id=1)[0]
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_book_saved_search_handles_inactive_reservation_after_booking(
-    tmp_path: Path,
-) -> None:
-    """Booking should fail if post-booking reservation check is inactive."""
-
-    client, store = _build_bundle(tmp_path, client_factory=_InactiveReservationClient)
-    with client:
-        _login_admin(client)
-        client.post(
-            "/searches",
-            data=_saved_search_form(label="Book"),
-            follow_redirects=False,
-        )
-        search = store.list_saved_searches(user_id=1)[0]
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_book_saved_search_catches_non_domain_exceptions_as_flash(tmp_path: Path) -> None:
-    """Raw exceptions (e.g. Playwright TypeError) should flash, not return HTTP 500."""
-
-    client, store = _build_bundle(tmp_path, client_factory=_PlaywrightExplodingClient)
-    with client:
-        _login_admin(client)
-        search = store.create_saved_search(
-            user_id=1,
-            label="Explodes",
-            venue_names=("Alain Mimoun",),
-            weekday="sunday",
-            hour_start=8,
-            hour_end=9,
-            in_out_codes=("V",),
-        )
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert (response.status_code, response.headers["location"]) == (303, "/searches")
-
-
-def test_book_saved_search_success_redirects_to_history(tmp_path: Path) -> None:
-    """Successful booking should redirect to history page."""
-
-    client, store = _build_bundle(tmp_path, client_factory=_HappyClient)
-    with client:
-        _login_admin(client)
-        search = store.create_saved_search(
-            user_id=1,
-            label="Book",
-            venue_names=("Alain Mimoun",),
-            weekday="sunday",
-            hour_start=8,
-            hour_end=9,
-            in_out_codes=("V",),
-        )
-        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/history"
+# ---------------------------------------------------- keep unused import happy
+_ = pytest

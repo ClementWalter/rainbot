@@ -1,0 +1,539 @@
+/* Paris-tennis-inspired liquid-glass theme. Navy backdrop with a soft court
+   tint, white typography, and Paris red as the single accent. All surfaces
+   are glass — translucent, blurred, with an inner-highlight edge. */
+
+:root {
+  /* Paris tennis palette */
+  --paris-navy: #0b1030;
+  --paris-navy-soft: #121845;
+  --paris-red: #e2001a;
+  --paris-red-soft: #ff385a;
+  --court-green: #3ab07a;
+  --court-green-soft: #5fd49c;
+
+  /* Glass surfaces */
+  --glass-surface: rgba(255, 255, 255, 0.08);
+  --glass-surface-strong: rgba(255, 255, 255, 0.12);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.28);
+  --glass-shadow: 0 24px 60px -20px rgba(3, 6, 24, 0.6);
+
+  /* Text */
+  --ink-strong: #f5f7ff;
+  --ink: rgba(245, 247, 255, 0.88);
+  --ink-muted: rgba(245, 247, 255, 0.55);
+  --ink-faint: rgba(245, 247, 255, 0.35);
+
+  /* Shape */
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --radius-sm: 10px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family: "Marianne", "Inter", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(
+      1200px 800px at 10% -10%,
+      rgba(58, 176, 122, 0.22) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      1000px 700px at 110% 20%,
+      rgba(226, 0, 26, 0.18) 0%,
+      transparent 55%
+    ),
+    linear-gradient(180deg, var(--paris-navy) 0%, var(--paris-navy-soft) 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+body::before {
+  /* Subtle tennis-court line texture painted over the gradient, low opacity */
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(1100px 700px at 50% 30%, black, transparent 75%);
+  opacity: 0.6;
+}
+
+a {
+  color: var(--paris-red-soft);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: var(--ink-strong);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--ink-strong);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.4em;
+}
+
+h1 {
+  font-size: 1.75rem;
+}
+
+h2 {
+  font-size: 1.25rem;
+}
+
+p {
+  margin: 0 0 0.8em;
+  line-height: 1.55;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ---------- Layout -------------------------------------------------- */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.4rem clamp(1rem, 4vw, 2.5rem);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  background: linear-gradient(
+    180deg,
+    rgba(11, 16, 48, 0.72) 0%,
+    rgba(11, 16, 48, 0.35) 100%
+  );
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 30% 30%, var(--court-green-soft), transparent 60%),
+    linear-gradient(135deg, var(--paris-red), var(--paris-red-soft));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 8px 20px -8px rgba(226, 0, 26, 0.7);
+}
+
+.brand-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.brand-title .eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.brand-title .name {
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--ink-strong);
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--radius-md);
+  color: var(--ink-muted);
+  font-size: 0.92rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.nav-link:hover {
+  color: var(--ink-strong);
+  background: var(--glass-surface);
+}
+
+.nav-link.active {
+  color: var(--ink-strong);
+  background: var(--glass-surface-strong);
+  border-color: var(--glass-border);
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.4rem clamp(1rem, 4vw, 2.5rem) 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  width: 100%;
+}
+
+/* ---------- Glass primitives --------------------------------------- */
+
+.glass-card {
+  position: relative;
+  border-radius: var(--radius-lg);
+  padding: clamp(1.2rem, 3vw, 1.8rem);
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+
+.glass-card::before {
+  /* Inner-highlight line, the signature liquid-glass detail */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    180deg,
+    var(--glass-highlight) 0%,
+    transparent 55%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.glass-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  color: var(--ink);
+}
+
+.pill.positive {
+  background: rgba(58, 176, 122, 0.18);
+  border-color: rgba(58, 176, 122, 0.4);
+  color: var(--court-green-soft);
+}
+
+.pill.danger {
+  background: rgba(226, 0, 26, 0.18);
+  border-color: rgba(226, 0, 26, 0.42);
+  color: var(--paris-red-soft);
+}
+
+/* ---------- Form controls ------------------------------------------ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.field > label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.98rem;
+  font-family: inherit;
+  color: var(--ink-strong);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: rgba(226, 0, 26, 0.6);
+  box-shadow: 0 0 0 4px rgba(226, 0, 26, 0.15);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.field select[multiple] {
+  min-height: 7rem;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-surface);
+  color: var(--ink);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.chip input {
+  display: none;
+}
+
+.chip.selected {
+  background: rgba(226, 0, 26, 0.18);
+  border-color: rgba(226, 0, 26, 0.5);
+  color: var(--ink-strong);
+}
+
+/* ---------- Buttons ------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-surface);
+  color: var(--ink-strong);
+  transition:
+    transform 0.08s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.08) inset;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--glass-surface-strong);
+  border-color: var(--glass-highlight);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--paris-red), var(--paris-red-soft));
+  border-color: transparent;
+  color: #fff;
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
+    0 10px 30px -12px rgba(226, 0, 26, 0.8);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: transparent;
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
+.btn-danger {
+  color: var(--paris-red-soft);
+}
+
+.btn-danger:hover:not(:disabled) {
+  color: var(--ink-strong);
+  border-color: rgba(226, 0, 26, 0.4);
+  background: rgba(226, 0, 26, 0.15);
+}
+
+.btn-icon {
+  padding: 0.55rem 0.7rem;
+}
+
+/* ---------- Flash -------------------------------------------------- */
+
+.flash {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.flash.error {
+  border-color: rgba(226, 0, 26, 0.5);
+  background: rgba(226, 0, 26, 0.15);
+  color: var(--ink-strong);
+}
+
+.flash.success {
+  border-color: rgba(58, 176, 122, 0.45);
+  background: rgba(58, 176, 122, 0.15);
+  color: var(--ink-strong);
+}
+
+.flash.info {
+  color: var(--ink);
+}
+
+/* ---------- Misc --------------------------------------------------- */
+
+.center-stage {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem clamp(1rem, 4vw, 2.5rem);
+}
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.inline-form {
+  display: inline;
+  margin: 0;
+}
+
+hr.divider {
+  border: none;
+  border-top: 1px solid var(--glass-border);
+  margin: 1rem 0;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.14) 50%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius-sm);
+  animation: shimmer 1.8s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--ink-muted);
+}

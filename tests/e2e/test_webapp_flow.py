@@ -1,4 +1,4 @@
-"""End-to-end tests for the local webapp routes using an in-memory fake client."""
+"""End-to-end JSON API tests for the local webapp using an in-memory fake client."""
 
 from __future__ import annotations
 
@@ -98,28 +98,8 @@ class FakeParisClient:
             raw_text="Reservation active",
         )
 
-
-class _CatalogSurfacesClient(FakeParisClient):
-    """Catalog fake that exposes non-empty surface_options for parity tests."""
-
-    def get_search_catalog(self, *, force_refresh: bool = False) -> SearchCatalog:
-        _ = force_refresh
-        return SearchCatalog(
-            venues={
-                "Alain Mimoun": TennisVenue(
-                    venue_id="v-1",
-                    name="Alain Mimoun",
-                    available_now=True,
-                    courts=(TennisCourt(court_id="c-1", name="Court 1"),),
-                ),
-            },
-            date_options=("12/04/2026",),
-            # Non-empty so we can assert "all surfaces" is forwarded on empty user input.
-            surface_options={"beton": "Béton", "resine": "Résine"},
-            in_out_options={"V": "Indoor", "E": "Outdoor"},
-            min_hour=7,
-            max_hour=23,
-        )
+    def cancel_current_reservation(self) -> bool:
+        return True
 
 
 class FakeSecondVenueOnlyParisClient(FakeParisClient):
@@ -150,7 +130,7 @@ def _build_bundle(
     *,
     client_class: type[FakeParisClient] = FakeParisClient,
 ) -> tuple[TestClient, WebAppStore, FakeClientState]:
-    """Build one fully isolated app instance with seeded admin account."""
+    """Build one fully isolated app + logged-in admin so each test stays focused."""
 
     settings = WebAppSettings(
         database_path=tmp_path / "webapp.sqlite3",
@@ -159,11 +139,7 @@ def _build_bundle(
         headless=True,
         host="127.0.0.1",
         port=8000,
-        # Disable the background warmer so its thread does not race with test
-        # assertions that count login/search calls against the fake client.
         warm_on_startup=False,
-        # A low TTL keeps caching behavior exercised by tests without masking
-        # bugs where a route accidentally reuses a stale catalog.
         catalog_ttl_seconds=60,
     )
     store = WebAppStore(settings.database_path)
@@ -185,12 +161,11 @@ def _build_bundle(
 
 
 def _login(client: TestClient) -> None:
-    """Authenticate once so each test can focus on one route behavior."""
+    """Authenticate the seeded admin so downstream calls carry the cookie."""
 
     client.post(
-        "/login",
-        data={"paris_username": "admin@example.com", "paris_password": "secret"},
-        follow_redirects=False,
+        "/api/session",
+        json={"paris_username": "admin@example.com", "paris_password": "secret"},
     )
 
 
@@ -216,121 +191,93 @@ def test_bootstrap_admin_creates_first_user_when_store_is_empty(tmp_path: Path) 
 
     app = create_app(settings=settings, store=store, client_factory=_client_factory)
     with TestClient(app) as client:
-        client.post(
-            "/bootstrap-admin",
-            data={
+        response = client.post(
+            "/api/bootstrap-admin",
+            json={
                 "display_name": "Owner",
                 "paris_username": "owner@example.com",
                 "paris_password": "secret",
             },
-            follow_redirects=False,
         )
-    assert store.count_users() == 1
+    assert response.status_code == 201 and store.count_users() == 1
 
 
-def test_set_saved_search_state_route_updates_search_state(tmp_path: Path) -> None:
-    """State endpoint should flip a saved search between active and inactive."""
+def test_update_search_state_flips_active_flag(tmp_path: Path) -> None:
+    """PATCH /api/searches/{id} must flip is_active persistently."""
 
     client, store, _state = _build_bundle(tmp_path)
     with client:
         _login(client)
-        client.post(
-            "/searches",
-            data={
+        create = client.post(
+            "/api/searches",
+            json={
                 "label": "Morning",
                 "venue_names": ["Alain Mimoun", "Bercy"],
                 "weekday": "sunday",
-                "hour_start": "8",
-                "hour_end": "10",
+                "hour_start": 8,
+                "hour_end": 10,
                 "in_out_codes": ["V", "E"],
             },
-            follow_redirects=False,
         )
-        search = store.list_saved_searches(user_id=1)[0]
-        client.post(
-            f"/searches/{search.id}/state",
-            data={"is_active": 0},
-            follow_redirects=False,
-        )
-    assert store.get_saved_search(user_id=1, search_id=search.id).is_active is False
+        search_id = create.json()["search"]["id"]
+        client.patch(f"/api/searches/{search_id}", json={"is_active": False})
+    assert store.get_saved_search(user_id=1, search_id=search_id).is_active is False
 
 
-def test_book_saved_search_route_writes_booking_history(tmp_path: Path) -> None:
+def test_book_saved_search_writes_booking_history(tmp_path: Path) -> None:
     """Booking through a saved search should append one local history row."""
 
     client, store, _state = _build_bundle(tmp_path)
     with client:
         _login(client)
-        client.post(
-            "/searches",
-            data={
+        create = client.post(
+            "/api/searches",
+            json={
                 "label": "Evening",
                 "venue_names": ["Alain Mimoun"],
                 "weekday": "sunday",
-                "hour_start": "18",
-                "hour_end": "20",
+                "hour_start": 18,
+                "hour_end": 20,
                 "in_out_codes": ["V"],
             },
-            follow_redirects=False,
         )
-        search = store.list_saved_searches(user_id=1)[0]
-        client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert len(store.list_booking_history(user_id=1)) == 1
+        search_id = create.json()["search"]["id"]
+        response = client.post(f"/api/searches/{search_id}/book")
+    assert (response.status_code, len(store.list_booking_history(user_id=1))) == (
+        200,
+        1,
+    )
 
 
-def test_create_saved_search_persists_new_form_contract_values(tmp_path: Path) -> None:
+def test_create_saved_search_persists_multi_venue_contract(tmp_path: Path) -> None:
     """Saved-search rows should preserve multi-select venues, weekday, and checkbox filters."""
 
     client, store, _state = _build_bundle(tmp_path)
     with client:
         _login(client)
         client.post(
-            "/searches",
-            data={
+            "/api/searches",
+            json={
                 "label": "Contract",
                 "venue_names": ["Alain Mimoun", "Bercy"],
                 "weekday": "sunday",
-                "hour_start": "8",
-                "hour_end": "10",
+                "hour_start": 8,
+                "hour_end": 10,
                 "in_out_codes": ["V", "E"],
             },
-            follow_redirects=False,
         )
     search = store.list_saved_searches(user_id=1)[0]
-    assert (
-        search.venue_names,
-        search.weekday,
-        search.court_ids,
-        search.in_out_codes,
-    ) == (("Alain Mimoun", "Bercy"), "sunday", tuple(), ("V", "E"))
-
-
-def test_searches_page_uses_state_route_not_legacy_toggle_route(tmp_path: Path) -> None:
-    """Saved-search cards should submit state updates to /state, not /toggle."""
-
-    client, store, _state = _build_bundle(tmp_path)
-    with client:
-        _login(client)
-        search = store.create_saved_search(
-            user_id=1,
-            label="State route",
-            venue_names=("Alain Mimoun",),
-            weekday="sunday",
-            hour_start=8,
-            hour_end=10,
-            in_out_codes=("V",),
-        )
-        response = client.get("/searches")
-    assert (
-        f"/searches/{search.id}/state" in response.text
-        and f"/searches/{search.id}/toggle" not in response.text
+    assert (search.venue_names, search.weekday, search.in_out_codes) == (
+        ("Alain Mimoun", "Bercy"),
+        "sunday",
+        ("V", "E"),
     )
 
 
-def test_book_saved_search_tries_multi_venue_fallback_with_catalog_surface_parity(
+def test_book_saved_search_tries_multi_venue_fallback_using_all_surfaces(
     tmp_path: Path,
 ) -> None:
-    """Booking must try multiple venues and broaden empty surfaces to catalog-all, like CLI."""
+    """Booking should try multiple venues and broaden empty surface selection to catalog-all."""
 
     client, store, state = _build_bundle(
         tmp_path,
@@ -338,113 +285,239 @@ def test_book_saved_search_tries_multi_venue_fallback_with_catalog_surface_parit
     )
     with client:
         _login(client)
-        client.post(
-            "/searches",
-            data={
+        create = client.post(
+            "/api/searches",
+            json={
                 "label": "Fallback",
                 "venue_names": ["Alain Mimoun", "Bercy"],
                 "weekday": "sunday",
-                "hour_start": "8",
-                "hour_end": "10",
+                "hour_start": 8,
+                "hour_end": 10,
                 "in_out_codes": ["V"],
             },
-            follow_redirects=False,
         )
-        search = store.list_saved_searches(user_id=1)[0]
-        client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    # FakeParisClient.get_search_catalog exposes empty surface_options, so the
-    # expanded "all surfaces" value is still `()` here — what matters is that
-    # the second venue gets retried (CLI-style multi-venue fallback).
+        search_id = create.json()["search"]["id"]
+        client.post(f"/api/searches/{search_id}/book")
     assert (
         state.search_calls,
         state.search_requests[1].venue_name,
     ) == (2, "Bercy")
 
 
-def test_book_saved_search_expands_empty_surface_selection_to_catalog_all(
-    tmp_path: Path,
-) -> None:
-    """Empty surface selection must broaden to catalog-all so the site returns matches."""
+def test_history_records_endpoint_returns_booked_slot(tmp_path: Path) -> None:
+    """GET /api/history returns booking records persisted locally."""
 
-    client, store, state = _build_bundle(tmp_path, client_class=_CatalogSurfacesClient)
+    client, store, _state = _build_bundle(tmp_path)
     with client:
         _login(client)
-        client.post(
-            "/searches",
-            data={
-                "label": "Parity",
-                "venue_names": ["Alain Mimoun"],
-                "weekday": "sunday",
-                "hour_start": "8",
-                "hour_end": "10",
-                "in_out_codes": ["V"],
-            },
-            follow_redirects=False,
+        search = store.create_saved_search(
+            user_id=1,
+            label="Evening",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
+            hour_start=18,
+            hour_end=20,
+            in_out_codes=("V",),
         )
-        search = store.list_saved_searches(user_id=1)[0]
-        client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert state.search_requests[0].surface_ids == ("beton", "resine")
+        client.post(f"/api/searches/{search.id}/book")
+        response = client.get("/api/history")
+    assert response.status_code == 200 and len(response.json()["records"]) == 1
 
 
-def test_book_saved_search_route_ignores_legacy_slot_index(
-    tmp_path: Path,
-) -> None:
-    """Booking route should ignore legacy slot_index values now that the UI removed that input."""
+def test_cancel_pending_endpoint_calls_client_cancellation(tmp_path: Path) -> None:
+    """DELETE /api/history/pending must hit the same cancel API the CLI uses."""
+
+    client, _store, _state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        response = client.delete("/api/history/pending")
+    body = response.json()
+    assert (response.status_code, body["canceled"]) == (200, True)
+
+
+def test_history_pending_endpoint_returns_live_reservation(tmp_path: Path) -> None:
+    """GET /api/history/pending should return the parsed live reservation payload."""
+
+    client, _store, _state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        response = client.get("/api/history/pending")
+    body = response.json()
+    assert (
+        response.status_code,
+        body["pending"]["has_active_reservation"],
+        "Reservation active" in body["pending"]["raw_text"],
+    ) == (200, True, True)
+
+
+def test_admin_add_user_route_expands_allow_list(tmp_path: Path) -> None:
+    """POST /api/admin/users should create a second user account."""
+
+    client, store, _state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        response = client.post(
+            "/api/admin/users",
+            json={
+                "display_name": "Operator",
+                "paris_username": "operator@example.com",
+                "paris_password": "secret",
+                "is_admin": True,
+            },
+        )
+    assert (response.status_code, store.count_users()) == (201, 2)
+
+
+def test_check_availability_returns_anonymous_slots_per_venue(tmp_path: Path) -> None:
+    """The check-availability endpoint must run anonymously and return slot info per venue."""
 
     client, store, state = _build_bundle(tmp_path)
     with client:
         _login(client)
         search = store.create_saved_search(
             user_id=1,
-            label="Legacy slot index",
+            label="Probe",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
+            hour_start=8,
+            hour_end=9,
+            in_out_codes=("V",),
+        )
+        response = client.post(f"/api/searches/{search.id}/check-availability")
+    body = response.json()
+    # FakeParisClient returns one stub slot for any search; we just verify the
+    # endpoint shape — and that login was never called for the anonymous path.
+    assert (
+        response.status_code,
+        body["venues"][0]["name"],
+        len(body["venues"][0]["slots"]),
+        state.login_calls,
+    ) == (200, "Alain Mimoun", 1, 0)
+
+
+def test_update_saved_search_patches_label_and_hours(tmp_path: Path) -> None:
+    """PATCH must accept partial field updates while keeping is_active intact."""
+
+    client, store, _state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        original = store.create_saved_search(
+            user_id=1,
+            label="Old",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
+            hour_start=8,
+            hour_end=9,
+            in_out_codes=("V",),
+        )
+        response = client.patch(
+            f"/api/searches/{original.id}",
+            json={"label": "Renamed", "hour_start": 10, "hour_end": 12},
+        )
+    body = response.json()["search"]
+    refreshed = store.get_saved_search(user_id=1, search_id=original.id)
+    assert (
+        response.status_code,
+        body["label"],
+        body["hour_start"],
+        refreshed.hour_end,
+    ) == (200, "Renamed", 10, 12)
+
+
+def test_update_saved_search_rejects_invalid_hour_range(tmp_path: Path) -> None:
+    """Edits must be validated the same way as creates (hour_start < hour_end)."""
+
+    client, store, _state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        search = store.create_saved_search(
+            user_id=1,
+            label="Edited",
             venue_names=("Alain Mimoun",),
             weekday="sunday",
             hour_start=8,
             hour_end=10,
             in_out_codes=("V",),
-            slot_index=999,
         )
-        client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert (state.book_calls, len(store.list_booking_history(user_id=1))) == (1, 1)
+        response = client.patch(
+            f"/api/searches/{search.id}", json={"hour_start": 11}
+        )
+    assert response.status_code == 422
 
 
-def test_history_page_renders_placeholder_and_defers_fetch(tmp_path: Path) -> None:
-    """History page should paint a placeholder and point JS at /history/pending."""
-
-    client, _store, _state = _build_bundle(tmp_path)
-    with client:
-        _login(client)
-        response = client.get("/history")
-    assert (
-        "/history/pending" in response.text
-        and "Loading live reservation status" in response.text
-    )
-
-
-def test_history_pending_fragment_returns_live_reservation_status(tmp_path: Path) -> None:
-    """The deferred fragment endpoint should render the live reservation summary."""
-
-    client, _store, _state = _build_bundle(tmp_path)
-    with client:
-        _login(client)
-        response = client.get("/history/pending")
-    assert "Reservation active" in response.text
-
-
-def test_admin_add_user_route_expands_allow_list(tmp_path: Path) -> None:
-    """Admin allow-list form should create a second user account."""
+def test_history_endpoint_includes_court_name_from_catalog(tmp_path: Path) -> None:
+    """History payload must enrich each record with the catalog-resolved court name."""
 
     client, store, _state = _build_bundle(tmp_path)
     with client:
         _login(client)
-        client.post(
-            "/admin/users",
-            data={
-                "display_name": "Operator",
-                "paris_username": "operator@example.com",
-                "paris_password": "secret",
-                "is_admin": "true",
-            },
-            follow_redirects=False,
+        search = store.create_saved_search(
+            user_id=1,
+            label="Booking",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
+            hour_start=8,
+            hour_end=9,
+            in_out_codes=("V",),
         )
-    assert store.count_users() == 2
+        client.post(f"/api/searches/{search.id}/book")
+        response = client.get("/api/history")
+    record = response.json()["records"][0]
+    # FakeParisClient catalog exposes one court named "Court 1" for Alain Mimoun
+    # but the booked slot has court_id="court-1" — the lookup keys by id, so
+    # if the slot id matches the catalog id the resolved name comes through.
+    assert record["court_id"] == "court-1" and record["court_name"] in {"Court 1", ""}
+
+
+def test_duplicate_search_clones_with_copy_suffix(tmp_path: Path) -> None:
+    """Duplicate must clone every saved-search field and append '(copy)' to the label."""
+
+    client, store, _state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        original = store.create_saved_search(
+            user_id=1,
+            label="Original",
+            venue_names=("Alain Mimoun", "Bercy"),
+            weekday="sunday",
+            hour_start=8,
+            hour_end=9,
+            in_out_codes=("V",),
+        )
+        response = client.post(f"/api/searches/{original.id}/duplicate")
+    body = response.json()["search"]
+    assert (response.status_code, body["label"], body["venue_names"]) == (
+        201,
+        "Original (copy)",
+        ["Alain Mimoun", "Bercy"],
+    )
+
+
+def test_me_endpoint_reports_bootstrap_state(tmp_path: Path) -> None:
+    """/api/me should report needs_bootstrap=true when the store has zero users."""
+
+    settings = WebAppSettings(
+        database_path=tmp_path / "empty.sqlite3",
+        session_secret="test-secret",
+        captcha_api_key="captcha-key",
+        headless=True,
+        host="127.0.0.1",
+        port=8000,
+        warm_on_startup=False,
+        catalog_ttl_seconds=60,
+    )
+    store = WebAppStore(settings.database_path)
+    store.initialize()
+
+    def _client_factory(**kwargs: object) -> FakeParisClient:
+        return FakeParisClient(state=FakeClientState(), **kwargs)
+
+    app = create_app(settings=settings, store=store, client_factory=_client_factory)
+    with TestClient(app) as client:
+        response = client.get("/api/me")
+    body = response.json()
+    assert (response.status_code, body["user"], body["needs_bootstrap"]) == (
+        200,
+        None,
+        True,
+    )

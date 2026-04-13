@@ -134,6 +134,57 @@ def test_parse_profile_reservation_detects_empty_state() -> None:
     assert summary.has_active_reservation is False
 
 
+def test_parse_profile_reservation_extracts_recap_details() -> None:
+    """Active reservation pages must surface every recap field for the SPA."""
+
+    html = """
+    <html>
+      <body>
+        <div class="recap">
+          <h1 class="title">Récapitulatif</h1>
+          <div class="row">
+            <div class="col">
+              <span class="tennis-name">TENNIS Jules Ladoumègue</span>
+              <span class="tennis-address">39 rue des Petits Ponts 75019 Paris</span>
+              <span class="tennis-hours">Sunday 19 April 2026 - <span class="hours">De 08h à 09h</span></span>
+              <span class="tennis-court hidden-xs">Court n° 04 : Résine - Couvert - Eclairé</span>
+            </div>
+            <div class="col">
+              <span class="entry">1 entrée</span>
+              <span class="entry-total">Il vous reste 2 entrées.</span>
+              <span class="price-description">Vous pouvez annuler jusqu'au 18/04/2026 à 08h</span>
+            </div>
+          </div>
+        </div>
+        <form id="annul"><input name="token" value="cancel-token-xyz" /></form>
+      </body>
+    </html>
+    """
+
+    summary = parse_profile_reservation(html)
+    details = summary.details
+    assert summary.has_active_reservation is True
+    assert details is not None
+    # All the structured fields render directly in the SPA card layout —
+    # split into two asserts so a single mismatch is easy to read.
+    assert (details.venue, details.address, details.court_label) == (
+        "TENNIS Jules Ladoumègue",
+        "39 rue des Petits Ponts 75019 Paris",
+        "Court n° 04 : Résine - Couvert - Eclairé",
+    )
+    assert (
+        details.date_label,
+        details.hours_label,
+        details.entry_label,
+        details.balance_label,
+    ) == (
+        "Sunday 19 April 2026",
+        "De 08h à 09h",
+        "1 entrée",
+        "Il vous reste 2 entrées.",
+    )
+
+
 def test_parse_captcha_form_fields_extracts_hidden_inputs() -> None:
     """Hidden inputs carry slot data that the booking POST must include."""
 

@@ -2,7 +2,21 @@
 
 Unofficial Python API over `https://tennis.paris.fr/` for login, search, booking, profile access, and cancellation.
 
-The repository now also contains a mobile-first web app built on FastAPI + Jinja templates + SQLite for a low-maintenance local/deployment stack.
+The repository now also contains a web app built on FastAPI (JSON API at `/api/*`) + a React + Vite + TypeScript SPA under `web/`, backed by SQLite. Liquid-glass UI in Paris-tennis colors.
+
+### Webapp dev workflow
+
+One command, both processes:
+
+```bash
+./scripts/dev.py
+# or, equivalently:
+uv run scripts/dev.py
+```
+
+It boots FastAPI on `:8000` and Vite on `:5173`, runs `bun install` if `web/node_modules` is missing, mirrors both logs into one terminal with `[api]` / `[web]` tags, and forwards Ctrl+C to both children. Open <http://localhost:5173>.
+
+For production: `cd web && bun run build` then run `uv run paris-tennis-webapp` — FastAPI serves the built `web/dist` SPA shell and falls back to `index.html` for unknown paths so client-side React Router works on refresh.
 
 ## Setup
 

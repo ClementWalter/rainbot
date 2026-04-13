@@ -99,12 +99,32 @@ class SearchResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ReservationDetails:
+    """Structured fields scraped from the profile recap block.
+
+    All fields are plain strings so callers can render them directly without
+    re-parsing.  Empty values are kept (rather than `None`) so JSON
+    serialization stays predictable across booking shapes.
+    """
+
+    venue: str
+    address: str
+    date_label: str
+    hours_label: str
+    court_label: str
+    entry_label: str
+    balance_label: str
+    cancel_deadline: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReservationSummary:
     """Current reservation summary parsed from the profile page."""
 
     has_active_reservation: bool
     cancellation_token: str
     raw_text: str
+    details: ReservationDetails | None = None
 
 
 @dataclass(frozen=True, slots=True)

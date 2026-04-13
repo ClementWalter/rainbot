@@ -37,16 +37,27 @@ def test_main_runs_uvicorn_with_cli_overrides(monkeypatch, tmp_path: Path) -> No
         lambda settings: "fake-app",
     )
 
-    def _fake_run(app, *, host: str, port: int, reload: bool) -> None:
+    def _fake_run(app, **kwargs: object) -> None:
+        # Accept arbitrary kwargs so the reload-mode call (which adds
+        # `reload_dirs` and passes an import string) stays compatible.
         captured["app"] = app
-        captured["host"] = host
-        captured["port"] = port
-        captured["reload"] = reload
+        captured["host"] = kwargs.get("host")
+        captured["port"] = kwargs.get("port")
+        captured["reload"] = kwargs.get("reload", False)
 
     monkeypatch.setattr("paris_tennis_api.webapp.server.uvicorn.run", _fake_run)
     exit_code = main(argv=["--host", "0.0.0.0", "--port", "9001", "--reload"])
-    assert (exit_code, captured["host"], captured["port"], captured["reload"]) == (
+    # In reload mode the app target is the import-string form so uvicorn can
+    # re-import it after every file change.
+    assert (
+        exit_code,
+        captured["app"],
+        captured["host"],
+        captured["port"],
+        captured["reload"],
+    ) == (
         0,
+        "paris_tennis_api.webapp.main:app",
         "0.0.0.0",
         9001,
         True,
@@ -76,8 +87,12 @@ def test_main_uses_env_defaults_without_overrides(monkeypatch, tmp_path: Path) -
     )
     monkeypatch.setattr(
         "paris_tennis_api.webapp.server.uvicorn.run",
-        lambda app, *, host, port, reload: captured.update(
-            {"host": host, "port": port, "reload": reload}
+        lambda app, **kwargs: captured.update(
+            {
+                "host": kwargs.get("host"),
+                "port": kwargs.get("port"),
+                "reload": kwargs.get("reload", False),
+            }
         ),
     )
     main(argv=[])

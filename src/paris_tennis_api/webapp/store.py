@@ -405,6 +405,59 @@ class WebAppStore:
             ).fetchone()
         return self._row_to_saved_search(row) if row else None
 
+    def update_saved_search(
+        self,
+        *,
+        user_id: int,
+        search_id: int,
+        label: str | None = None,
+        venue_names: tuple[str, ...] | None = None,
+        weekday: str | None = None,
+        hour_start: int | None = None,
+        hour_end: int | None = None,
+        in_out_codes: tuple[str, ...] | None = None,
+    ) -> "SavedSearch | None":
+        """Patch any subset of editable fields, returning the updated row.
+
+        Caller is responsible for validating values (venue/weekday/hours) —
+        this method only assembles SQL.  Unspecified keys are left untouched.
+        """
+
+        assignments: dict[str, object] = {}
+        if label is not None:
+            assignments["label"] = label.strip()
+        if venue_names is not None:
+            assignments["venue_names"] = self._serialize_collection(venue_names)
+            # Keep legacy `venue_name` column in sync so older parsers/tests
+            # still find a primary venue without crashing.
+            assignments["venue_name"] = venue_names[0] if venue_names else ""
+        if weekday is not None:
+            assignments["weekday"] = weekday
+            assignments["date_iso"] = weekday  # legacy column kept in sync
+        if hour_start is not None:
+            assignments["hour_start"] = hour_start
+        if hour_end is not None:
+            assignments["hour_end"] = hour_end
+        if in_out_codes is not None:
+            assignments["in_out_codes"] = self._serialize_collection(in_out_codes)
+
+        if not assignments:
+            return self.get_saved_search(user_id=user_id, search_id=search_id)
+
+        set_clause = ", ".join(f"{key} = ?" for key in assignments)
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE saved_searches SET {set_clause}, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+                (*assignments.values(), search_id, user_id),
+            )
+            connection.commit()
+            row = connection.execute(
+                "SELECT * FROM saved_searches WHERE id = ? AND user_id = ?",
+                (search_id, user_id),
+            ).fetchone()
+        return self._row_to_saved_search(row) if row else None
+
     def delete_saved_search(self, *, user_id: int, search_id: int) -> None:
         """Delete a search when users no longer want that alarm definition."""
 

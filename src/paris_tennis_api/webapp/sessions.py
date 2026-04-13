@@ -66,6 +66,7 @@ class UserSession:
         captcha_api_key: str,
         headless: bool,
         catalog_ttl_seconds: int,
+        requires_login: bool = True,
     ) -> None:
         self._user_id = user_id
         self._paris_username = paris_username
@@ -74,6 +75,10 @@ class UserSession:
         self._captcha_api_key = captcha_api_key
         self._headless = headless
         self._catalog_ttl_seconds = catalog_ttl_seconds
+        # Anonymous sessions skip the OAuth round-trip entirely; the search
+        # endpoints work without auth and `client.login()` would 401 with
+        # empty credentials.
+        self._requires_login = requires_login
 
         # Catalog-cache mutations must be atomic; the lock also deduplicates
         # concurrent refreshers so a cold cache does not trigger N logins.
@@ -199,7 +204,8 @@ class UserSession:
                                 headless=self._headless,
                             )
                         )
-                        client.login()
+                        if self._requires_login:
+                            client.login()
                     except BaseException as error:  # noqa: BLE001
                         future.set_exception(error)
                         try:
@@ -270,6 +276,9 @@ class UserSessionManager:
         self._headless = headless
         self._catalog_ttl_seconds = catalog_ttl_seconds
         self._sessions: dict[int, UserSession] = {}
+        # One shared anonymous session powers the "check availability" path —
+        # no credentials, single browser, reused across all users.
+        self._anonymous_session: UserSession | None = None
         # Manager lock only guards the dict; per-session work runs on its own thread.
         self._lock = threading.Lock()
 
@@ -297,6 +306,23 @@ class UserSessionManager:
                 self._sessions[user_id] = session
             return session
 
+    def get_anonymous_session(self) -> UserSession:
+        """Return the lazily-built anonymous session used for read-only checks."""
+
+        with self._lock:
+            if self._anonymous_session is None:
+                self._anonymous_session = UserSession(
+                    user_id=0,
+                    paris_username="",
+                    paris_password="",
+                    client_factory=self._client_factory,
+                    captcha_api_key=self._captcha_api_key,
+                    headless=self._headless,
+                    catalog_ttl_seconds=self._catalog_ttl_seconds,
+                    requires_login=False,
+                )
+            return self._anonymous_session
+
     def invalidate(self, user_id: int) -> None:
         """Drop and close one session; a later request will rebuild it."""
 
@@ -311,5 +337,8 @@ class UserSessionManager:
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
+            anonymous, self._anonymous_session = self._anonymous_session, None
         for session in sessions:
             session.close()
+        if anonymous is not None:
+            anonymous.close()

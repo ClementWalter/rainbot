@@ -11,10 +11,9 @@ import pytest
 from paris_tennis_api.exceptions import ValidationError
 from paris_tennis_api.webapp.main import (
     _get_current_user,
+    _normalize_form_values,
     _normalize_weekday,
-    _pop_flash,
     _resolve_next_weekday_date_iso,
-    _split_csv,
 )
 from paris_tennis_api.webapp.store import WebAppStore
 
@@ -36,19 +35,11 @@ def _seed_store(tmp_path: Path) -> WebAppStore:
     return store
 
 
-def test_split_csv_discards_empty_entries() -> None:
-    """CSV parser should normalize whitespace and ignore empty tokens."""
+def test_normalize_form_values_drops_duplicates_and_blanks() -> None:
+    """Form normalizer should skip empty entries and collapse duplicates while preserving order."""
 
-    values = _split_csv(" A , ,B ,, C ")
-    assert values == ("A", "B", "C")
-
-
-def test_pop_flash_returns_none_for_non_dict_payload(tmp_path: Path) -> None:
-    """Flash helper should ignore invalid payload types rather than crashing."""
-
-    store = _seed_store(tmp_path)
-    request = _request_stub(store, {"flash": "invalid"})
-    assert _pop_flash(request) is None
+    values = _normalize_form_values(["A", " ", "B", "A", ""])
+    assert values == ("A", "B")
 
 
 def test_get_current_user_returns_none_for_non_integer_session_id(

@@ -1,9 +1,0 @@
-<h2>Pending reservation (live)</h2>
-{% if pending_error %}
-<p class="flash flash-error">{{ pending_error }}</p>
-{% elif pending and pending.has_active_reservation %}
-<p class="highlight">Reservation active</p>
-<p class="muted">{{ pending.raw_text }}</p>
-{% else %}
-<p class="muted">No active reservation currently detected.</p>
-{% endif %}

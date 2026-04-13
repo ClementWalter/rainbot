@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from paris_tennis_api.exceptions import ValidationError
 from paris_tennis_api.models import (
     AntiBotConfig,
+    ReservationDetails,
     ReservationSummary,
     SearchCatalog,
     SearchResult,
@@ -247,7 +248,14 @@ def parse_search_result(html: str) -> SearchResult:
 
 
 def parse_profile_reservation(html: str) -> ReservationSummary:
-    """Parse current reservation state and cancellation token from profile HTML."""
+    """Parse current reservation state, structured details, and cancel token.
+
+    When the page renders a ``div.recap`` block we extract every visible
+    field (venue, address, date, hours, court, ticket counts, cancel
+    deadline) so the SPA can lay it out cleanly.  ``raw_text`` is also kept
+    (trimmed of navigation noise) as a fallback for older pages or pages we
+    don't recognize.
+    """
 
     soup = BeautifulSoup(html, "lxml")
     raw_text = soup.get_text(" ", strip=True)
@@ -257,11 +265,68 @@ def parse_profile_reservation(html: str) -> ReservationSummary:
         str(cancellation_input.get("value", "")).strip() if cancellation_input else ""
     )
     has_active_reservation = bool(cancellation_token) and not no_reservation
+
+    details = _parse_reservation_recap(soup)
+    trimmed = _trim_profile_navigation(raw_text)
     return ReservationSummary(
         has_active_reservation=has_active_reservation,
         cancellation_token=cancellation_token,
-        raw_text=raw_text,
+        raw_text=trimmed,
+        details=details,
     )
+
+
+def _parse_reservation_recap(soup: BeautifulSoup) -> ReservationDetails | None:
+    """Read fields from the ``div.recap`` block when an active booking exists."""
+
+    recap = soup.select_one("div.recap")
+    if recap is None:
+        return None
+
+    hours_label = _text(recap.select_one(".tennis-hours .hours"))
+    full_hours_line = _text(recap.select_one(".tennis-hours"))
+    # The .tennis-hours element contains both the long date prefix and the
+    # nested .hours span.  Strip the hours text out to recover the date.
+    date_label = (
+        full_hours_line.replace(hours_label, "").rstrip(" -").strip()
+        if hours_label
+        else full_hours_line
+    )
+
+    return ReservationDetails(
+        venue=_text(recap.select_one(".tennis-name")),
+        address=_text(recap.select_one(".tennis-address")),
+        date_label=date_label,
+        hours_label=hours_label,
+        # Prefer the desktop single-line span; the mobile <ul> alternative
+        # exists for layout but carries the same fragments.
+        court_label=_text(recap.select_one("span.tennis-court")),
+        entry_label=_text(recap.select_one(".entry")),
+        balance_label=_text(recap.select_one(".entry-total")),
+        cancel_deadline=_text(recap.select_one(".price-description")),
+    )
+
+
+def _text(node: object) -> str:
+    """Return whitespace-collapsed text or empty string when the node is missing."""
+
+    if node is None:
+        return ""
+    return getattr(node, "get_text")(" ", strip=True)
+
+
+def _trim_profile_navigation(raw_text: str) -> str:
+    """Strip the repeated nav/tab/header noise from the profile text dump."""
+
+    markers = ("Crédit d'absence", "Nombre d'heures", "Vous ", "Réservation")
+    earliest: int | None = None
+    for marker in markers:
+        index = raw_text.find(marker)
+        if index >= 0 and (earliest is None or index < earliest):
+            earliest = index
+    if earliest is None or earliest == 0:
+        return raw_text
+    return raw_text[earliest:].strip()
 
 
 def parse_ticket_availability(html: str) -> TicketAvailabilitySummary:

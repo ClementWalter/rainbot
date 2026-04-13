@@ -67,8 +67,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings.port,
         settings.database_path,
     )
-    app = create_app(settings=settings)
-    uvicorn.run(app, host=settings.host, port=settings.port, reload=args.reload)
+    if args.reload:
+        # Uvicorn's --reload requires an import-string target so the worker
+        # process can re-import the module after every file change.  Passing
+        # an app *object* would silently disable reload (uvicorn just prints
+        # a warning).  Module-level `paris_tennis_api.webapp.main:app` is a
+        # ready-built instance that re-runs create_app() from env on import.
+        uvicorn.run(
+            "paris_tennis_api.webapp.main:app",
+            host=settings.host,
+            port=settings.port,
+            reload=True,
+            reload_dirs=["src"],
+        )
+    else:
+        app = create_app(settings=settings)
+        uvicorn.run(app, host=settings.host, port=settings.port, reload=False)
     return 0
 
 
