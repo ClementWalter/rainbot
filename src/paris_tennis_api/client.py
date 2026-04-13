@@ -537,12 +537,10 @@ class ParisTennisClient:
 
         card = page.locator("table[paymentmode='existingTicket']")
         card_count = card.count()
-        if card_count > 0:
-            card.first.click()
-            time.sleep(1)
-        else:
-            # Diagnostic only; keep existing behavior of pressing #submit so
-            # accounts whose default card is pre-selected still advance.
+        if card_count == 0:
+            # No prepaid card means pressing #submit would route to a paid
+            # gateway.  Stop here — tennis.paris.fr still holds the slot
+            # server-side for 15 minutes, so the user can finish manually.
             payment_modes = page.evaluate(
                 "() => Array.from(document.querySelectorAll('table[paymentmode]'))"
                 ".map(el => el.getAttribute('paymentmode'))"
@@ -551,6 +549,13 @@ class ParisTennisClient:
                 "No 'existingTicket' payment card found. Available modes: %s",
                 payment_modes,
             )
+            raise BookingError(
+                "No prepaid hours available for auto-booking. Your reservation "
+                "is held for 15 minutes — finish it manually at "
+                "https://tennis.paris.fr."
+            )
+        card.first.click()
+        time.sleep(1)
 
         page.locator("#submit").click()
         time.sleep(3)

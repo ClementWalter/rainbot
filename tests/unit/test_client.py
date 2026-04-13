@@ -754,12 +754,14 @@ def test_submit_payment_step_raises_when_redirected_to_payfip(monkeypatch) -> No
     client = _authenticated_client()
     page = MagicMock()
     page.url = "https://www.payfip.gouv.fr/tpa/tpa.web"
-    page.evaluate.return_value = ["wallet", "ticket"]
+    existing = MagicMock()
+    existing.count.return_value = 1
+    existing.first = MagicMock()
     missing_card = MagicMock()
     missing_card.count.return_value = 0
     submit = MagicMock()
     page.locator.side_effect = _payment_page_locator_router(
-        cards_by_mode={},
+        cards_by_mode={"existingTicket": existing},
         missing_card=missing_card,
         submit=submit,
     )
@@ -778,7 +780,32 @@ def test_submit_payment_step_raises_with_diagnostic_when_url_does_not_advance(
     client = _authenticated_client()
     page = MagicMock()
     page.url = "https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=reservation&view=methode_paiement"
-    page.evaluate.return_value = ["creditCard"]
+    existing = MagicMock()
+    existing.count.return_value = 1
+    existing.first = MagicMock()
+    missing_card = MagicMock()
+    missing_card.count.return_value = 0
+    submit = MagicMock()
+    page.locator.side_effect = _payment_page_locator_router(
+        cards_by_mode={"existingTicket": existing},
+        missing_card=missing_card,
+        submit=submit,
+    )
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
+    with pytest.raises(BookingError) as excinfo:
+        client._submit_payment_step()
+    assert "methode_paiement" in str(excinfo.value)
+
+
+def test_submit_payment_step_hands_off_to_user_when_no_prepaid_card(
+    monkeypatch,
+) -> None:
+    """Without existingTicket, stop before #submit and point the user to tennis.paris.fr."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.evaluate.return_value = ["wallet", "ticket"]
     missing_card = MagicMock()
     missing_card.count.return_value = 0
     submit = MagicMock()
@@ -791,7 +818,12 @@ def test_submit_payment_step_raises_with_diagnostic_when_url_does_not_advance(
     monkeypatch.setattr("paris_tennis_api.client.time.sleep", lambda *_: None)
     with pytest.raises(BookingError) as excinfo:
         client._submit_payment_step()
-    assert "methode_paiement" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert (
+        submit.click.called is False
+        and "15 minutes" in message
+        and "tennis.paris.fr" in message
+    )
 
 
 def test_clear_pending_booking_handles_reservation_captcha_flow(monkeypatch) -> None:
