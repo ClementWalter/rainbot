@@ -212,6 +212,33 @@ def test_bootstrap_admin_requires_non_empty_fields(tmp_path: Path) -> None:
     assert response.headers["location"] == "/login"
 
 
+def test_bootstrap_admin_success_redirects_to_searches(tmp_path: Path) -> None:
+    """Bootstrap should create the first admin and continue to the dashboard."""
+
+    settings = WebAppSettings(
+        database_path=tmp_path / "bootstrap-success.sqlite3",
+        session_secret="test-secret",
+        captcha_api_key="captcha-key",
+        headless=True,
+        host="127.0.0.1",
+        port=8000,
+    )
+    store = WebAppStore(settings.database_path)
+    store.initialize()
+    app = create_app(settings=settings, store=store, client_factory=_HappyClient)
+    client = TestClient(app)
+    response = client.post(
+        "/bootstrap-admin",
+        data={
+            "display_name": "Owner",
+            "paris_username": "owner@example.com",
+            "paris_password": "secret",
+        },
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "/searches"
+
+
 def test_login_rejects_invalid_credentials(tmp_path: Path) -> None:
     """Unknown credentials should redirect back to login with error flash."""
 
@@ -352,6 +379,27 @@ def test_toggle_saved_search_reports_missing_entry(tmp_path: Path) -> None:
     assert response.headers["location"] == "/searches"
 
 
+def test_toggle_saved_search_success_redirects_to_searches(tmp_path: Path) -> None:
+    """Toggling an existing saved search should return to the dashboard."""
+
+    client, store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        search = store.create_saved_search(
+            user_id=1,
+            label="Morning",
+            venue_name="Alain Mimoun",
+            date_iso="12/04/2026",
+            hour_start=8,
+            hour_end=9,
+            surface_ids=("1324",),
+            in_out_codes=("V",),
+            slot_index=1,
+        )
+        response = client.post(f"/searches/{search.id}/toggle", follow_redirects=False)
+    assert response.headers["location"] == "/searches"
+
+
 def test_delete_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
     """Delete endpoint should require session ownership before modifying data."""
 
@@ -424,6 +472,16 @@ def test_history_page_renders_error_message_when_client_fails(tmp_path: Path) ->
         _login_admin(client)
         response = client.get("/history")
     assert "history failed" in response.text
+
+
+def test_history_page_renders_live_pending_reservation_on_success(tmp_path: Path) -> None:
+    """History should display the live pending reservation summary when fetch works."""
+
+    client, _store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        response = client.get("/history")
+    assert "Reservation active" in response.text
 
 
 def test_history_route_redirects_when_anonymous(tmp_path: Path) -> None:
@@ -550,6 +608,25 @@ def test_admin_create_user_rejects_duplicate_username(tmp_path: Path) -> None:
                 "paris_username": "admin@example.com",
                 "paris_password": "secret",
                 "is_admin": "true",
+            },
+            follow_redirects=False,
+        )
+    assert response.headers["location"] == "/admin/users"
+
+
+def test_admin_create_user_success_redirects_to_admin_users(tmp_path: Path) -> None:
+    """Admin user creation should follow the success redirect branch."""
+
+    client, _store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        response = client.post(
+            "/admin/users",
+            data={
+                "display_name": "Operator",
+                "paris_username": "operator@example.com",
+                "paris_password": "secret",
+                "is_admin": "false",
             },
             follow_redirects=False,
         )
@@ -798,3 +875,24 @@ def test_book_saved_search_handles_inactive_reservation_after_booking(tmp_path: 
         search = store.list_saved_searches(user_id=1)[0]
         response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
     assert response.headers["location"] == "/searches"
+
+
+def test_book_saved_search_success_redirects_to_history(tmp_path: Path) -> None:
+    """Successful booking should redirect to history page."""
+
+    client, store = _build_bundle(tmp_path, client_factory=_HappyClient)
+    with client:
+        _login_admin(client)
+        search = store.create_saved_search(
+            user_id=1,
+            label="Book",
+            venue_name="Alain Mimoun",
+            date_iso="12/04/2026",
+            hour_start=8,
+            hour_end=9,
+            surface_ids=("1324",),
+            in_out_codes=("V",),
+            slot_index=1,
+        )
+        response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
+    assert response.headers["location"] == "/history"
