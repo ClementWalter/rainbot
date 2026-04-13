@@ -420,7 +420,7 @@ def _book_saved_search(
             )
 
         selected_index = saved_search.slot_index - 1
-        if selected_index >= len(result.slots):
+        if selected_index < 0 or selected_index >= len(result.slots):
             raise BookingError(
                 f"slot_index={saved_search.slot_index} exceeds {len(result.slots)} available slot(s)."
             )

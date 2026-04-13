@@ -261,6 +261,11 @@ class ParisTennisClient:
         """
 
         self._require_authenticated()
+        if not captcha_request_id.strip():
+            # We keep this explicit guard even if the browser click flow can
+            # still navigate, because missing request IDs usually signal a
+            # stale/anonymous search result that should not be booked.
+            raise BookingError("captcha_request_id is required for booking.")
         page = self._require_page()
 
         # Block LiveIdentity API while the page navigates so the on-page JS

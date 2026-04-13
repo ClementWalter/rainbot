@@ -22,9 +22,18 @@ from paris_tennis_api.parsers import parse_antibot_config
 logger = logging.getLogger(__name__)
 
 
+def _live_e2e_enabled() -> bool:
+    """Require explicit opt-in before running tests that hit production booking flows."""
+
+    return os.getenv("PARIS_TENNIS_RUN_LIVE_E2E", "").strip() == "1"
+
+
 @pytest.fixture()
 def live_client():
     """Authenticated client with live credentials."""
+
+    if not _live_e2e_enabled():
+        pytest.skip("Set PARIS_TENNIS_RUN_LIVE_E2E=1 to run live captcha e2e tests.")
 
     load_dotenv(".env")
     required = [

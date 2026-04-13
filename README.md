@@ -75,8 +75,11 @@ Unit tests:
 uv run pytest tests/unit
 ```
 
-Live end-to-end test (books then cancels):
+Live end-to-end tests are opt-in to avoid accidental real bookings during
+default local/CI runs. Enable them only when you explicitly want to exercise
+`tennis.paris.fr`:
 
 ```bash
-uv run pytest tests/e2e/test_live_booking_flow.py
+PARIS_TENNIS_RUN_LIVE_E2E=1 uv run pytest tests/e2e/test_live_booking_flow.py
+PARIS_TENNIS_RUN_LIVE_E2E=1 uv run pytest tests/e2e/test_captcha_flow.py
 ```

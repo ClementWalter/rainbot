@@ -266,3 +266,166 @@ def test_main_book_requires_captcha_api_key() -> None:
         client_factory=_unreachable_factory,
     )
     assert exit_code == 1
+
+
+def test_main_list_courts_handles_venues_without_courts() -> None:
+    """Listing courts should succeed even when one venue has no courts in catalog."""
+
+    fake_client = FakeClient()
+    fake_client.catalog = SearchCatalog(
+        venues={
+            "No Court Venue": TennisVenue(
+                venue_id="1",
+                name="No Court Venue",
+                available_now=False,
+                courts=(),
+            )
+        },
+        date_options=("12/04/2026",),
+        surface_options={"1324": "Beton"},
+        in_out_options={"V": "Couvert"},
+        min_hour=8,
+        max_hour=22,
+    )
+    exit_code = main(
+        argv=["--username", "u", "--password", "p", "list-courts"],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 0
+
+
+def test_main_book_fails_when_no_slots_found() -> None:
+    """Book command should fail clearly when search results have no slots."""
+
+    fake_client = FakeClient()
+    fake_client.search_result = SearchResult(slots=(), captcha_request_id="req")
+    exit_code = main(
+        argv=[
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--captcha-api-key",
+            "captcha-key",
+            "book",
+            "--venue",
+            "Alain Mimoun",
+            "--date",
+            "12/04/2026",
+        ],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 1
+
+
+def test_main_book_fails_when_captcha_request_id_is_missing() -> None:
+    """Book command should fail when result payload cannot be used for booking."""
+
+    fake_client = FakeClient()
+    fake_client.search_result = SearchResult(
+        slots=(
+            SlotOffer(
+                equipment_id="eq-1",
+                court_id="court-1",
+                date_deb="2026/04/12 08:00:00",
+                date_fin="2026/04/12 09:00:00",
+                price_eur="12",
+                price_label="Tarif plein",
+            ),
+        ),
+        captcha_request_id="",
+    )
+    exit_code = main(
+        argv=[
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--captcha-api-key",
+            "captcha-key",
+            "book",
+            "--venue",
+            "Alain Mimoun",
+            "--date",
+            "12/04/2026",
+        ],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 1
+
+
+def test_main_book_fails_when_slot_index_is_out_of_range() -> None:
+    """Book command should validate slot index before invoking booking flow."""
+
+    fake_client = FakeClient()
+    exit_code = main(
+        argv=[
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--captcha-api-key",
+            "captcha-key",
+            "book",
+            "--venue",
+            "Alain Mimoun",
+            "--date",
+            "12/04/2026",
+            "--slot-index",
+            "9",
+        ],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 1
+
+
+def test_main_book_fails_when_reservation_is_not_visible_after_booking() -> None:
+    """Book command should fail if profile does not show reservation after booking."""
+
+    fake_client = FakeClient()
+    fake_client.reservation_summary = ReservationSummary(
+        has_active_reservation=False,
+        cancellation_token="",
+        raw_text="none",
+    )
+    exit_code = main(
+        argv=[
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--captcha-api-key",
+            "captcha-key",
+            "book",
+            "--venue",
+            "Alain Mimoun",
+            "--date",
+            "12/04/2026",
+        ],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 1
+
+
+def test_main_cancel_succeeds_when_no_active_reservation_exists() -> None:
+    """Cancel command should still return success when no reservation was active."""
+
+    fake_client = FakeClient()
+    fake_client.cancel_current_reservation = lambda: False
+    exit_code = main(
+        argv=["--username", "u", "--password", "p", "cancel"],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 0
+
+
+def test_main_tickets_succeeds_when_no_ticket_rows_are_available() -> None:
+    """Tickets command should handle empty ticket summaries without failing."""
+
+    fake_client = FakeClient()
+    fake_client.ticket_summary = TicketAvailabilitySummary(tickets=(), raw_text="")
+    exit_code = main(
+        argv=["--username", "u", "--password", "p", "tickets"],
+        client_factory=FakeClientFactory(client=fake_client),
+    )
+    assert exit_code == 0

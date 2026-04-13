@@ -75,3 +75,37 @@ def test_validation_rejects_invalid_hour_range(catalog_html: str) -> None:
     with pytest.raises(ValidationError) as exc:
         request.validate(catalog)
     assert "Invalid hour range" in str(exc.value)
+
+
+def test_validation_rejects_unknown_surface(catalog_html: str) -> None:
+    """Unknown surface filters should fail local validation before search submission."""
+
+    catalog = parse_search_catalog(catalog_html)
+    request = SearchRequest(
+        venue_name="Alain Mimoun",
+        date_iso="12/04/2026",
+        hour_start=8,
+        hour_end=9,
+        surface_ids=("unknown-surface",),
+        in_out_codes=("V",),
+    )
+    with pytest.raises(ValidationError) as exc:
+        request.validate(catalog)
+    assert "Unknown surface" in str(exc.value)
+
+
+def test_validation_rejects_unknown_in_out_code(catalog_html: str) -> None:
+    """Unknown in/out codes should be rejected to keep request payloads consistent."""
+
+    catalog = parse_search_catalog(catalog_html)
+    request = SearchRequest(
+        venue_name="Alain Mimoun",
+        date_iso="12/04/2026",
+        hour_start=8,
+        hour_end=9,
+        surface_ids=("1324",),
+        in_out_codes=("unknown-code",),
+    )
+    with pytest.raises(ValidationError) as exc:
+        request.validate(catalog)
+    assert "Unknown covered/outdoor code" in str(exc.value)

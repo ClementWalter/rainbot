@@ -12,6 +12,12 @@ from paris_tennis_api.config import ParisTennisSettings
 from paris_tennis_api.exceptions import AuthenticationError, BookingError
 
 
+def _live_e2e_enabled() -> bool:
+    """Keep live booking tests explicit opt-in to avoid accidental real bookings."""
+
+    return os.getenv("PARIS_TENNIS_RUN_LIVE_E2E", "").strip() == "1"
+
+
 def _run_live_booking_flow() -> bool:
     """Run the real booking lifecycle against tennis.paris.fr."""
 
@@ -32,6 +38,9 @@ def _run_live_booking_flow() -> bool:
 @pytest.mark.e2e
 def test_live_booking_flow() -> None:
     """The API should complete a full booking lifecycle on the live platform."""
+
+    if not _live_e2e_enabled():
+        pytest.skip("Set PARIS_TENNIS_RUN_LIVE_E2E=1 to run live booking tests.")
 
     load_dotenv(".env")
     required = [

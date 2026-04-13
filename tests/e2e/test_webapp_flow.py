@@ -186,6 +186,27 @@ def test_book_saved_search_route_writes_booking_history(tmp_path: Path) -> None:
     assert len(store.list_booking_history(user_id=1)) == 1
 
 
+def test_book_saved_search_route_rejects_out_of_range_slot_index(tmp_path: Path) -> None:
+    """Booking route should fail safely when configured slot_index exceeds available slots."""
+
+    client, store, state = _build_bundle(tmp_path)
+    with client:
+        _login(client)
+        search = store.create_saved_search(
+            user_id=1,
+            label="Out of range",
+            venue_name="Alain Mimoun",
+            date_iso="12/04/2026",
+            hour_start=8,
+            hour_end=10,
+            surface_ids=("1324",),
+            in_out_codes=("V",),
+            slot_index=2,
+        )
+        client.post(f"/searches/{search.id}/book", follow_redirects=False)
+    assert (state.book_calls, len(store.list_booking_history(user_id=1))) == (0, 0)
+
+
 def test_history_page_displays_live_pending_reservation_status(tmp_path: Path) -> None:
     """History page should render the live pending reservation summary text."""
 
