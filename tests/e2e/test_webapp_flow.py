@@ -7,7 +7,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from paris_tennis_api.models import ReservationSummary, SearchResult, SlotOffer
+from paris_tennis_api.models import (
+    ReservationSummary,
+    SearchCatalog,
+    SearchResult,
+    SlotOffer,
+    TennisCourt,
+    TennisVenue,
+)
 from paris_tennis_api.webapp.main import create_app
 from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.store import WebAppStore
@@ -51,6 +58,29 @@ class FakeParisClient:
                 ),
             ),
             captcha_request_id="captcha-request",
+        )
+
+    def get_search_catalog(self) -> SearchCatalog:
+        return SearchCatalog(
+            venues={
+                "Alain Mimoun": TennisVenue(
+                    venue_id="v-1",
+                    name="Alain Mimoun",
+                    available_now=True,
+                    courts=(TennisCourt(court_id="c-1", name="Court 1"),),
+                ),
+                "Bercy": TennisVenue(
+                    venue_id="v-2",
+                    name="Bercy",
+                    available_now=True,
+                    courts=(TennisCourt(court_id="c-2", name="Court 2"),),
+                ),
+            },
+            date_options=("12/04/2026",),
+            surface_options={},
+            in_out_options={"V": "Indoor", "E": "Outdoor"},
+            min_hour=7,
+            max_hour=23,
         )
 
     def book_slot(self, *, slot: SlotOffer, captcha_request_id: str) -> None:
@@ -136,8 +166,8 @@ def test_bootstrap_admin_creates_first_user_when_store_is_empty(tmp_path: Path) 
     assert store.count_users() == 1
 
 
-def test_toggle_saved_search_route_updates_search_state(tmp_path: Path) -> None:
-    """The toggle endpoint should flip a saved search between active and inactive."""
+def test_set_saved_search_state_route_updates_search_state(tmp_path: Path) -> None:
+    """State endpoint should flip a saved search between active and inactive."""
 
     client, store, _state = _build_bundle(tmp_path)
     with client:
@@ -146,18 +176,20 @@ def test_toggle_saved_search_route_updates_search_state(tmp_path: Path) -> None:
             "/searches",
             data={
                 "label": "Morning",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 10,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
+                "venue_names": ["Alain Mimoun", "Bercy"],
+                "weekday": "sunday",
+                "hour_start": "8",
+                "hour_end": "10",
+                "in_out_codes": ["V", "E"],
             },
             follow_redirects=False,
         )
         search = store.list_saved_searches(user_id=1)[0]
-        client.post(f"/searches/{search.id}/toggle", follow_redirects=False)
+        client.post(
+            f"/searches/{search.id}/state",
+            data={"is_active": 0},
+            follow_redirects=False,
+        )
     assert store.get_saved_search(user_id=1, search_id=search.id).is_active is False
 
 
@@ -171,13 +203,11 @@ def test_book_saved_search_route_writes_booking_history(tmp_path: Path) -> None:
             "/searches",
             data={
                 "label": "Evening",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 18,
-                "hour_end": 20,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
+                "venue_names": ["Alain Mimoun"],
+                "weekday": "sunday",
+                "hour_start": "18",
+                "hour_end": "20",
+                "in_out_codes": ["V"],
             },
             follow_redirects=False,
         )
@@ -186,27 +216,26 @@ def test_book_saved_search_route_writes_booking_history(tmp_path: Path) -> None:
     assert len(store.list_booking_history(user_id=1)) == 1
 
 
-def test_book_saved_search_route_rejects_out_of_range_slot_index(
+def test_book_saved_search_route_ignores_legacy_slot_index(
     tmp_path: Path,
 ) -> None:
-    """Booking route should fail safely when configured slot_index exceeds available slots."""
+    """Booking route should ignore legacy slot_index values now that the UI removed that input."""
 
     client, store, state = _build_bundle(tmp_path)
     with client:
         _login(client)
         search = store.create_saved_search(
             user_id=1,
-            label="Out of range",
-            venue_name="Alain Mimoun",
-            date_iso="12/04/2026",
+            label="Legacy slot index",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
             hour_start=8,
             hour_end=10,
-            surface_ids=("1324",),
             in_out_codes=("V",),
-            slot_index=2,
+            slot_index=999,
         )
         client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert (state.book_calls, len(store.list_booking_history(user_id=1))) == (0, 0)
+    assert (state.book_calls, len(store.list_booking_history(user_id=1))) == (1, 1)
 
 
 def test_history_page_displays_live_pending_reservation_status(tmp_path: Path) -> None:

@@ -12,6 +12,16 @@ from typing import Iterator
 
 from paris_tennis_api.models import SlotOffer
 
+WEEKDAY_VALUES = {
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class AllowedUser:
@@ -504,9 +514,10 @@ class WebAppStore:
             court_ids = tuple()
 
         weekday = str(row["weekday"]).strip().lower() if "weekday" in columns else ""
-        if not weekday:
+        if weekday not in WEEKDAY_VALUES:
             legacy_date = str(row["date_iso"]) if "date_iso" in columns else ""
-            weekday = _weekday_from_date_iso(legacy_date)
+            inferred_weekday = _try_weekday_from_legacy_date_iso(legacy_date)
+            weekday = inferred_weekday or _weekday_from_date_iso(legacy_date)
 
         return SavedSearch(
             id=int(row["id"]),
@@ -564,6 +575,25 @@ class WebAppStore:
               AND (venue_names = '[]' OR venue_names = '')
             """
         )
+        rows = connection.execute(
+            "SELECT id, date_iso, weekday FROM saved_searches"
+        ).fetchall()
+        for row in rows:
+            inferred_weekday = _try_weekday_from_legacy_date_iso(str(row["date_iso"]))
+            if inferred_weekday is None:
+                continue
+            current_weekday = str(row["weekday"]).strip().lower()
+            if current_weekday not in WEEKDAY_VALUES or current_weekday == "monday":
+                # Legacy rows added before weekday support were defaulted to Monday.
+                # We restore the real weekday from the historical DD/MM/YYYY value.
+                connection.execute(
+                    """
+                    UPDATE saved_searches
+                    SET weekday = ?, date_iso = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (inferred_weekday, inferred_weekday, int(row["id"])),
+                )
 
 
 def _weekday_from_date_iso(value: str) -> str:
@@ -573,4 +603,14 @@ def _weekday_from_date_iso(value: str) -> str:
         parsed = dt.datetime.strptime(value.strip(), "%d/%m/%Y")
     except ValueError:
         return "monday"
+    return parsed.strftime("%A").lower()
+
+
+def _try_weekday_from_legacy_date_iso(value: str) -> str | None:
+    """Parse legacy DD/MM/YYYY date strings and return weekday, else None."""
+
+    try:
+        parsed = dt.datetime.strptime(value.strip(), "%d/%m/%Y")
+    except ValueError:
+        return None
     return parsed.strftime("%A").lower()

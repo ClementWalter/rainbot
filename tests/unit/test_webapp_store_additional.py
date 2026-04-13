@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from paris_tennis_api.webapp.store import WebAppStore
@@ -89,3 +90,93 @@ def test_update_user_enabled_returns_updated_user(tmp_path: Path) -> None:
     )
     updated = store.update_user_enabled(user_id=user.id, is_enabled=False)
     assert updated.is_enabled is False
+
+
+def test_initialize_backfills_weekday_from_legacy_date_iso(tmp_path: Path) -> None:
+    """Legacy rows should preserve original weekday instead of defaulting to Monday."""
+
+    database_path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                display_name TEXT NOT NULL,
+                paris_username TEXT NOT NULL UNIQUE,
+                paris_password TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0 CHECK(is_admin IN (0, 1)),
+                is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE saved_searches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                label TEXT NOT NULL,
+                venue_name TEXT NOT NULL DEFAULT '',
+                date_iso TEXT NOT NULL DEFAULT '',
+                hour_start INTEGER NOT NULL,
+                hour_end INTEGER NOT NULL,
+                surface_ids TEXT NOT NULL DEFAULT '[]',
+                in_out_codes TEXT NOT NULL DEFAULT '[]',
+                slot_index INTEGER NOT NULL DEFAULT 1,
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE booking_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                search_id INTEGER NOT NULL REFERENCES saved_searches(id) ON DELETE CASCADE,
+                venue_name TEXT NOT NULL,
+                court_id TEXT NOT NULL,
+                equipment_id TEXT NOT NULL,
+                date_deb TEXT NOT NULL,
+                date_fin TEXT NOT NULL,
+                price_eur TEXT NOT NULL,
+                price_label TEXT NOT NULL,
+                booked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        connection.execute(
+            """
+            INSERT INTO users(display_name, paris_username, paris_password, is_admin, is_enabled)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Legacy User", "legacy@example.com", "secret", 0, 1),
+        )
+        connection.execute(
+            """
+            INSERT INTO saved_searches(
+                user_id,
+                label,
+                venue_name,
+                date_iso,
+                hour_start,
+                hour_end,
+                surface_ids,
+                in_out_codes,
+                slot_index,
+                is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                "Legacy Sunday",
+                "Alain Mimoun",
+                "12/04/2026",
+                8,
+                10,
+                "[]",
+                '["V"]',
+                3,
+                1,
+            ),
+        )
+        connection.commit()
+
+    store = WebAppStore(database_path)
+    store.initialize()
+    migrated = store.list_saved_searches(user_id=1)[0]
+    assert migrated.weekday == "sunday"

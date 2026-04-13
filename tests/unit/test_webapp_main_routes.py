@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from paris_tennis_api.exceptions import BookingError
-from paris_tennis_api.models import ReservationSummary, SearchResult, SlotOffer
+from paris_tennis_api.models import (
+    ReservationSummary,
+    SearchCatalog,
+    SearchResult,
+    SlotOffer,
+    TennisCourt,
+    TennisVenue,
+)
 from paris_tennis_api.webapp.main import create_app
 from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.store import WebAppStore
@@ -43,6 +51,23 @@ class _HappyClient:
             captcha_request_id="captcha-request",
         )
 
+    def get_search_catalog(self) -> SearchCatalog:
+        return SearchCatalog(
+            venues={
+                "Alain Mimoun": TennisVenue(
+                    venue_id="v-1",
+                    name="Alain Mimoun",
+                    available_now=True,
+                    courts=(TennisCourt(court_id="c-1", name="Court 1"),),
+                )
+            },
+            date_options=("12/04/2026",),
+            surface_options={},
+            in_out_options={"V": "Indoor", "E": "Outdoor"},
+            min_hour=7,
+            max_hour=23,
+        )
+
     def book_slot(self, *, slot: SlotOffer, captcha_request_id: str) -> None:
         _ = (slot, captcha_request_id)
         return None
@@ -60,6 +85,13 @@ class _FailingHistoryClient(_HappyClient):
 
     def login(self) -> None:
         raise BookingError("history failed")
+
+
+class _CatalogTimeoutClient(_HappyClient):
+    """Fake client variant that raises a non-domain error while loading catalog."""
+
+    def login(self) -> None:
+        raise TimeoutError("catalog timeout")
 
 
 class _NoSlotsClient(_HappyClient):
@@ -135,6 +167,27 @@ def _login_admin(client: TestClient) -> None:
         data={"paris_username": "admin@example.com", "paris_password": "secret"},
         follow_redirects=False,
     )
+
+
+def _saved_search_form(
+    *,
+    label: str = "Morning",
+    venue_name: str = "Alain Mimoun",
+    weekday: str = "sunday",
+    hour_start: int = 8,
+    hour_end: int = 9,
+    in_out_codes: tuple[str, ...] = ("V",),
+) -> dict[str, str | list[str]]:
+    """Build form payloads using the new multi-select/weekday contract."""
+
+    return {
+        "label": label,
+        "venue_names": [venue_name],
+        "weekday": weekday,
+        "hour_start": str(hour_start),
+        "hour_end": str(hour_end),
+        "in_out_codes": list(in_out_codes),
+    }
 
 
 def test_healthz_route_is_public(tmp_path: Path) -> None:
@@ -299,22 +352,56 @@ def test_searches_route_renders_for_authenticated_user(tmp_path: Path) -> None:
     assert response.status_code == 200
 
 
+def test_searches_route_handles_catalog_timeout_error(tmp_path: Path) -> None:
+    """Catalog loading failures should degrade gracefully instead of returning HTTP 500."""
+
+    client, _store = _build_bundle(tmp_path, client_factory=_CatalogTimeoutClient)
+    with client:
+        _login_admin(client)
+        response = client.get("/searches")
+    assert response.status_code == 200
+
+
+def test_searches_route_hides_captcha_warning_when_legacy_alias_is_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configured captcha keys from legacy aliases should hide the disabled banner."""
+
+    monkeypatch.setattr(
+        "paris_tennis_api.webapp.settings.load_dotenv",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setenv(
+        "PARIS_TENNIS_WEBAPP_DB",
+        str(tmp_path / "alias-captcha.sqlite3"),
+    )
+    monkeypatch.delenv("PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY", raising=False)
+    monkeypatch.delenv("CAPTCHA_API_KEY", raising=False)
+    monkeypatch.setenv("PARIS_TENNIS_CAPTCHA_API_KEY", "legacy-captcha")
+    settings = WebAppSettings.from_env()
+    store = WebAppStore(settings.database_path)
+    store.initialize()
+    store.create_user(
+        display_name="Admin",
+        paris_username="admin@example.com",
+        paris_password="secret",
+        is_admin=True,
+    )
+    app = create_app(settings=settings, store=store, client_factory=_HappyClient)
+    with TestClient(app) as client:
+        _login_admin(client)
+        response = client.get("/searches")
+    assert "Booking disabled: missing captcha key" not in response.text
+
+
 def test_create_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
     """Creating saved searches should require logged-in user context."""
 
     client, _store = _build_bundle(tmp_path)
     response = client.post(
         "/searches",
-        data={
-            "label": "Morning",
-            "venue_name": "Alain Mimoun",
-            "date_iso": "12/04/2026",
-            "hour_start": 8,
-            "hour_end": 9,
-            "surface_ids": "1324",
-            "in_out_codes": "V",
-            "slot_index": 1,
-        },
+        data=_saved_search_form(),
         follow_redirects=False,
     )
     assert response.headers["location"] == "/login"
@@ -328,23 +415,28 @@ def test_create_saved_search_rejects_invalid_hour_range(tmp_path: Path) -> None:
         _login_admin(client)
         response = client.post(
             "/searches",
-            data={
-                "label": "Invalid",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 10,
-                "hour_end": 10,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            data=_saved_search_form(label="Invalid", hour_start=10, hour_end=10),
             follow_redirects=False,
         )
     assert response.headers["location"] == "/searches"
 
 
-def test_create_saved_search_rejects_invalid_slot_index(tmp_path: Path) -> None:
-    """slot_index must be >=1 so booking picks a valid 1-based search result index."""
+def test_create_saved_search_rejects_invalid_weekday(tmp_path: Path) -> None:
+    """Weekday input must be constrained to the Monday-Sunday select values."""
+
+    client, _store = _build_bundle(tmp_path)
+    with client:
+        _login_admin(client)
+        response = client.post(
+            "/searches",
+            data=_saved_search_form(label="Invalid", weekday="funday"),
+            follow_redirects=False,
+        )
+    assert response.headers["location"] == "/searches"
+
+
+def test_create_saved_search_requires_weekday_selection(tmp_path: Path) -> None:
+    """Submitting without weekday should fail because booking date is auto-resolved."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
@@ -353,54 +445,32 @@ def test_create_saved_search_rejects_invalid_slot_index(tmp_path: Path) -> None:
             "/searches",
             data={
                 "label": "Invalid",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 0,
+                "venue_names": ["Alain Mimoun"],
+                "hour_start": "8",
+                "hour_end": "9",
+                "in_out_codes": ["V"],
             },
             follow_redirects=False,
         )
     assert response.headers["location"] == "/searches"
 
 
-def test_create_saved_search_rejects_invalid_date_format(tmp_path: Path) -> None:
-    """Date parser should reject non-DD/MM/YYYY values for predictable API inputs."""
+def test_set_saved_search_state_reports_missing_entry(tmp_path: Path) -> None:
+    """State updates for unknown search ids should redirect with missing-search error path."""
 
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
         response = client.post(
-            "/searches",
-            data={
-                "label": "Invalid",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "2026-04-12",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            "/searches/999/state",
+            data={"is_active": 1},
             follow_redirects=False,
         )
     assert response.headers["location"] == "/searches"
 
 
-def test_toggle_saved_search_reports_missing_entry(tmp_path: Path) -> None:
-    """Toggling unknown search ids should redirect with missing-search error path."""
-
-    client, _store = _build_bundle(tmp_path)
-    with client:
-        _login_admin(client)
-        response = client.post("/searches/999/toggle", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
-
-
-def test_toggle_saved_search_success_redirects_to_searches(tmp_path: Path) -> None:
-    """Toggling an existing saved search should return to the dashboard."""
+def test_set_saved_search_state_success_redirects_to_searches(tmp_path: Path) -> None:
+    """Setting an existing saved search state should return to the dashboard."""
 
     client, store = _build_bundle(tmp_path)
     with client:
@@ -408,19 +478,21 @@ def test_toggle_saved_search_success_redirects_to_searches(tmp_path: Path) -> No
         search = store.create_saved_search(
             user_id=1,
             label="Morning",
-            venue_name="Alain Mimoun",
-            date_iso="12/04/2026",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
             hour_start=8,
             hour_end=9,
-            surface_ids=("1324",),
             in_out_codes=("V",),
-            slot_index=1,
         )
-        response = client.post(f"/searches/{search.id}/toggle", follow_redirects=False)
+        response = client.post(
+            f"/searches/{search.id}/state",
+            data={"is_active": 0},
+            follow_redirects=False,
+        )
     assert response.headers["location"] == "/searches"
 
 
-def test_set_saved_search_state_success_redirects_to_searches(tmp_path: Path) -> None:
+def test_set_saved_search_state_updates_active_flag(tmp_path: Path) -> None:
     """Radio state endpoint should set active/inactive deterministically."""
 
     client, store = _build_bundle(tmp_path)
@@ -429,13 +501,11 @@ def test_set_saved_search_state_success_redirects_to_searches(tmp_path: Path) ->
         search = store.create_saved_search(
             user_id=1,
             label="Morning",
-            venue_name="Alain Mimoun",
-            date_iso="12/04/2026",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
             hour_start=8,
             hour_end=9,
-            surface_ids=("1324",),
             in_out_codes=("V",),
-            slot_index=1,
         )
         response = client.post(
             f"/searches/{search.id}/state",
@@ -474,16 +544,7 @@ def test_book_saved_search_handles_missing_captcha_key(tmp_path: Path) -> None:
         _login_admin(client)
         client.post(
             "/searches",
-            data={
-                "label": "Book",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            data=_saved_search_form(label="Book"),
             follow_redirects=False,
         )
         search = store.list_saved_searches(user_id=1)[0]
@@ -491,27 +552,26 @@ def test_book_saved_search_handles_missing_captcha_key(tmp_path: Path) -> None:
     assert response.headers["location"] == "/searches"
 
 
-def test_book_saved_search_rejects_non_positive_index_from_store(
+def test_book_saved_search_ignores_legacy_slot_index_from_store(
     tmp_path: Path,
 ) -> None:
-    """Defensive branch should reject corrupted saved-search rows with invalid slot index."""
+    """Booking should still work for legacy rows that persisted slot_index values."""
 
     client, store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
         search = store.create_saved_search(
             user_id=1,
-            label="Corrupt",
-            venue_name="Alain Mimoun",
-            date_iso="12/04/2026",
+            label="Legacy",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
             hour_start=8,
             hour_end=9,
-            surface_ids=("1324",),
             in_out_codes=("V",),
-            slot_index=0,
+            slot_index=999,
         )
         response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
-    assert response.headers["location"] == "/searches"
+    assert response.headers["location"] == "/history"
 
 
 def test_history_page_renders_error_message_when_client_fails(tmp_path: Path) -> None:
@@ -823,16 +883,7 @@ def test_delete_saved_search_success_path_redirects_to_searches(tmp_path: Path) 
         _login_admin(client)
         client.post(
             "/searches",
-            data={
-                "label": "Delete me",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            data=_saved_search_form(label="Delete me"),
             follow_redirects=False,
         )
         search = store.list_saved_searches(user_id=1)[0]
@@ -840,11 +891,15 @@ def test_delete_saved_search_success_path_redirects_to_searches(tmp_path: Path) 
     assert response.headers["location"] == "/searches"
 
 
-def test_toggle_saved_search_redirects_when_anonymous(tmp_path: Path) -> None:
-    """Anonymous toggle requests should redirect instead of mutating state."""
+def test_set_saved_search_state_redirects_when_anonymous(tmp_path: Path) -> None:
+    """Anonymous state updates should redirect instead of mutating state."""
 
     client, _store = _build_bundle(tmp_path)
-    response = client.post("/searches/1/toggle", follow_redirects=False)
+    response = client.post(
+        "/searches/1/state",
+        data={"is_active": 1},
+        follow_redirects=False,
+    )
     assert response.headers["location"] == "/login"
 
 
@@ -864,16 +919,7 @@ def test_book_saved_search_handles_no_slot_result(tmp_path: Path) -> None:
         _login_admin(client)
         client.post(
             "/searches",
-            data={
-                "label": "Book",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            data=_saved_search_form(label="Book"),
             follow_redirects=False,
         )
         search = store.list_saved_searches(user_id=1)[0]
@@ -889,16 +935,7 @@ def test_book_saved_search_handles_missing_captcha_request_id(tmp_path: Path) ->
         _login_admin(client)
         client.post(
             "/searches",
-            data={
-                "label": "Book",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            data=_saved_search_form(label="Book"),
             follow_redirects=False,
         )
         search = store.list_saved_searches(user_id=1)[0]
@@ -916,16 +953,7 @@ def test_book_saved_search_handles_inactive_reservation_after_booking(
         _login_admin(client)
         client.post(
             "/searches",
-            data={
-                "label": "Book",
-                "venue_name": "Alain Mimoun",
-                "date_iso": "12/04/2026",
-                "hour_start": 8,
-                "hour_end": 9,
-                "surface_ids": "1324",
-                "in_out_codes": "V",
-                "slot_index": 1,
-            },
+            data=_saved_search_form(label="Book"),
             follow_redirects=False,
         )
         search = store.list_saved_searches(user_id=1)[0]
@@ -942,13 +970,11 @@ def test_book_saved_search_success_redirects_to_history(tmp_path: Path) -> None:
         search = store.create_saved_search(
             user_id=1,
             label="Book",
-            venue_name="Alain Mimoun",
-            date_iso="12/04/2026",
+            venue_names=("Alain Mimoun",),
+            weekday="sunday",
             hour_start=8,
             hour_end=9,
-            surface_ids=("1324",),
             in_out_codes=("V",),
-            slot_index=1,
         )
         response = client.post(f"/searches/{search.id}/book", follow_redirects=False)
     assert response.headers["location"] == "/history"

@@ -527,13 +527,9 @@ def _book_saved_search(
                 "Search result is not bookable (missing captcha request id)."
             )
 
-        selected_index = saved_search.slot_index - 1
-        if selected_index < 0 or selected_index >= len(chosen_result.slots):
-            raise BookingError(
-                f"slot_index={saved_search.slot_index} exceeds {len(chosen_result.slots)} available slot(s)."
-            )
-
-        slot = chosen_result.slots[selected_index]
+        # Slot index selection was removed from the UI; booking always takes the first
+        # available slot to keep legacy rows deterministic and avoid hidden failures.
+        slot = chosen_result.slots[0]
         client.book_slot(slot=slot, captcha_request_id=chosen_result.captcha_request_id)
         reservation = client.get_current_reservation()
         if not reservation.has_active_reservation:
@@ -643,7 +639,8 @@ def _load_search_catalog_for_user(
         ) as client:
             client.login()
             return client.get_search_catalog()
-    except (ParisTennisError, AttributeError) as error:
+    except Exception as error:  # noqa: BLE001
+        # Catalog loading is best-effort and must never crash the dashboard.
         LOGGER.warning("Could not load search catalog for user %s: %s", user.id, error)
         return None
 
