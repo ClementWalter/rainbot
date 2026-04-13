@@ -2,9 +2,23 @@
 
 Research the following request thoroughly. Gather relevant context,
 prior art, and technical details needed to inform the implementation.
+Read files, run read-only commands, and investigate freely.
 
 REQUEST:
 {props.prompt}
 
-REQUIRED OUTPUT:
+## Output contract (strict)
+
+Your **final message** MUST be a single JSON object — and nothing else.
+No prose before or after. No markdown headings. No code fences. Just
+the raw JSON object, starting with `{` and ending with `}`, parseable
+by `JSON.parse`.
+
+It MUST match this exact shape (values are examples, replace them with
+your real findings):
+
 {props.schema}
+
+If you want to think out loud, do it via tool calls or intermediate
+steps — but the final response that ends your turn MUST be the JSON
+object alone.

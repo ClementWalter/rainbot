@@ -15,7 +15,9 @@ from paris_tennis_api.webapp.settings import WebAppSettings
 def _disable_env_file_loading(monkeypatch: pytest.MonkeyPatch) -> None:
     """Disable `.env` reads so each test can control env vars deterministically."""
 
-    monkeypatch.setattr("paris_tennis_api.config.load_dotenv", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "paris_tennis_api.config.load_dotenv", lambda *_args, **_kwargs: None
+    )
 
 
 def test_paris_tennis_settings_reads_expected_env_values(

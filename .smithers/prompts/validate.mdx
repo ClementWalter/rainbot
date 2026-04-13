@@ -1,9 +1,25 @@
 # Validate
 
-Validate the current repository state for the following request.
+Validate the current repository state for the following request. Run
+the project's tests, linters, and other read-only checks. Report
+truthfully whether everything passes.
 
 REQUEST:
 {props.prompt}
 
-REQUIRED OUTPUT:
+## Output contract (strict)
+
+Your **final message** MUST be a single JSON object — and nothing else.
+No prose before or after. No markdown headings. No code fences. Just
+the raw JSON object, starting with `{` and ending with `}`, parseable
+by `JSON.parse`.
+
+It MUST match this exact shape (values are examples, replace them with
+your real results):
+
 {props.schema}
+
+Set `allPassed` to `true` only if every validation check succeeded. If
+not, set it to `false` and put a concrete, actionable description in
+`failingSummary`. The final response that ends your turn MUST be the
+JSON object alone.

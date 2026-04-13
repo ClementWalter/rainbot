@@ -32,7 +32,7 @@ def test_extract_js_object_after_marker_rejects_unbalanced_braces() -> None:
     """Brace matching should detect malformed JS payloads to avoid partial parsing."""
 
     with pytest.raises(ValidationError):
-        _extract_js_object_after_marker("var tennis = {\"a\": {\"b\": 1}", "var tennis =")
+        _extract_js_object_after_marker('var tennis = {"a": {"b": 1}', "var tennis =")
 
 
 def test_extract_js_object_after_marker_handles_escaped_quotes_in_strings() -> None:

@@ -41,7 +41,9 @@ def test_pop_flash_returns_none_for_non_dict_payload(tmp_path: Path) -> None:
     assert _pop_flash(request) is None
 
 
-def test_get_current_user_returns_none_for_non_integer_session_id(tmp_path: Path) -> None:
+def test_get_current_user_returns_none_for_non_integer_session_id(
+    tmp_path: Path,
+) -> None:
     """Session values that are not integers should be treated as anonymous."""
 
     store = _seed_store(tmp_path)

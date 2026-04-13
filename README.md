@@ -55,6 +55,7 @@ Open `http://127.0.0.1:8000`.
 Behavior:
 
 - Login uses allow-listed Paris Tennis credentials stored in clear text in SQLite.
+- Health probe is available at `/healthz` without authentication for deployment monitoring.
 - First launch exposes a one-time bootstrap form to create the initial admin.
 - Users can save booking searches and toggle them active/inactive.
 - History page shows pending reservation live from Paris Tennis (no pending DB cache) plus local booking history recorded when booking through the app.

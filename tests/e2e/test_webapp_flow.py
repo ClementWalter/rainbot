@@ -186,7 +186,9 @@ def test_book_saved_search_route_writes_booking_history(tmp_path: Path) -> None:
     assert len(store.list_booking_history(user_id=1)) == 1
 
 
-def test_book_saved_search_route_rejects_out_of_range_slot_index(tmp_path: Path) -> None:
+def test_book_saved_search_route_rejects_out_of_range_slot_index(
+    tmp_path: Path,
+) -> None:
     """Booking route should fail safely when configured slot_index exceeds available slots."""
 
     client, store, state = _build_bundle(tmp_path)

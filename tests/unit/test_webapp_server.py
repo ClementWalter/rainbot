@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.server import build_parser, main
+from paris_tennis_api.webapp.settings import WebAppSettings
 
 
 def test_build_parser_accepts_host_and_port_flags() -> None:

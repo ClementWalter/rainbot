@@ -51,6 +51,18 @@ def create_app(
     app.state.store = app_store
     app.state.client_factory = client_factory
 
+    @app.get("/healthz")
+    def healthz(request: Request) -> dict[str, object]:
+        """Expose a minimal unauthenticated probe for deployment health checks."""
+
+        store = _store(request)
+        # Keep this payload stable so infrastructure probes can alert on drift.
+        return {
+            "status": "ok",
+            "users": store.count_users(),
+            "enabled_admins": store.count_admin_users(),
+        }
+
     @app.get("/", response_class=HTMLResponse)
     def root(request: Request) -> Response:
         user = _get_current_user(request)

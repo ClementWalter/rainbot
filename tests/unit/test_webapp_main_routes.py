@@ -137,6 +137,22 @@ def _login_admin(client: TestClient) -> None:
     )
 
 
+def test_healthz_route_is_public(tmp_path: Path) -> None:
+    """Health checks must work without session state for simple infra probes."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.get("/healthz")
+    assert response.status_code == 200
+
+
+def test_healthz_route_reports_store_counts(tmp_path: Path) -> None:
+    """Health payload should expose user/admin counts for operational visibility."""
+
+    client, _store = _build_bundle(tmp_path)
+    response = client.get("/healthz")
+    assert response.json() == {"status": "ok", "users": 1, "enabled_admins": 1}
+
+
 def test_root_redirects_to_login_when_session_is_missing(tmp_path: Path) -> None:
     """Anonymous root access should route to login page."""
 
@@ -206,7 +222,11 @@ def test_bootstrap_admin_requires_non_empty_fields(tmp_path: Path) -> None:
     client = TestClient(app)
     response = client.post(
         "/bootstrap-admin",
-        data={"display_name": " ", "paris_username": "owner@example.com", "paris_password": "secret"},
+        data={
+            "display_name": " ",
+            "paris_username": "owner@example.com",
+            "paris_password": "secret",
+        },
         follow_redirects=False,
     )
     assert response.headers["location"] == "/login"
@@ -443,7 +463,9 @@ def test_book_saved_search_handles_missing_captcha_key(tmp_path: Path) -> None:
     assert response.headers["location"] == "/searches"
 
 
-def test_book_saved_search_rejects_non_positive_index_from_store(tmp_path: Path) -> None:
+def test_book_saved_search_rejects_non_positive_index_from_store(
+    tmp_path: Path,
+) -> None:
     """Defensive branch should reject corrupted saved-search rows with invalid slot index."""
 
     client, store = _build_bundle(tmp_path)
@@ -474,7 +496,9 @@ def test_history_page_renders_error_message_when_client_fails(tmp_path: Path) ->
     assert "history failed" in response.text
 
 
-def test_history_page_renders_live_pending_reservation_on_success(tmp_path: Path) -> None:
+def test_history_page_renders_live_pending_reservation_on_success(
+    tmp_path: Path,
+) -> None:
     """History should display the live pending reservation summary when fetch works."""
 
     client, _store = _build_bundle(tmp_path)
@@ -703,7 +727,9 @@ def test_admin_toggle_enabled_handles_missing_target(tmp_path: Path) -> None:
     client, _store = _build_bundle(tmp_path)
     with client:
         _login_admin(client)
-        response = client.post("/admin/users/999/toggle-enabled", follow_redirects=False)
+        response = client.post(
+            "/admin/users/999/toggle-enabled", follow_redirects=False
+        )
     assert response.headers["location"] == "/admin/users"
 
 
@@ -852,7 +878,9 @@ def test_book_saved_search_handles_missing_captcha_request_id(tmp_path: Path) ->
     assert response.headers["location"] == "/searches"
 
 
-def test_book_saved_search_handles_inactive_reservation_after_booking(tmp_path: Path) -> None:
+def test_book_saved_search_handles_inactive_reservation_after_booking(
+    tmp_path: Path,
+) -> None:
     """Booking should fail if post-booking reservation check is inactive."""
 
     client, store = _build_bundle(tmp_path, client_factory=_InactiveReservationClient)

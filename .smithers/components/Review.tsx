@@ -27,22 +27,30 @@ type ReviewProps = {
 export function Review({ idPrefix, prompt, agents }: ReviewProps) {
   const promptText =
     typeof prompt === "string" ? prompt : JSON.stringify(prompt ?? null);
+  // Build per-task fallback chains so a transient provider failure
+  // (auth error, rate limit, circuit breaker) on one reviewer does not
+  // kill the review — Task tries the list in order until one succeeds.
+  // Task i uses agents[i] as primary and the rest as fallbacks.
   return (
     <Parallel>
-      {agents.map((agent, index) => (
-        <Task
-          key={`${idPrefix}:${index}`}
-          id={`${idPrefix}:${index}`}
-          output={reviewOutputSchema}
-          agent={agent}
-          continueOnFail
-        >
-          <ReviewPrompt
-            reviewer={`reviewer-${index + 1}`}
-            prompt={promptText}
-          />
-        </Task>
-      ))}
+      {agents.map((agent, index) => {
+        const fallbacks = agents.filter((_, i) => i !== index);
+        const chain = [agent, ...fallbacks];
+        return (
+          <Task
+            key={`${idPrefix}:${index}`}
+            id={`${idPrefix}:${index}`}
+            output={reviewOutputSchema}
+            agent={chain}
+            continueOnFail
+          >
+            <ReviewPrompt
+              reviewer={`reviewer-${index + 1}`}
+              prompt={promptText}
+            />
+          </Task>
+        );
+      })}
     </Parallel>
   );
 }

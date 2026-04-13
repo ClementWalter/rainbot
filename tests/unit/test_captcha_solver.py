@@ -102,7 +102,9 @@ def test_create_transaction_raises_when_liveidentity_returns_error(monkeypatch) 
         lambda *args, **kwargs: _FakeResponse(status_code=500),
     )
     with pytest.raises(CaptchaError):
-        solver._create_transaction(config=_config(), referer_url="https://tennis.paris.fr")
+        solver._create_transaction(
+            config=_config(), referer_url="https://tennis.paris.fr"
+        )
 
 
 def test_check_invisible_raises_when_http_request_fails(monkeypatch) -> None:
@@ -130,7 +132,9 @@ def test_create_transaction_returns_payload_on_success(monkeypatch) -> None:
         "paris_tennis_api.captcha.requests.post",
         lambda *args, **kwargs: _FakeResponse(status_code=200, payload=payload),
     )
-    response = solver._create_transaction(config=_config(), referer_url="https://tennis.paris.fr")
+    response = solver._create_transaction(
+        config=_config(), referer_url="https://tennis.paris.fr"
+    )
     assert response["requestId"] == "rq"
 
 
@@ -157,7 +161,9 @@ def test_fetch_challenge_requires_questions_payload(monkeypatch) -> None:
     solver = AntiBotSolver(captcha_api_key="captcha-key")
     monkeypatch.setattr(
         "paris_tennis_api.captcha.requests.post",
-        lambda *args, **kwargs: _FakeResponse(status_code=200, payload={"questions": []}),
+        lambda *args, **kwargs: _FakeResponse(
+            status_code=200, payload={"questions": []}
+        ),
     )
     with pytest.raises(CaptchaError):
         solver._fetch_challenge(
@@ -224,7 +230,9 @@ def test_solve_visible_challenge_returns_first_valid_token(monkeypatch) -> None:
             "captchaValidationUrl": "/validate",
         },
     )
-    monkeypatch.setattr(solver, "_solve_image_answer", lambda config, challenge, referer_url: "1234")
+    monkeypatch.setattr(
+        solver, "_solve_image_answer", lambda config, challenge, referer_url: "1234"
+    )
     tokens = iter(["Invalid response.", "visible-token"])
     monkeypatch.setattr(
         solver,
@@ -251,7 +259,9 @@ def test_solve_visible_challenge_raises_after_retries(monkeypatch) -> None:
             "captchaValidationUrl": "/validate",
         },
     )
-    monkeypatch.setattr(solver, "_solve_image_answer", lambda config, challenge, referer_url: "1234")
+    monkeypatch.setattr(
+        solver, "_solve_image_answer", lambda config, challenge, referer_url: "1234"
+    )
     monkeypatch.setattr(
         solver,
         "_validate_answer",
@@ -272,7 +282,9 @@ def test_solve_image_answer_returns_2captcha_result(monkeypatch) -> None:
 
     def _fake_get(url: str, *args, **kwargs) -> _FakeResponse:
         if "res.php" in url:
-            return _FakeResponse(status_code=200, payload={"status": 1, "request": "abcd"})
+            return _FakeResponse(
+                status_code=200, payload={"status": 1, "request": "abcd"}
+            )
         return _FakeResponse(status_code=200, content=b"img")
 
     monkeypatch.setattr("paris_tennis_api.captcha.requests.get", _fake_get)
@@ -336,7 +348,9 @@ def test_solve_image_answer_raises_on_2captcha_poll_error(monkeypatch) -> None:
 
     def _fake_get(url: str, *args, **kwargs) -> _FakeResponse:
         if "res.php" in url:
-            return _FakeResponse(status_code=200, payload={"status": 0, "request": "ERROR"})
+            return _FakeResponse(
+                status_code=200, payload={"status": 0, "request": "ERROR"}
+            )
         return _FakeResponse(status_code=200, content=b"img")
 
     monkeypatch.setattr("paris_tennis_api.captcha.requests.get", _fake_get)
@@ -417,6 +431,8 @@ def test_validate_answer_returns_message_token(monkeypatch) -> None:
         referer_url="https://tennis.paris.fr",
     )
     assert token == "token-from-message"
+
+
 def test_liveidentity_headers_include_expected_origin_fields() -> None:
     """Headers must mimic browser origin/referrer to pass LiveIdentity checks."""
 

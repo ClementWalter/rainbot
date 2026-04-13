@@ -27,7 +27,10 @@ def test_cli_module_main_guard_exits_with_validation_error(monkeypatch) -> None:
             return type("Catalog", (), {"venues": {}})()
 
     monkeypatch.setattr("paris_tennis_api.client.ParisTennisClient", _FakeClient)
-    monkeypatch.setattr("sys.argv", ["paris-tennis", "--username", "u", "--password", "p", "list-courts"])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["paris-tennis", "--username", "u", "--password", "p", "list-courts"],
+    )
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("paris_tennis_api.cli", run_name="__main__")
     assert exc.value.code == 0
