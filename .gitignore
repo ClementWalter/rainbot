@@ -11,3 +11,6 @@ smithers.db-wal
 data/
 .coverage
 .coverage.*
+web/dist/
+web/node_modules/
+web/tsconfig.tsbuildinfo
