@@ -115,6 +115,12 @@ class UpdateSchedulerBody(BaseModel):
     burst_windows: list[BurstWindowBody] | None = None
 
 
+class UpdateSettingsBody(BaseModel):
+    """Key/value pairs to upsert into the app_settings table."""
+
+    captcha_api_key: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -767,11 +773,6 @@ def create_app(
         )
 
     # ----------------------------------------------------------- settings
-    class UpdateSettingsBody(BaseModel):
-        """Key/value pairs to upsert into the app_settings table."""
-
-        captcha_api_key: str | None = None
-
     @app.get("/api/admin/settings")
     def api_admin_settings(request: Request) -> JSONResponse:
         """Return runtime-configurable settings for the admin page."""
