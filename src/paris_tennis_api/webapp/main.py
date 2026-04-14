@@ -664,6 +664,34 @@ def create_app(
             ) from error
         return JSONResponse({"user": _user_payload(user)}, status_code=201)
 
+    @app.post("/api/admin/users/{target_user_id}/check-login")
+    def api_admin_check_user_login(
+        request: Request, target_user_id: int
+    ) -> JSONResponse:
+        """Attempt a Paris Tennis login for one user and report success/failure."""
+
+        _require_admin(request)
+        target = _store(request).get_user(target_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+        try:
+            with client_factory(
+                email=target.paris_username,
+                password=target.paris_password,
+                captcha_api_key=_session_manager(request)._captcha_api_key,
+                headless=app_settings.headless,
+            ) as client:
+                client.login()
+            return JSONResponse({"ok": True, "detail": "Login succeeded."})
+        except Exception as error:  # noqa: BLE001
+            LOGGER.warning(
+                "Login check failed for user %s: %s", target.display_name, error
+            )
+            return JSONResponse(
+                {"ok": False, "detail": str(error)},
+                status_code=status.HTTP_200_OK,
+            )
+
     @app.patch("/api/admin/users/{target_user_id}")
     def api_admin_update_user(
         request: Request, target_user_id: int, body: UpdateUserBody

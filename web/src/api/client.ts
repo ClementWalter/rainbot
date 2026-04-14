@@ -134,6 +134,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  checkUserLogin: (id: number) =>
+    request<{ ok: boolean; detail: string }>(
+      `/api/admin/users/${id}/check-login`,
+      { method: "POST" },
+    ),
   updateUser: (
     id: number,
     body: { is_admin?: boolean; is_enabled?: boolean },

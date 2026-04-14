@@ -57,6 +57,26 @@ export function AdminUsersPage() {
     }
   };
 
+  const [checkingLogin, setCheckingLogin] = useState<number | null>(null);
+
+  const handleCheckLogin = async (user: User) => {
+    setCheckingLogin(user.id);
+    setFlash(null);
+    try {
+      const result = await api.checkUserLogin(user.id);
+      setFlash({
+        level: result.ok ? "success" : "error",
+        message: `${user.display_name}: ${result.detail}`,
+      });
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "Check failed.";
+      setFlash({ level: "error", message: `${user.display_name}: ${message}` });
+    } finally {
+      setCheckingLogin(null);
+    }
+  };
+
   return (
     <>
       <section>
@@ -98,6 +118,12 @@ export function AdminUsersPage() {
                   </p>
                 </div>
                 <div className="row">
+                  <Button
+                    onClick={() => handleCheckLogin(user)}
+                    disabled={checkingLogin === user.id}
+                  >
+                    {checkingLogin === user.id ? "Checking…" : "Check login"}
+                  </Button>
                   <Button
                     onClick={() =>
                       handleUpdate(user, { is_admin: !user.is_admin })
