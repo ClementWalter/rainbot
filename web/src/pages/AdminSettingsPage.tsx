@@ -14,6 +14,7 @@ export function AdminSettingsPage() {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<FlashMessage | null>(null);
   const [captchaKey, setCaptchaKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -83,14 +84,24 @@ export function AdminSettingsPage() {
               Required for automated booking. Without it the scheduler and
               manual booking will fail.
             </p>
-            <input
-              id="captcha-key"
-              type="password"
-              value={captchaKey}
-              onChange={(e) => setCaptchaKey(e.target.value)}
-              placeholder="2captcha API key"
-              autoComplete="off"
-            />
+            <div className="row" style={{ gap: "0.4rem" }}>
+              <input
+                id="captcha-key"
+                type={showKey ? "text" : "password"}
+                value={captchaKey}
+                onChange={(e) => setCaptchaKey(e.target.value)}
+                placeholder="2captcha API key"
+                autoComplete="off"
+                style={{ flex: 1 }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowKey((v) => !v)}
+              >
+                {showKey ? "Hide" : "Show"}
+              </Button>
+            </div>
           </div>
 
           <div className="row" style={{ justifyContent: "flex-end" }}>
