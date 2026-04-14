@@ -10,3 +10,5 @@ data/
 logs/
 smithers.db*
 .claude/
+.github/
+.smithers/

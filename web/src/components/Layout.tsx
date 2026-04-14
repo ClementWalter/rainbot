@@ -62,6 +62,14 @@ export function Layout({ children }: { children: ReactNode }) {
                 >
                   Scheduler
                 </NavLink>
+                <NavLink
+                  to="/admin/settings"
+                  className={({ isActive }) =>
+                    `nav-link ${isActive ? "active" : ""}`.trim()
+                  }
+                >
+                  Settings
+                </NavLink>
               </>
             ) : null}
             <span className="pill">{user.display_name}</span>

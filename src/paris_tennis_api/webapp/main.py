@@ -132,9 +132,16 @@ def create_app(
     app_store = store or WebAppStore(app_settings.database_path)
     app_store.initialize()
 
+    # DB-stored captcha key takes precedence over env var so admins can
+    # update it at runtime without restarting the container.
+    captcha_api_key = (
+        app_store.get_app_setting("captcha_api_key")
+        or app_settings.captcha_api_key
+    )
+
     session_manager = UserSessionManager(
         client_factory=client_factory,
-        captcha_api_key=app_settings.captcha_api_key,
+        captcha_api_key=captcha_api_key,
         headless=app_settings.headless,
         catalog_ttl_seconds=app_settings.catalog_ttl_seconds,
     )
@@ -759,6 +766,44 @@ def create_app(
             {"runs": [_scheduler_run_payload(run) for run in runs]}
         )
 
+    # ----------------------------------------------------------- settings
+    class UpdateSettingsBody(BaseModel):
+        """Key/value pairs to upsert into the app_settings table."""
+
+        captcha_api_key: str | None = None
+
+    @app.get("/api/admin/settings")
+    def api_admin_settings(request: Request) -> JSONResponse:
+        """Return runtime-configurable settings for the admin page."""
+
+        _require_admin(request)
+        stored = _store(request).list_app_settings()
+        return JSONResponse({
+            "settings": {
+                "captcha_api_key": stored.get("captcha_api_key", ""),
+            }
+        })
+
+    @app.patch("/api/admin/settings")
+    def api_admin_update_settings(
+        request: Request, body: UpdateSettingsBody
+    ) -> JSONResponse:
+        """Update runtime settings; changes take effect immediately."""
+
+        _require_admin(request)
+        store = _store(request)
+        if body.captcha_api_key is not None:
+            store.set_app_setting("captcha_api_key", body.captcha_api_key.strip())
+            # Propagate to the live session manager so new browser sessions
+            # pick up the key without requiring a process restart.
+            _session_manager(request)._captcha_api_key = body.captcha_api_key.strip()
+        stored = store.list_app_settings()
+        return JSONResponse({
+            "settings": {
+                "captcha_api_key": stored.get("captcha_api_key", ""),
+            }
+        })
+
     # ----------------------------------------------------------- SPA
     # In production the Vite build is mounted at / and any unknown path
     # returns index.html so client-side React Router can handle it.  In dev
@@ -812,10 +857,10 @@ def _book_saved_search(
     """Run search and booking from one saved-search record and persist a history row."""
 
     settings = _settings(request)
-    if not _has_captcha_key(settings):
+    if not _has_captcha_key(request):
         raise BookingError(
-            "Missing captcha key for booking. Set PARIS_TENNIS_WEBAPP_CAPTCHA_API_KEY, "
-            "PARIS_TENNIS_CAPTCHA_API_KEY, or CAPTCHA_API_KEY."
+            "Missing captcha key for booking. "
+            "Set it in Admin > Settings or via the CAPTCHA_API_KEY env var."
         )
 
     target_date_iso = _resolve_next_weekday_date_iso(
@@ -1076,8 +1121,13 @@ def _today_in_timezone(timezone_name: str) -> dt.date:
     return dt.datetime.now(timezone).date()
 
 
-def _has_captcha_key(settings: WebAppSettings) -> bool:
-    return bool(settings.captcha_api_key.strip())
+def _has_captcha_key(request: Request) -> bool:
+    """Check DB-stored key first, then env-backed settings as fallback."""
+
+    db_key = _store(request).get_app_setting("captcha_api_key")
+    if db_key.strip():
+        return True
+    return bool(_settings(request).captcha_api_key.strip())
 
 
 def _get_current_user(request: Request) -> AllowedUser | None:

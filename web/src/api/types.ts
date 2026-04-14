@@ -130,3 +130,7 @@ export type SchedulerOverview = {
   settings: SchedulerSettings;
   runs: SchedulerRun[];
 };
+
+export type AppSettings = {
+  captcha_api_key: string;
+};

@@ -5,6 +5,7 @@
  * any CORS/credentials gymnastics. */
 
 import type {
+  AppSettings,
   AvailabilityResponse,
   BookingRecord,
   BurstWindow,
@@ -161,4 +162,11 @@ export const api = {
     request<{ runs: SchedulerRun[] }>(
       `/api/admin/scheduler/runs?limit=${limit}`,
     ),
+  settings: () =>
+    request<{ settings: AppSettings }>("/api/admin/settings"),
+  updateSettings: (body: { captcha_api_key?: string }) =>
+    request<{ settings: AppSettings }>("/api/admin/settings", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };
