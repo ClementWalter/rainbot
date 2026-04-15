@@ -556,8 +556,12 @@ def test_scheduler_endpoints_round_trip_settings_and_run(tmp_path: Path) -> None
         new_settings["burst_windows"][0]["time"],
     ) == (120, "07:58")
     assert forced["summary"]["bookings_succeeded"] == 1
-    # Auto-deactivate-on-success means the search is now paused.
-    assert store.list_saved_searches(user_id=1)[0].is_active is False
+    # Searches are never deactivated automatically — activation is admin-only.
+    # The last_target_date guard prevents re-booking the same date.
+    saved = store.list_saved_searches(user_id=1)[0]
+    assert saved.is_active is True
+    assert saved.last_success_at != ""
+    assert saved.last_target_date != ""
 
 
 def test_scheduler_endpoint_requires_admin(tmp_path: Path) -> None:

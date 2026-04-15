@@ -10,10 +10,12 @@ Design (locked with the user):
   users with a hit, log into their persistent session, refuse to book if
   they already have a pending reservation (one-reservation-per-user
   constraint), otherwise book the first available slot.
-- On success: auto-deactivate the search (decision 2a — never auto-book
-  the same window twice).
-- On failure: bump failure_count; auto-deactivate after 3 consecutive
-  failures so a broken account/venue does not loop forever.
+- On success: record the booking and the target date.  The next-tick
+  guard below keeps the scheduler from re-booking the same date within
+  the same week; activation remains under admin control only.
+- On failure: bump failure_count for observability.  Activation is
+  never toggled automatically — the admin decides when to pause a
+  search.
 - Sleep intervals come from ``default_interval_seconds`` plus optional
   burst windows so the operator can poll heavily around 08:00 Paris.
 
@@ -54,7 +56,6 @@ DEFAULT_ENABLED = False
 DEFAULT_INTERVAL_SECONDS = 60
 DEFAULT_BURST_WINDOWS: list[dict[str, int | str]] = []
 DEFAULT_TICK_NOISE_SECONDS = 0
-MAX_FAILURES_BEFORE_PAUSE = 3
 # Outer bounds the scheduler enforces regardless of admin input.  Lower
 # bound prevents accidental DoS on tennis.paris.fr; upper keeps the loop
 # responsive to admin toggles within one minute.
@@ -336,10 +337,9 @@ class SchedulerService:
                 and search.last_success_at
             ):
                 # Already booked this date — nothing to do until the next
-                # weekly window opens.  Won't normally hit this path
-                # because we auto-deactivate on success, but the guard
-                # keeps the scheduler honest if the admin re-enables a
-                # search before the date passes.
+                # weekly window opens.  Searches stay active across weeks
+                # so the scheduler keeps booking the same slot weekly
+                # until the admin manually disables it.
                 continue
             try:
                 slots_found = self._anonymous_probe(
@@ -504,37 +504,35 @@ class SchedulerService:
             venue_name, slot = user_session.run(_book)
         except ParisTennisError as error:
             new_failure_count = search.failure_count + 1
-            deactivate = new_failure_count >= MAX_FAILURES_BEFORE_PAUSE
+            # Never auto-deactivate: admins control activation exclusively.
             self._store.record_search_attempt(
                 search_id=search.id,
                 target_date=target_date,
                 success=False,
                 attempt_at=attempt_at,
-                deactivate=deactivate,
+                deactivate=False,
             )
             LOGGER.warning(
-                "Scheduler booking failed for search %s (failures=%d, deactivated=%s): %s",
+                "Scheduler booking failed for search %s (failures=%d): %s",
                 search.id,
                 new_failure_count,
-                deactivate,
                 error,
             )
             return {
                 "search_id": search.id,
                 "success": False,
-                "deactivated": deactivate,
+                "deactivated": False,
                 "error": str(error),
             }
         except Exception as error:  # noqa: BLE001
             # Unexpected (Playwright crash etc.) — count as failure but log loud.
             new_failure_count = search.failure_count + 1
-            deactivate = new_failure_count >= MAX_FAILURES_BEFORE_PAUSE
             self._store.record_search_attempt(
                 search_id=search.id,
                 target_date=target_date,
                 success=False,
                 attempt_at=attempt_at,
-                deactivate=deactivate,
+                deactivate=False,
             )
             LOGGER.exception(
                 "Scheduler unexpected error for search %s", search.id
@@ -542,11 +540,13 @@ class SchedulerService:
             return {
                 "search_id": search.id,
                 "success": False,
-                "deactivated": deactivate,
+                "deactivated": False,
                 "error": str(error),
             }
 
-        # Persist booking_history + flip search to inactive (decision 2a).
+        # Persist booking_history.  The last_target_date guard above keeps
+        # the scheduler from re-booking the same date; the search stays
+        # active so next week's window keeps watching on the admin's terms.
         self._store.add_booking_record(
             user_id=search.user_id,
             search_id=search.id,
@@ -558,7 +558,7 @@ class SchedulerService:
             target_date=target_date,
             success=True,
             attempt_at=attempt_at,
-            deactivate=True,
+            deactivate=False,
         )
         LOGGER.info(
             "Scheduler booked search %s @ %s for user %s (slot=%s→%s)",
@@ -710,7 +710,6 @@ __all__ = [
     "SETTING_INTERVAL",
     "SETTING_BURST_WINDOWS",
     "DEFAULT_INTERVAL_SECONDS",
-    "MAX_FAILURES_BEFORE_PAUSE",
 ]
 
 
