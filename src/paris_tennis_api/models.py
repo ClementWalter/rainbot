@@ -64,8 +64,10 @@ class SearchRequest:
 
         if self.venue_name not in catalog.venues:
             raise ValidationError(f"Unknown venue '{self.venue_name}'.")
-        if self.date_iso not in catalog.date_options:
-            raise ValidationError(f"Unknown date '{self.date_iso}'.")
+        # Date validation removed: dates are computed by
+        # _resolve_next_weekday_date_iso() and injected directly into the
+        # form's hidden whenIso field, so they need not appear in the
+        # website's date dropdown scraped into catalog.date_options.
         if not catalog.min_hour <= self.hour_start < self.hour_end <= catalog.max_hour:
             raise ValidationError(
                 f"Invalid hour range '{self.hour_start}-{self.hour_end}'."

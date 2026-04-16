@@ -43,8 +43,8 @@ def test_validation_rejects_unknown_venue(catalog_html: str) -> None:
     assert "Unknown venue" in str(exc.value)
 
 
-def test_validation_rejects_unknown_date(catalog_html: str) -> None:
-    """Invalid date options should fail local validation."""
+def test_validation_accepts_date_not_in_catalog(catalog_html: str) -> None:
+    """Dates outside the catalog dropdown should pass because they are set via JS."""
 
     catalog = parse_search_catalog(catalog_html)
     request = SearchRequest(
@@ -55,9 +55,7 @@ def test_validation_rejects_unknown_date(catalog_html: str) -> None:
         surface_ids=("1324",),
         in_out_codes=("V",),
     )
-    with pytest.raises(ValidationError) as exc:
-        request.validate(catalog)
-    assert "Unknown date" in str(exc.value)
+    request.validate(catalog)  # should not raise
 
 
 def test_validation_rejects_invalid_hour_range(catalog_html: str) -> None:
