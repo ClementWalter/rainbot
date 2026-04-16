@@ -10,6 +10,8 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Hard cap so a hung SSH session never burns CI minutes indefinitely.
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -36,6 +38,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deploy to VPS
+        # GitHub-enforced step timeout — independent of action's own command_timeout,
+        # which wasn't being respected and let the step hang past 25 minutes.
+        timeout-minutes: 10
         uses: appleboy/ssh-action@v1
         env:
           IMAGE: ghcr.io/clementwalter/rainbot:latest
@@ -44,21 +49,25 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE
-          command_timeout: 5m
+          command_timeout: 8m
           script: |
-            # Pull pre-built image (public repo, no auth needed)
-            docker pull $IMAGE
+            set -euo pipefail
 
-            docker stop rainbot 2>/dev/null || true
-            docker rm rainbot 2>/dev/null || true
+            # Hard-deadline each remote command with `timeout` so a stuck
+            # docker pull can't wedge the SSH session indefinitely.
+            echo "=== pulling image ==="
+            timeout 360 docker pull "$IMAGE"
+
+            echo "=== replacing container ==="
+            timeout 30 docker stop rainbot 2>/dev/null || true
+            timeout 30 docker rm rainbot 2>/dev/null || true
             docker run -d \
               --name rainbot \
               --restart unless-stopped \
               -v rainbot-data:/app/data \
               -p 8000:8000 \
-              $IMAGE
+              "$IMAGE"
 
-            # Verify container actually started
             sleep 3
             CONTAINER=$(docker ps -qf name=rainbot | head -1)
             if [ -z "$CONTAINER" ]; then
@@ -69,5 +78,5 @@ jobs:
             echo "Container started at: $(docker inspect --format '{{.State.StartedAt}}' "$CONTAINER")"
             docker ps --format "{{.Names}}: {{.Status}}" | grep rainbot
 
-            # Clean up old images
-            docker image prune -f
+            echo "=== pruning old images ==="
+            timeout 60 docker image prune -f
