@@ -7,6 +7,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AdminSchedulerPage } from "./pages/AdminSchedulerPage";
 import { AdminSettingsPage } from "./pages/AdminSettingsPage";
+import { AccountPage } from "./pages/AccountPage";
 
 // Top-level router: every non-login path is gated by RequireAuth, and the
 // admin page additionally checks is_admin.  Loading state renders a blank
@@ -42,6 +43,16 @@ export function App() {
           <RequireAuth>
             <Layout>
               <HistoryPage />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/account"
+        element={
+          <RequireAuth>
+            <Layout>
+              <AccountPage />
             </Layout>
           </RequireAuth>
         }

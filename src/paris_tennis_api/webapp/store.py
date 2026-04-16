@@ -271,34 +271,73 @@ class WebAppStore:
             ).fetchone()
         return self._row_to_user(row) if row else None
 
-    def update_user_admin(self, *, user_id: int, is_admin: bool) -> AllowedUser | None:
-        """Flip admin role directly in storage so access checks are immediate."""
+    def update_user(
+        self,
+        *,
+        user_id: int,
+        display_name: str | None = None,
+        paris_username: str | None = None,
+        paris_password: str | None = None,
+        is_admin: bool | None = None,
+        is_enabled: bool | None = None,
+    ) -> AllowedUser | None:
+        """Apply a partial update to any user fields and return the refreshed row."""
 
+        sets: list[str] = []
+        params: list[object] = []
+        if display_name is not None:
+            sets.append("display_name = ?")
+            params.append(display_name.strip())
+        if paris_username is not None:
+            sets.append("paris_username = ?")
+            params.append(paris_username.strip())
+        if paris_password is not None:
+            sets.append("paris_password = ?")
+            params.append(paris_password)
+        if is_admin is not None:
+            sets.append("is_admin = ?")
+            params.append(int(is_admin))
+        if is_enabled is not None:
+            sets.append("is_enabled = ?")
+            params.append(int(is_enabled))
+        if not sets:
+            return self.get_user(user_id)
+        params.append(user_id)
         with self._connect() as connection:
             connection.execute(
-                "UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id)
+                f"UPDATE users SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
+                tuple(params),
             )
             connection.commit()
             row = connection.execute(
                 "SELECT * FROM users WHERE id = ?", (user_id,)
             ).fetchone()
         return self._row_to_user(row) if row else None
+
+    def delete_user(self, *, user_id: int) -> None:
+        """Hard-delete a user and cascade to their saved searches and booking history."""
+
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM saved_searches WHERE user_id = ?", (user_id,)
+            )
+            connection.execute(
+                "DELETE FROM booking_history WHERE user_id = ?", (user_id,)
+            )
+            connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            connection.commit()
+
+    def update_user_admin(self, *, user_id: int, is_admin: bool) -> AllowedUser | None:
+        """Flip admin role directly in storage so access checks are immediate."""
+
+        return self.update_user(user_id=user_id, is_admin=is_admin)
 
     def update_user_enabled(
         self, *, user_id: int, is_enabled: bool
     ) -> AllowedUser | None:
         """Enable or disable logins without deleting the account record."""
 
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE users SET is_enabled = ? WHERE id = ?",
-                (int(is_enabled), user_id),
-            )
-            connection.commit()
-            row = connection.execute(
-                "SELECT * FROM users WHERE id = ?", (user_id,)
-            ).fetchone()
-        return self._row_to_user(row) if row else None
+        return self.update_user(user_id=user_id, is_enabled=is_enabled)
 
     def create_saved_search(
         self,

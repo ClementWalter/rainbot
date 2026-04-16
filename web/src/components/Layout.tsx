@@ -44,6 +44,14 @@ export function Layout({ children }: { children: ReactNode }) {
             >
               History
             </NavLink>
+            <NavLink
+              to="/account"
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`.trim()
+              }
+            >
+              Account
+            </NavLink>
             {user.is_admin ? (
               <>
                 <NavLink

@@ -139,11 +139,28 @@ export const api = {
       `/api/admin/users/${id}/check-login`,
       { method: "POST" },
     ),
+  deleteUser: (id: number) =>
+    request<{ ok: true }>(`/api/admin/users/${id}`, { method: "DELETE" }),
   updateUser: (
     id: number,
-    body: { is_admin?: boolean; is_enabled?: boolean },
+    body: {
+      display_name?: string;
+      paris_username?: string;
+      paris_password?: string;
+      is_admin?: boolean;
+      is_enabled?: boolean;
+    },
   ) =>
     request<{ user: User }>(`/api/admin/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  updateMe: (body: {
+    display_name?: string;
+    paris_username?: string;
+    paris_password?: string;
+  }) =>
+    request<{ user: User }>("/api/me", {
       method: "PATCH",
       body: JSON.stringify(body),
     }),

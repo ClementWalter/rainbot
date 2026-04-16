@@ -94,8 +94,19 @@ class CreateUserBody(BaseModel):
 
 
 class UpdateUserBody(BaseModel):
+    display_name: str | None = None
+    paris_username: str | None = None
+    paris_password: str | None = None
     is_admin: bool | None = None
     is_enabled: bool | None = None
+
+
+class UpdateMeBody(BaseModel):
+    """Self-edit body — users can change their own profile but not roles."""
+
+    display_name: str | None = None
+    paris_username: str | None = None
+    paris_password: str | None = None
 
 
 class BurstWindowBody(BaseModel):
@@ -696,16 +707,15 @@ def create_app(
     def api_admin_update_user(
         request: Request, target_user_id: int, body: UpdateUserBody
     ) -> JSONResponse:
-        """Toggle admin/enabled flags with the same lockout guards as the old UI."""
+        """Update any user field.  Validates credentials when they change."""
 
         actor = _require_admin(request)
         target = _store(request).get_user(target_user_id)
         if target is None:
             raise HTTPException(status_code=404, detail="Target user not found.")
 
-        updated = target
+        # Guard: the last remaining admin cannot be demoted.
         if body.is_admin is not None:
-            # Guard: the last remaining admin cannot be demoted.
             if (
                 target.is_admin
                 and not body.is_admin
@@ -715,14 +725,9 @@ def create_app(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Cannot remove the last admin role.",
                 )
-            updated = (
-                _store(request).update_user_admin(
-                    user_id=target.id, is_admin=body.is_admin
-                )
-                or updated
-            )
+
+        # Guard: the last active admin cannot be disabled out of the system.
         if body.is_enabled is not None:
-            # Guard: the last active admin cannot be disabled out of the system.
             if (
                 target.id == actor.id
                 and target.is_enabled
@@ -733,13 +738,92 @@ def create_app(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Cannot disable the last active admin.",
                 )
-            updated = (
-                _store(request).update_user_enabled(
-                    user_id=target.id, is_enabled=body.is_enabled
-                )
-                or updated
+
+        # When credentials change, verify they work before persisting.
+        _verify_credentials_if_changed(
+            request,
+            current_user=target,
+            new_username=body.paris_username,
+            new_password=body.paris_password,
+            captcha_api_key=_session_manager(request)._captcha_api_key,
+            headless=app_settings.headless,
+            client_factory=client_factory,
+        )
+
+        try:
+            updated = _store(request).update_user(
+                user_id=target.id,
+                display_name=body.display_name,
+                paris_username=body.paris_username,
+                paris_password=body.paris_password,
+                is_admin=body.is_admin,
+                is_enabled=body.is_enabled,
             )
-        return JSONResponse({"user": _user_payload(updated)})
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That Paris username already exists.",
+            ) from error
+        return JSONResponse({"user": _user_payload(updated or target)})
+
+    @app.delete("/api/admin/users/{target_user_id}")
+    def api_admin_delete_user(
+        request: Request, target_user_id: int
+    ) -> JSONResponse:
+        """Hard-delete a user and all their data.  Cannot delete the last admin."""
+
+        actor = _require_admin(request)
+        target = _store(request).get_user(target_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        # Prevent deleting yourself if you're the last admin.
+        if (
+            target.is_admin
+            and _store(request).count_admin_users() == 1
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete the last admin.",
+            )
+
+        # Invalidate session if deleting yourself (edge case: admin deletes self).
+        if target.id == actor.id:
+            request.session.clear()
+
+        _store(request).delete_user(user_id=target.id)
+        return JSONResponse({"ok": True})
+
+    # ----------------------------------------------------------- self-edit
+    @app.patch("/api/me")
+    def api_update_me(request: Request, body: UpdateMeBody) -> JSONResponse:
+        """Let any user update their own profile.  Validates credentials on change."""
+
+        user = _require_user(request)
+
+        _verify_credentials_if_changed(
+            request,
+            current_user=user,
+            new_username=body.paris_username,
+            new_password=body.paris_password,
+            captcha_api_key=_session_manager(request)._captcha_api_key,
+            headless=app_settings.headless,
+            client_factory=client_factory,
+        )
+
+        try:
+            updated = _store(request).update_user(
+                user_id=user.id,
+                display_name=body.display_name,
+                paris_username=body.paris_username,
+                paris_password=body.paris_password,
+            )
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That Paris username already exists.",
+            ) from error
+        return JSONResponse({"user": _user_payload(updated or user)})
 
     # ----------------------------------------------------------- scheduler
     @app.get("/api/admin/scheduler")
@@ -1115,6 +1199,48 @@ def _normalize_form_values(values: list[str]) -> tuple[str, ...]:
         seen.add(value)
         normalized.append(value)
     return tuple(normalized)
+
+
+def _verify_credentials_if_changed(
+    request: Request,
+    *,
+    current_user: AllowedUser,
+    new_username: str | None,
+    new_password: str | None,
+    captcha_api_key: str,
+    headless: bool,
+    client_factory: type[ParisTennisClient],
+) -> None:
+    """Run a live login check when credentials differ from the stored ones.
+
+    Raises 422 with the check-login error if the credentials are invalid,
+    preventing the update from being persisted.
+    """
+
+    username = new_username or current_user.paris_username
+    password = new_password or current_user.paris_password
+    credentials_changed = (
+        (new_username is not None and new_username != current_user.paris_username)
+        or (new_password is not None and new_password != current_user.paris_password)
+    )
+    if not credentials_changed:
+        return
+    try:
+        with client_factory(
+            email=username,
+            password=password,
+            captcha_api_key=captcha_api_key,
+            headless=headless,
+        ) as client:
+            client.login()
+    except Exception as error:  # noqa: BLE001
+        LOGGER.warning(
+            "Credential check failed for %s: %s", current_user.display_name, error
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Login check failed with the new credentials: {error}",
+        ) from error
 
 
 def _normalize_weekday(raw_weekday: str) -> str:
