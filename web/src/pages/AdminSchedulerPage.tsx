@@ -314,6 +314,25 @@ function BurstWindowRow({
   );
 }
 
+/** Format an ISO timestamp + optional end into "Wed 09:41 (6s)". */
+function formatTickTime(startedAt: string, finishedAt?: string | null): string {
+  const start = new Date(startedAt);
+  const day = start.toLocaleDateString("en-GB", { weekday: "short" });
+  const time = start.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (!finishedAt) return `${day} ${time} (running)`;
+  const end = new Date(finishedAt);
+  const durationMs = end.getTime() - start.getTime();
+  const durationSec = Math.round(durationMs / 1000);
+  const durationLabel =
+    durationSec < 60
+      ? `${durationSec}s`
+      : `${Math.floor(durationSec / 60)}m${String(durationSec % 60).padStart(2, "0")}s`;
+  return `${day} ${time} (${durationLabel})`;
+}
+
 function RunsCard({ overview }: { overview: SchedulerOverview }) {
   const runs = overview.runs;
   return (
@@ -338,8 +357,7 @@ function RunsCard({ overview }: { overview: SchedulerOverview }) {
             >
               <summary style={{ cursor: "pointer", listStyle: "none" }}>
                 <span className="muted" style={{ fontSize: "0.85rem" }}>
-                  #{run.id} · {run.started_at}
-                  {run.finished_at ? ` → ${run.finished_at}` : " (in flight)"}
+                  #{run.id} · {formatTickTime(run.started_at, run.finished_at)}
                 </span>{" "}
                 <RunHeadline summary={run.summary} />
               </summary>
