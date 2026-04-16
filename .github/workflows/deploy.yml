@@ -26,11 +26,12 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 20m
           script: |
             cd /opt/rainbot
 
-            # Build fresh image and restart container
-            docker build --no-cache -t rainbot:latest .
+            # Build image with layer caching (Dockerfile has proper COPY ordering)
+            docker build -t rainbot:latest .
             docker stop rainbot 2>/dev/null || true
             docker rm rainbot 2>/dev/null || true
             docker run -d \
