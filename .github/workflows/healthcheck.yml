@@ -14,11 +14,16 @@ jobs:
         id: probe
         run: |
           URL="https://rainbot.fr/health"
+          UA="Mozilla/5.0 (compatible; rainbot-healthcheck; +https://github.com/ClementWalter/rainbot)"
           # Three attempts spaced over ~30s so we don't reboot on a transient blip.
+          # We treat any <500 response as "origin alive" — 4xx means Cloudflare answered
+          # (possibly blocking the runner), which proves the origin is reachable from CF.
+          # Only 5xx (esp. CF 522/523 "origin unreachable") and connection failures (000)
+          # indicate the VPS is actually down.
           for i in 1 2 3; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -A "$UA" "$URL" || echo "000")
             echo "attempt $i: HTTP $CODE"
-            if [ "$CODE" = "200" ]; then
+            if [ "$CODE" != "000" ] && [ "$CODE" -lt 500 ] 2>/dev/null; then
               echo "healthy=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
