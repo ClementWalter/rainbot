@@ -1,0 +1,48 @@
+name: Healthcheck and auto-reboot
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe rainbot.fr
+        id: probe
+        run: |
+          URL="https://rainbot.fr/health"
+          # Three attempts spaced over ~30s so we don't reboot on a transient blip.
+          for i in 1 2 3; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" || echo "000")
+            echo "attempt $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+          echo "last_code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Reboot Scaleway instance
+        if: steps.probe.outputs.healthy == 'false'
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_SERVER_ID: ${{ secrets.SCW_SERVER_ID }}
+          SCW_ZONE: ${{ secrets.SCW_ZONE }}
+        run: |
+          echo "Site unreachable (last code ${{ steps.probe.outputs.last_code }}), triggering reboot"
+          HTTP=$(curl -s -o /tmp/scw.json -w "%{http_code}" \
+            -X POST \
+            -H "X-Auth-Token: $SCW_SECRET_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"reboot"}' \
+            "https://api.scaleway.com/instance/v1/zones/$SCW_ZONE/servers/$SCW_SERVER_ID/action")
+          cat /tmp/scw.json
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "202" ]; then
+            echo "Reboot API call failed with HTTP $HTTP"
+            exit 1
+          fi
