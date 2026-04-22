@@ -1,0 +1,1084 @@
+{
+  "in_out_options": {
+    "F": "Découvert",
+    "V": "Couvert"
+  },
+  "max_hour": 22,
+  "min_hour": 8,
+  "surface_options": {
+    "1324": "Béton poreux",
+    "2016": "Bitume",
+    "2095": "Résine",
+    "92": "Synthétique",
+    "94": "Terre battue",
+    "96": "Gazon synthétique"
+  },
+  "venues": {
+    "Alain Mimoun": {
+      "courts": [
+        {
+          "court_id": "3091",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "3090",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "3089",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "3096",
+          "name": "TEP/Court n° 06"
+        },
+        {
+          "court_id": "3094",
+          "name": "TEP/Court n° 05"
+        },
+        {
+          "court_id": "3092",
+          "name": "TEP/Court n° 04"
+        }
+      ],
+      "name": "Alain Mimoun",
+      "venue_id": "326"
+    },
+    "Amandiers": {
+      "courts": [
+        {
+          "court_id": "8",
+          "name": "Court n° 02"
+        }
+      ],
+      "name": "Amandiers",
+      "venue_id": "2"
+    },
+    "Atlantique": {
+      "courts": [
+        {
+          "court_id": "3831",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "3830",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "3829",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "122",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "121",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Atlantique",
+      "venue_id": "12"
+    },
+    "Aurelle de Paladines": {
+      "courts": [
+        {
+          "court_id": "158",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "159",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "160",
+          "name": "Court n° 03"
+        }
+      ],
+      "name": "Aurelle de Paladines",
+      "venue_id": "85"
+    },
+    "Bertrand Dauvin": {
+      "courts": [
+        {
+          "court_id": "916",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "917",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "918",
+          "name": "Court n° 03"
+        }
+      ],
+      "name": "Bertrand Dauvin",
+      "venue_id": "92"
+    },
+    "Bobigny": {
+      "courts": [
+        {
+          "court_id": "4660",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "4659",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "4658",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "4657",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "4656",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "4655",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "4654",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "4653",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Bobigny",
+      "venue_id": "560"
+    },
+    "Broquedis - Asnières": {
+      "courts": [
+        {
+          "court_id": "119",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "120",
+          "name": "Court n° 09"
+        },
+        {
+          "court_id": "118",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "2689",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "2691",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "2692",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "2690",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "2693",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "2694",
+          "name": "Court n° 06"
+        }
+      ],
+      "name": "Broquedis - Asnières",
+      "venue_id": "133"
+    },
+    "Candie": {
+      "courts": [
+        {
+          "court_id": "3272",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "3273",
+          "name": "TEP/Court n° 01"
+        }
+      ],
+      "name": "Candie",
+      "venue_id": "53"
+    },
+    "Carnot": {
+      "courts": [
+        {
+          "court_id": "559",
+          "name": "TEP/Court n° 01"
+        },
+        {
+          "court_id": "562",
+          "name": "TEP/Court n° 03"
+        },
+        {
+          "court_id": "560",
+          "name": "TEP/Court n° 02"
+        }
+      ],
+      "name": "Carnot",
+      "venue_id": "58"
+    },
+    "Château des Rentiers": {
+      "courts": [
+        {
+          "court_id": "2725",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Château des Rentiers",
+      "venue_id": "281"
+    },
+    "Cordelières": {
+      "courts": [
+        {
+          "court_id": "3554",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "761",
+          "name": "TEP/Court n° 01"
+        }
+      ],
+      "name": "Cordelières",
+      "venue_id": "76"
+    },
+    "Croix Nivert": {
+      "courts": [
+        {
+          "court_id": "2118",
+          "name": "TEP/Court n° 01"
+        }
+      ],
+      "name": "Croix Nivert",
+      "venue_id": "233"
+    },
+    "Docteurs Déjerine": {
+      "courts": [
+        {
+          "court_id": "967",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "968",
+          "name": "Court n° 02"
+        }
+      ],
+      "name": "Docteurs Déjerine",
+      "venue_id": "98"
+    },
+    "Dunois": {
+      "courts": [
+        {
+          "court_id": "1050",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "1051",
+          "name": "Court n° 02"
+        }
+      ],
+      "name": "Dunois",
+      "venue_id": "109"
+    },
+    "Edouard Pailleron": {
+      "courts": [
+        {
+          "court_id": "3261",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "3262",
+          "name": "Court n° 02"
+        }
+      ],
+      "name": "Edouard Pailleron",
+      "venue_id": "240"
+    },
+    "Elisabeth": {
+      "courts": [
+        {
+          "court_id": "1114",
+          "name": "Court n° 09"
+        },
+        {
+          "court_id": "1113",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "1112",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "1111",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "1110",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "1109",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "1108",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "1107",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "1106",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Elisabeth",
+      "venue_id": "120"
+    },
+    "Georges Carpentier": {
+      "courts": [
+        {
+          "court_id": "629",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "628",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Georges Carpentier",
+      "venue_id": "60"
+    },
+    "Halle Fret": {
+      "courts": [
+        {
+          "court_id": "4702",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "4701",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Halle Fret",
+      "venue_id": "567"
+    },
+    "Henry de Montherlant": {
+      "courts": [
+        {
+          "court_id": "1989",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "1993",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "1992",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "1991",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "1990",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "1988",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "1994",
+          "name": "TEP/Court n° 07"
+        }
+      ],
+      "name": "Henry de Montherlant",
+      "venue_id": "429"
+    },
+    "Jandelle": {
+      "courts": [
+        {
+          "court_id": "1465",
+          "name": "TEP/Court n°01"
+        }
+      ],
+      "name": "Jandelle",
+      "venue_id": "155"
+    },
+    "Jesse Owens": {
+      "courts": [
+        {
+          "court_id": "688",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "687",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "686",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Jesse Owens",
+      "venue_id": "67"
+    },
+    "Jules Ladoumègue": {
+      "courts": [
+        {
+          "court_id": "4833",
+          "name": "Padel n°04"
+        },
+        {
+          "court_id": "4832",
+          "name": "Padel n°03"
+        },
+        {
+          "court_id": "4831",
+          "name": "Padel n°02"
+        },
+        {
+          "court_id": "4830",
+          "name": "Padel n°01"
+        },
+        {
+          "court_id": "4389",
+          "name": "Supprimé - Court n° 02"
+        },
+        {
+          "court_id": "4388",
+          "name": "Supprimé - Court n° 01"
+        },
+        {
+          "court_id": "4387",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "4386",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "4385",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "4384",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "4383",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "4382",
+          "name": "Court n° 06"
+        }
+      ],
+      "name": "Jules Ladoumègue",
+      "venue_id": "497"
+    },
+    "La Faluère": {
+      "courts": [
+        {
+          "court_id": "1175",
+          "name": "Court n° 09"
+        },
+        {
+          "court_id": "1176",
+          "name": "Court n° 10"
+        },
+        {
+          "court_id": "1173",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "1178",
+          "name": "Court n° 12"
+        },
+        {
+          "court_id": "1177",
+          "name": "Court n° 11"
+        },
+        {
+          "court_id": "1174",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "1172",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "1171",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "1182",
+          "name": "Court n° 16"
+        },
+        {
+          "court_id": "1183",
+          "name": "Court n° 17"
+        },
+        {
+          "court_id": "1186",
+          "name": "Court n° 20"
+        },
+        {
+          "court_id": "1170",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "1168",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "1187",
+          "name": "Court n° 21"
+        },
+        {
+          "court_id": "1184",
+          "name": "Court n° 18"
+        },
+        {
+          "court_id": "1179",
+          "name": "Court n° 13"
+        },
+        {
+          "court_id": "1185",
+          "name": "Court n° 19"
+        },
+        {
+          "court_id": "1181",
+          "name": "Court n° 15"
+        },
+        {
+          "court_id": "1180",
+          "name": "Court n° 14"
+        },
+        {
+          "court_id": "1169",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "1167",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "La Faluère",
+      "venue_id": "126"
+    },
+    "Léo Lagrange": {
+      "courts": [
+        {
+          "court_id": "1670",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "1669",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "1668",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "1667",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "1666",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "1665",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Léo Lagrange",
+      "venue_id": "174"
+    },
+    "Max Rousié": {
+      "courts": [
+        {
+          "court_id": "2849",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "2850",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "2848",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Max Rousié",
+      "venue_id": "293"
+    },
+    "Moureu - Baudricourt": {
+      "courts": [
+        {
+          "court_id": "2042",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "2041",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "2039",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "2043",
+          "name": "Court n° 04 + Fronton de pelote basque"
+        }
+      ],
+      "name": "Moureu - Baudricourt",
+      "venue_id": "218"
+    },
+    "NEUVE SAINT PIERRE": {
+      "courts": [
+        {
+          "court_id": "4582",
+          "name": "Gymnase Type B"
+        }
+      ],
+      "name": "NEUVE SAINT PIERRE",
+      "venue_id": "545"
+    },
+    "Niox": {
+      "courts": [
+        {
+          "court_id": "2106",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "2104",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "2107",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "2105",
+          "name": "Court n° 02"
+        }
+      ],
+      "name": "Niox",
+      "venue_id": "273"
+    },
+    "Padel Jules Ladoumègue": {
+      "courts": [
+        {
+          "court_id": "4833",
+          "name": "Padel n°04"
+        },
+        {
+          "court_id": "4832",
+          "name": "Padel n°03"
+        },
+        {
+          "court_id": "4831",
+          "name": "Padel n°02"
+        },
+        {
+          "court_id": "4830",
+          "name": "Padel n°01"
+        },
+        {
+          "court_id": "4389",
+          "name": "Supprimé - Court n° 02"
+        },
+        {
+          "court_id": "4388",
+          "name": "Supprimé - Court n° 01"
+        },
+        {
+          "court_id": "4387",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "4386",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "4385",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "4384",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "4383",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "4382",
+          "name": "Court n° 06"
+        }
+      ],
+      "name": "Padel Jules Ladoumègue",
+      "venue_id": "606"
+    },
+    "Paul Barruel": {
+      "courts": [
+        {
+          "court_id": "295",
+          "name": "TEP/Court"
+        }
+      ],
+      "name": "Paul Barruel",
+      "venue_id": "302"
+    },
+    "Philippe Auguste": {
+      "courts": [
+        {
+          "court_id": "129",
+          "name": "TEP/Court"
+        }
+      ],
+      "name": "Philippe Auguste",
+      "venue_id": "15"
+    },
+    "Poissonniers": {
+      "courts": [
+        {
+          "court_id": "2523",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "2522",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "2524",
+          "name": "Court n° 03"
+        }
+      ],
+      "name": "Poissonniers",
+      "venue_id": "264"
+    },
+    "Poliveau": {
+      "courts": [
+        {
+          "court_id": "2536",
+          "name": "TEP/Court"
+        }
+      ],
+      "name": "Poliveau",
+      "venue_id": "267"
+    },
+    "Poterne des Peupliers": {
+      "courts": [
+        {
+          "court_id": "2667",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "2666",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Poterne des Peupliers",
+      "venue_id": "272"
+    },
+    "Puteaux": {
+      "courts": [
+        {
+          "court_id": "4534",
+          "name": "Court n° 22"
+        },
+        {
+          "court_id": "4536",
+          "name": "Court n° 24"
+        },
+        {
+          "court_id": "4535",
+          "name": "Court n° 23"
+        },
+        {
+          "court_id": "4533",
+          "name": "Court n° 21"
+        },
+        {
+          "court_id": "4532",
+          "name": "Court n° 20"
+        },
+        {
+          "court_id": "4531",
+          "name": "Court n° 19"
+        },
+        {
+          "court_id": "4530",
+          "name": "Court n° 18"
+        },
+        {
+          "court_id": "4529",
+          "name": "Court n° 17"
+        },
+        {
+          "court_id": "4528",
+          "name": "Court n° 16"
+        },
+        {
+          "court_id": "4527",
+          "name": "Court n° 15"
+        },
+        {
+          "court_id": "4526",
+          "name": "Court n° 14"
+        },
+        {
+          "court_id": "4521",
+          "name": "Court n° 09"
+        },
+        {
+          "court_id": "4520",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "4519",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "4518",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "4517",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "4516",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "4515",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "4514",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "4513",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "4525",
+          "name": "Court n° 13"
+        },
+        {
+          "court_id": "4524",
+          "name": "Court n° 12"
+        },
+        {
+          "court_id": "4523",
+          "name": "Court n° 11"
+        },
+        {
+          "court_id": "4522",
+          "name": "Court n° 10"
+        }
+      ],
+      "name": "Puteaux",
+      "venue_id": "529"
+    },
+    "René et André Mourlon": {
+      "courts": [
+        {
+          "court_id": "3250",
+          "name": "TEP/Court n° 02"
+        },
+        {
+          "court_id": "3251",
+          "name": "TEP/Court n° 03"
+        },
+        {
+          "court_id": "3249",
+          "name": "TEP/Court n° 01"
+        }
+      ],
+      "name": "René et André Mourlon",
+      "venue_id": "220"
+    },
+    "Renée Garilhe - ex Courcelles": {
+      "courts": [
+        {
+          "court_id": "817",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "814",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "816",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "815",
+          "name": "Court n° 03"
+        }
+      ],
+      "name": "Renée Garilhe - ex Courcelles",
+      "venue_id": "81"
+    },
+    "Rigoulot - La Plaine": {
+      "courts": [
+        {
+          "court_id": "2468",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "2469",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "2467",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "2466",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "3269",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "3268",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "3267",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Rigoulot - La Plaine",
+      "venue_id": "257"
+    },
+    "Sablonnière": {
+      "courts": [
+        {
+          "court_id": "2862",
+          "name": "TEP/Court n° 01"
+        }
+      ],
+      "name": "Sablonnière",
+      "venue_id": "303"
+    },
+    "Sept arpents": {
+      "courts": [
+        {
+          "court_id": "2888",
+          "name": "Court n° 01"
+        },
+        {
+          "court_id": "2890",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "2889",
+          "name": "Court n° 02"
+        }
+      ],
+      "name": "Sept arpents",
+      "venue_id": "305"
+    },
+    "Suzanne Lenglen": {
+      "courts": [
+        {
+          "court_id": "1772",
+          "name": "Court n° 03"
+        },
+        {
+          "court_id": "1774",
+          "name": "Court n° 05"
+        },
+        {
+          "court_id": "1773",
+          "name": "Court n° 04"
+        },
+        {
+          "court_id": "1771",
+          "name": "Court n° 02"
+        },
+        {
+          "court_id": "1775",
+          "name": "Court n° 06"
+        },
+        {
+          "court_id": "1776",
+          "name": "Court n° 07"
+        },
+        {
+          "court_id": "1778",
+          "name": "Court n° 09"
+        },
+        {
+          "court_id": "1779",
+          "name": "Court n° 10"
+        },
+        {
+          "court_id": "3560",
+          "name": "Court n° 12"
+        },
+        {
+          "court_id": "3559",
+          "name": "Court n° 11"
+        },
+        {
+          "court_id": "1777",
+          "name": "Court n° 08"
+        },
+        {
+          "court_id": "1782",
+          "name": "Court n° 13"
+        },
+        {
+          "court_id": "1770",
+          "name": "Court n° 01"
+        }
+      ],
+      "name": "Suzanne Lenglen",
+      "venue_id": "188"
+    },
+    "Thiéré": {
+      "courts": [
+        {
+          "court_id": "3012",
+          "name": "TEP/Court"
+        }
+      ],
+      "name": "Thiéré",
+      "venue_id": "320"
+    },
+    "Valeyre": {
+      "courts": [
+        {
+          "court_id": "3118",
+          "name": "TEP/Court n° 01"
+        }
+      ],
+      "name": "Valeyre",
+      "venue_id": "330"
+    }
+  }
+}
