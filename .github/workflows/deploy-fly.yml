@@ -1,0 +1,22 @@
+name: Deploy to Fly.io (canary)
+
+# Only runs on the fly-deploy branch so main still deploys to Scaleway
+# until we're happy with the canary and cut DNS over.
+on:
+  push:
+    branches: [fly-deploy]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
