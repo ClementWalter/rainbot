@@ -27,7 +27,10 @@ from pathlib import Path
 from paris_tennis_api.client import ParisTennisClient
 
 LOGGER = logging.getLogger(__name__)
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "catalog.json"
+OUTPUT_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src" / "paris_tennis_api" / "catalog.json"
+)
 
 
 def main() -> int:

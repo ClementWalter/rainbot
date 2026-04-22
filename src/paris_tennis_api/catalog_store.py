@@ -17,7 +17,10 @@ from paris_tennis_api.models import SearchCatalog, TennisCourt, TennisVenue
 
 LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "catalog.json"
+# Ship the catalog inside the package so it cannot be shadowed by a mounted
+# volume (Scaleway mounts /app/data as a volume, which would hide a sibling
+# data/catalog.json baked into the image).
+_DEFAULT_PATH = Path(__file__).resolve().parent / "catalog.json"
 
 
 @lru_cache(maxsize=1)

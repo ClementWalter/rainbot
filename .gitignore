@@ -8,12 +8,7 @@ __pycache__/
 smithers.db
 smithers.db-shm
 smithers.db-wal
-data/*
-# catalog.json is scraped once + refreshed weekly via CI and must ship with
-# the repo so /api/catalog can serve without hitting tennis.paris.fr at all.
-# (use `data/*` rather than `data/` so this negation actually applies —
-# Git cannot re-include files inside a fully-excluded directory.)
-!data/catalog.json
+data/
 .coverage
 .coverage.*
 web/dist/

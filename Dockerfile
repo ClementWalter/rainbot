@@ -32,7 +32,9 @@ RUN uv sync --frozen --no-dev
 # Copy built SPA from stage 1
 COPY --from=web-builder /app/web/dist ./web/dist
 
-# Create data directory for SQLite
+# Create data directory for SQLite (catalog.json ships inside the package
+# at src/paris_tennis_api/catalog.json so a mounted volume at /app/data
+# cannot shadow it).
 RUN mkdir -p /app/data
 
 EXPOSE 8000
