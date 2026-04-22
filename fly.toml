@@ -1,0 +1,51 @@
+# Fly.io app config for rainbot canary.
+# Single machine, persistent volume for SQLite + Playwright profile data,
+# scheduler runs in-process so min_machines_running must stay at 1.
+
+app = "rainbot"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PARIS_TENNIS_WEBAPP_HOST = "0.0.0.0"
+  PARIS_TENNIS_WEBAPP_PORT = "8000"
+  PARIS_TENNIS_WEBAPP_DB = "/data/paris_tennis_webapp.sqlite3"
+  PARIS_TENNIS_WEBAPP_TIMEZONE = "Europe/Paris"
+  # Warm-up logs into every user's Paris account on startup.  Disable on
+  # canary so a cold boot doesn't hammer tennis.paris.fr with 2x logins
+  # while both VPS and Fly instances exist.
+  PARIS_TENNIS_WEBAPP_WARM_ON_STARTUP = "false"
+
+[[mounts]]
+  source = "rainbot_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Scheduler runs every 60s; stopping the machine would skip booking ticks,
+  # so we keep it always-on.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 40
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "30s"
+  method = "GET"
+  path = "/healthz"
+
+[[vm]]
+  # Chromium needs ~512MB headroom; 1GB leaves margin for SQLite page cache
+  # and the catalog warmer.  shared-cpu-1x @ 1GB is ~$4/mo.
+  size = "shared-cpu-1x"
+  memory = "1gb"
+  cpus = 1
