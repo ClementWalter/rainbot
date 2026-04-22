@@ -9,6 +9,9 @@ smithers.db
 smithers.db-shm
 smithers.db-wal
 data/
+# catalog.json is scraped once + refreshed weekly via CI and must ship with
+# the repo so /api/catalog can serve without hitting tennis.paris.fr at all.
+!data/catalog.json
 .coverage
 .coverage.*
 web/dist/
