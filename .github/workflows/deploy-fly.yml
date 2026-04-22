@@ -1,10 +1,10 @@
 name: Deploy to Fly.io (canary)
 
-# Only runs on the fly-deploy branch so main still deploys to Scaleway
-# until we're happy with the canary and cut DNS over.
+# Runs alongside the Scaleway deploy on every push to main so both targets
+# stay in sync until one is picked.  Kill the unused workflow later.
 on:
   push:
-    branches: [fly-deploy]
+    branches: [main, fly-deploy]
   workflow_dispatch:
 
 jobs:
