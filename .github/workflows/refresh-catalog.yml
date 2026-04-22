@@ -1,0 +1,44 @@
+name: Refresh catalog
+
+# Scrapes tennis.paris.fr for the static venue/filter catalog and opens a PR
+# when anything changed. Static catalog removes per-user Playwright login
+# from the /api/catalog request path — see scripts/scrape_catalog.py.
+on:
+  schedule:
+    # Mondays 05:00 UTC — before Paris tennis opens its weekly booking window.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Playwright browsers
+        run: uv run --with playwright playwright install --with-deps chromium
+
+      - name: Scrape catalog
+        run: uv run scripts/scrape_catalog.py
+
+      - name: Open PR if catalog changed
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: refresh catalog.json"
+          title: "chore: refresh catalog.json"
+          body: |
+            Automated weekly refresh of `data/catalog.json` from tennis.paris.fr.
+
+            Review the diff to confirm no venues disappeared unexpectedly,
+            then merge — both Scaleway and Fly deploys will pick it up on
+            the next push.
+          branch: chore/refresh-catalog
+          delete-branch: true

@@ -11,7 +11,6 @@ import datetime as dt
 import json
 import logging
 import sqlite3
-import threading
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -24,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
+from paris_tennis_api.catalog_store import load_static_catalog
 from paris_tennis_api.client import ParisTennisClient
 from paris_tennis_api.exceptions import BookingError, ParisTennisError, ValidationError
 from paris_tennis_api.models import SearchCatalog, SearchRequest
@@ -170,10 +170,14 @@ def create_app(
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Lifespan hook: warm catalogs, start scheduler, tear them down on exit."""
+        """Lifespan hook: start scheduler, tear it down on exit.
 
-        if app_settings.warm_on_startup:
-            _warm_catalogs_in_background(store=app_store, manager=session_manager)
+        Catalog warmer was removed now that /api/catalog is served from the
+        static data/catalog.json — there is nothing to pre-populate, and
+        the old warmer was triggering N logins on boot which was the main
+        cold-start hazard.
+        """
+
         # Scheduler thread is always started; whether it actually books is
         # gated on the admin-controlled `scheduler.enabled` setting so the
         # operator can flip it without restarting the process.
@@ -1138,53 +1142,17 @@ def _search_payload(search: SavedSearch, timezone_name: str) -> dict[str, object
 def _load_search_catalog_for_user(
     *, request: Request, user: AllowedUser
 ) -> SearchCatalog | None:
-    """Return TTL-cached catalog so dashboard renders don't pay login latency."""
+    """Return the static catalog shipped with the repo (no per-user login cost).
 
-    try:
-        session = _session_manager(request).get_session(
-            user_id=user.id,
-            paris_username=user.paris_username,
-            paris_password=user.paris_password,
-        )
-        return session.get_catalog_cached()
-    except Exception as error:  # noqa: BLE001
-        LOGGER.warning("Could not load search catalog for user %s: %s", user.id, error)
-        return None
+    `user` is kept in the signature so callers read naturally, but the catalog
+    itself is identical for everyone — venue/court/filter options never differ
+    between accounts.  Refresh cadence is controlled by the weekly scrape
+    workflow that updates data/catalog.json.
+    """
 
-
-def _warm_catalogs_in_background(
-    *, store: WebAppStore, manager: UserSessionManager
-) -> None:
-    """Pre-populate per-user catalog caches so the first /searches is fast."""
-
-    def _runner() -> None:
-        for user in store.list_users():
-            if not user.is_enabled:
-                continue
-            try:
-                session = manager.get_session(
-                    user_id=user.id,
-                    paris_username=user.paris_username,
-                    paris_password=user.paris_password,
-                )
-                catalog = session.get_catalog_cached()
-            except Exception as error:  # noqa: BLE001
-                LOGGER.warning(
-                    "Catalog warm-up failed for user %s: %s", user.id, error
-                )
-                continue
-            LOGGER.info(
-                "Catalog warmed for user %s (%s): %s",
-                user.id,
-                user.display_name,
-                "ok" if catalog is not None else "unavailable",
-            )
-
-    threading.Thread(
-        target=_runner,
-        name="catalog-warmer",
-        daemon=True,
-    ).start()
+    del user  # static catalog, identical for every account
+    del request
+    return load_static_catalog()
 
 
 def _normalize_form_values(values: list[str]) -> tuple[str, ...]:
