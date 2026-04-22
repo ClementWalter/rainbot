@@ -36,6 +36,7 @@ from dataclasses import asdict
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from paris_tennis_api.availability import probe_availability
 from paris_tennis_api.exceptions import ParisTennisError
 from paris_tennis_api.models import SearchRequest
 from paris_tennis_api.webapp.sessions import UserSessionManager
@@ -319,7 +320,6 @@ class SchedulerService:
         # with no slot today is left untouched (no failure stamp) so its
         # failure_count only grows on real booking errors.
         candidates: list[tuple[SavedSearch, str]] = []
-        anonymous_session = self._session_manager.get_anonymous_session()
         for search in searches:
             try:
                 target_date = _resolve_next_weekday_date_iso(
@@ -343,11 +343,13 @@ class SchedulerService:
                 continue
             try:
                 slots_found = self._anonymous_probe(
-                    session=anonymous_session,
                     search=search,
                     target_date=target_date,
                 )
-            except ParisTennisError as error:
+            except Exception as error:  # noqa: BLE001
+                # Pure-HTTP probe can raise httpx / parse errors; swallow
+                # and log so one transient miss does not skip the entire
+                # tick for every other search.
                 LOGGER.warning(
                     "Anonymous probe failed for search %s: %s", search.id, error
                 )
@@ -411,38 +413,39 @@ class SchedulerService:
     def _anonymous_probe(
         self,
         *,
-        session: Any,
         search: SavedSearch,
         target_date: str,
     ) -> bool:
-        """Return True when the anonymous search returns at least one slot."""
+        """Return True when any venue in the search has at least one slot.
 
-        def _probe(client: Any) -> bool:
-            for venue_name in search.venue_names:
-                try:
-                    result = client.search_slots(
-                        SearchRequest(
-                            venue_name=venue_name,
-                            date_iso=target_date,
-                            hour_start=search.hour_start,
-                            hour_end=search.hour_end,
-                            surface_ids=tuple(),
-                            in_out_codes=search.in_out_codes,
-                        )
-                    )
-                except ParisTennisError as error:
-                    LOGGER.debug(
-                        "Anonymous search miss for %s @ %s: %s",
-                        search.id,
-                        venue_name,
-                        error,
-                    )
-                    continue
-                if result.slots:
-                    return True
-            return False
+        Uses pure-HTTP ``probe_availability`` — no Playwright, no login.
+        Each venue is one POST; we stop on the first hit so happy-path
+        ticks stay well under a second.
+        """
 
-        return bool(session.run(_probe))
+        for venue_name in search.venue_names:
+            try:
+                result = probe_availability(
+                    SearchRequest(
+                        venue_name=venue_name,
+                        date_iso=target_date,
+                        hour_start=search.hour_start,
+                        hour_end=search.hour_end,
+                        surface_ids=tuple(),
+                        in_out_codes=search.in_out_codes,
+                    )
+                )
+            except Exception as error:  # noqa: BLE001
+                LOGGER.debug(
+                    "Anonymous search miss for %s @ %s: %s",
+                    search.id,
+                    venue_name,
+                    error,
+                )
+                continue
+            if result.slots:
+                return True
+        return False
 
     def _book_one(
         self,

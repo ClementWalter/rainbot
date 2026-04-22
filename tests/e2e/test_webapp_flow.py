@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from paris_tennis_api.models import (
@@ -19,6 +20,43 @@ from paris_tennis_api.models import (
 from paris_tennis_api.webapp.main import create_app
 from paris_tennis_api.webapp.settings import WebAppSettings
 from paris_tennis_api.webapp.store import WebAppStore
+
+
+@pytest.fixture(autouse=True)
+def _stub_static_catalog(monkeypatch):
+    """Pin the catalog for every test so they do not depend on the real shipped JSON.
+
+    Production serves the catalog from ``src/paris_tennis_api/catalog.json``
+    (scraped from tennis.paris.fr weekly).  Tests use fixed venue names like
+    "Alain Mimoun" / "Bercy" that must always validate regardless of the
+    current shipped catalog.
+    """
+
+    test_catalog = SearchCatalog(
+        venues={
+            "Alain Mimoun": TennisVenue(
+                venue_id="v-1",
+                name="Alain Mimoun",
+                available_now=False,
+                courts=(TennisCourt(court_id="c-1", name="Court 1"),),
+            ),
+            "Bercy": TennisVenue(
+                venue_id="v-2",
+                name="Bercy",
+                available_now=False,
+                courts=(TennisCourt(court_id="c-2", name="Court 2"),),
+            ),
+        },
+        date_options=tuple(),
+        surface_options={},
+        in_out_options={"V": "Indoor", "E": "Outdoor"},
+        min_hour=7,
+        max_hour=23,
+    )
+    monkeypatch.setattr(
+        "paris_tennis_api.webapp.main.load_static_catalog",
+        lambda: test_catalog,
+    )
 
 
 @dataclass
@@ -387,8 +425,30 @@ def test_admin_add_user_route_expands_allow_list(tmp_path: Path) -> None:
     assert (response.status_code, store.count_users()) == (201, 2)
 
 
-def test_check_availability_returns_anonymous_slots_per_venue(tmp_path: Path) -> None:
+def test_check_availability_returns_anonymous_slots_per_venue(
+    tmp_path: Path, monkeypatch
+) -> None:
     """The check-availability endpoint must run anonymously and return slot info per venue."""
+
+    # The endpoint now calls ``probe_availability`` directly (pure httpx, no
+    # Playwright), so we stub it to avoid hitting tennis.paris.fr during tests.
+    stub_result = SearchResult(
+        slots=(
+            SlotOffer(
+                equipment_id="",
+                court_id="",
+                date_deb="08h",
+                date_fin="",
+                price_eur="12 €",
+                price_label="stub",
+            ),
+        ),
+        captcha_request_id="",
+    )
+    monkeypatch.setattr(
+        "paris_tennis_api.webapp.main.probe_availability",
+        lambda request: stub_result,
+    )
 
     client, store, state = _build_bundle(tmp_path)
     with client:
@@ -404,8 +464,7 @@ def test_check_availability_returns_anonymous_slots_per_venue(tmp_path: Path) ->
         )
         response = client.post(f"/api/searches/{search.id}/check-availability")
     body = response.json()
-    # FakeParisClient returns one stub slot for any search; we just verify the
-    # endpoint shape — and that login was never called for the anonymous path.
+    # Login must not have been touched — the probe path is fully anonymous.
     assert (
         response.status_code,
         body["venues"][0]["name"],
@@ -512,8 +571,30 @@ def test_duplicate_search_clones_with_copy_suffix(tmp_path: Path) -> None:
     )
 
 
-def test_scheduler_endpoints_round_trip_settings_and_run(tmp_path: Path) -> None:
+def test_scheduler_endpoints_round_trip_settings_and_run(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Admin can read defaults, patch settings, and force a tick that runs end-to-end."""
+
+    # Scheduler's anonymous probe now uses pure httpx; stub it so the tick
+    # runs offline and always reports at least one slot.
+    stub_result = SearchResult(
+        slots=(
+            SlotOffer(
+                equipment_id="",
+                court_id="",
+                date_deb="08h",
+                date_fin="",
+                price_eur="12 €",
+                price_label="stub",
+            ),
+        ),
+        captcha_request_id="",
+    )
+    monkeypatch.setattr(
+        "paris_tennis_api.webapp.scheduler.probe_availability",
+        lambda request: stub_result,
+    )
 
     client, store, _state = _build_bundle(
         tmp_path, client_class=FakeSchedulerStatefulClient

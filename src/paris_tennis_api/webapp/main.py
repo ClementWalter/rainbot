@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
+from paris_tennis_api.availability import probe_availability
 from paris_tennis_api.catalog_store import load_static_catalog
 from paris_tennis_api.client import ParisTennisClient
 from paris_tennis_api.exceptions import BookingError, ParisTennisError, ValidationError
@@ -495,45 +496,46 @@ def create_app(
             timezone_name=_settings(request).timezone,
         )
 
-        def _probe(client: Any) -> list[dict[str, object]]:
-            results: list[dict[str, object]] = []
-            for venue_name in saved_search.venue_names:
-                venue_payload: dict[str, object] = {
-                    "name": venue_name,
-                    "slots": [],
-                    "error": "",
-                }
-                try:
-                    result = client.search_slots(
-                        SearchRequest(
-                            venue_name=venue_name,
-                            date_iso=target_date_iso,
-                            hour_start=saved_search.hour_start,
-                            hour_end=saved_search.hour_end,
-                            surface_ids=tuple(),
-                            in_out_codes=saved_search.in_out_codes,
-                        )
+        # Pure-HTTP probe — no Playwright, no login, no captcha.  Each
+        # venue is a separate POST because the site groups the response by
+        # a single venue at a time; the whole loop still finishes in under
+        # a second for typical saved searches.
+        venues: list[dict[str, object]] = []
+        for venue_name in saved_search.venue_names:
+            venue_payload: dict[str, object] = {
+                "name": venue_name,
+                "slots": [],
+                "error": "",
+            }
+            try:
+                result = probe_availability(
+                    SearchRequest(
+                        venue_name=venue_name,
+                        date_iso=target_date_iso,
+                        hour_start=saved_search.hour_start,
+                        hour_end=saved_search.hour_end,
+                        surface_ids=tuple(),
+                        in_out_codes=saved_search.in_out_codes,
                     )
-                except ParisTennisError as error:
-                    venue_payload["error"] = str(error)
-                else:
-                    venue_payload["slots"] = [
-                        {
-                            "hour": slot.date_deb,
-                            "price": slot.price_eur,
-                            "label": slot.price_label,
-                        }
-                        for slot in result.slots
-                    ]
-                results.append(venue_payload)
-            return results
-
-        session = _session_manager(request).get_anonymous_session()
-        try:
-            venues = session.run(_probe)
-        except Exception as error:  # noqa: BLE001
-            LOGGER.exception("Anonymous availability check failed for user %s", user.id)
-            raise HTTPException(status_code=502, detail=str(error)) from error
+                )
+            except Exception as error:  # noqa: BLE001
+                # HTTP/parse errors are per-venue; keep going so one broken
+                # venue does not blank out the whole availability card.
+                LOGGER.warning(
+                    "Availability probe failed for %s on %s: %s",
+                    venue_name, target_date_iso, error,
+                )
+                venue_payload["error"] = str(error)
+            else:
+                venue_payload["slots"] = [
+                    {
+                        "hour": slot.date_deb,
+                        "price": slot.price_eur,
+                        "label": slot.price_label,
+                    }
+                    for slot in result.slots
+                ]
+            venues.append(venue_payload)
 
         return JSONResponse({"date": target_date_iso, "venues": venues})
 
