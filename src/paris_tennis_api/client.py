@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
+import re
 import time
 from dataclasses import asdict
+from pathlib import Path
 from urllib.parse import urljoin
 
 from playwright.sync_api import (
@@ -62,6 +65,23 @@ RESERVATION_ACTION_URL = urljoin(
 MA_RESERVATION_URL = urljoin(BASE_URL, ProfileTab.MA_RESERVATION.value)
 
 
+def _resolve_debug_dir(debug_dir: str | Path | None) -> Path | None:
+    """Return the directory to write failure snapshots to, or None to disable.
+
+    Explicit constructor arg wins; else ``PARIS_TENNIS_DEBUG_DIR`` env var;
+    else None so local dev doesn't litter the repo with dumps.  Production
+    (Fly/Scaleway) sets the env to a path on the mounted data volume so
+    snapshots survive container restarts and can be reviewed after the fact.
+    """
+
+    if debug_dir is not None:
+        return Path(debug_dir)
+    env_value = os.environ.get("PARIS_TENNIS_DEBUG_DIR", "").strip()
+    if env_value:
+        return Path(env_value)
+    return None
+
+
 class ParisTennisClient:
     """Browser-backed API client with local validation before booking operations."""
 
@@ -73,11 +93,16 @@ class ParisTennisClient:
         *,
         headless: bool = True,
         logger: logging.Logger | None = None,
+        debug_dir: str | Path | None = None,
     ) -> None:
         self._email = email
         self._password = password
         self._headless = headless
         self._logger = logger or logging.getLogger(__name__)
+        # Dumps land on the Fly/Scaleway data volume so they survive container
+        # restarts: that is the only way to review what the browser saw when
+        # a booking fails at 08:00:13 and the user reads the logs later.
+        self._debug_dir = _resolve_debug_dir(debug_dir)
 
         self._captcha_solver = AntiBotSolver(
             captcha_api_key=captcha_api_key, logger=self._logger
@@ -145,30 +170,38 @@ class ParisTennisClient:
     def login(self) -> None:
         """Authenticate using the same flow as the real login form."""
 
-        page = self._require_page()
-        response = page.goto(AUTH_URL, wait_until="domcontentloaded", timeout=120_000)
-        if response is not None and response.status >= 400:
-            raise AuthenticationError(
-                f"Login entrypoint returned HTTP {response.status}."
+        try:
+            page = self._require_page()
+            response = page.goto(
+                AUTH_URL, wait_until="domcontentloaded", timeout=120_000
             )
+            if response is not None and response.status >= 400:
+                raise AuthenticationError(
+                    f"Login entrypoint returned HTTP {response.status}."
+                )
 
-        if page.locator("#username").count() == 0:
-            raise AuthenticationError("Login page did not expose username input.")
+            if page.locator("#username").count() == 0:
+                raise AuthenticationError("Login page did not expose username input.")
 
-        page.fill("#username", self._email)
-        page.fill("#password", self._password)
-        page.locator("form#form-login button[type='submit']").click()
+            page.fill("#username", self._email)
+            page.fill("#password", self._password)
+            page.locator("form#form-login button[type='submit']").click()
 
-        page.wait_for_url("**tennis.paris.fr/tennis/**", timeout=120_000)
-        self._is_authenticated = True
+            page.wait_for_url("**tennis.paris.fr/tennis/**", timeout=120_000)
+            self._is_authenticated = True
 
-        page.goto(MA_RESERVATION_URL, wait_until="networkidle", timeout=120_000)
-        profile_html = page.content()
-        summary = parse_profile_reservation(profile_html)
-        if not summary.raw_text:
-            raise AuthenticationError(
-                "Could not validate authenticated profile session."
-            )
+            page.goto(MA_RESERVATION_URL, wait_until="networkidle", timeout=120_000)
+            profile_html = page.content()
+            summary = parse_profile_reservation(profile_html)
+            if not summary.raw_text:
+                raise AuthenticationError(
+                    "Could not validate authenticated profile session."
+                )
+        except Exception as error:
+            # Dump before re-raising so the user can inspect what the browser
+            # saw at the moment login broke — URL alone isn't enough.
+            self._dump_debug(f"login_{type(error).__name__}")
+            raise
 
     def get_search_catalog(self, *, force_refresh: bool = False) -> SearchCatalog:
         """Return catalog metadata used to validate search input locally."""
@@ -200,6 +233,13 @@ class ParisTennisClient:
         and ``captcha_request_id`` are only populated for authenticated sessions.
         """
 
+        try:
+            return self._search_slots_impl(request)
+        except Exception as error:
+            self._dump_debug(f"search_slots_{type(error).__name__}")
+            raise
+
+    def _search_slots_impl(self, request: SearchRequest) -> SearchResult:
         catalog = self.get_search_catalog()
         request.validate(catalog)
 
@@ -271,6 +311,15 @@ class ParisTennisClient:
         4. Confirmation
         """
 
+        try:
+            return self._book_slot_impl(slot, captcha_request_id)
+        except Exception as error:
+            self._dump_debug(f"book_slot_{type(error).__name__}")
+            raise
+
+    def _book_slot_impl(
+        self, slot: SlotOffer, captcha_request_id: str
+    ) -> str:
         self._require_authenticated()
         if not captcha_request_id.strip():
             # We keep this explicit guard even if the browser click flow can
@@ -288,19 +337,36 @@ class ParisTennisClient:
         page.route("**/captcha.liveidentity.com/**", lambda route: route.abort())
 
         # Phase 1 — click the slot button to start the booking flow.
-        page.evaluate(
+        # We prefer the exact slot the caller chose so logs stay honest, but
+        # fall back to any bookable button on the page.  The results DOM can
+        # mutate between parse and click (site JS removes expired rows); by
+        # this point the probe already confirmed something is open, so
+        # clicking whatever is still there is strictly better than bailing.
+        clicked = page.evaluate(
             """(data) => {
-                const buttons = document.querySelectorAll('button.buttonAllOk');
-                for (const btn of buttons) {
-                    if (btn.getAttribute('equipmentid') === data.equipmentId &&
-                        btn.getAttribute('courtid') === data.courtId &&
-                        btn.getAttribute('datedeb') === data.dateDeb &&
-                        btn.getAttribute('datefin') === data.dateFin) {
-                        btn.click();
-                        return;
-                    }
+                const buttons = Array.from(
+                    document.querySelectorAll('button.buttonAllOk')
+                );
+                const exact = buttons.find((btn) =>
+                    btn.getAttribute('equipmentid') === data.equipmentId &&
+                    btn.getAttribute('courtid') === data.courtId &&
+                    btn.getAttribute('datedeb') === data.dateDeb &&
+                    btn.getAttribute('datefin') === data.dateFin
+                );
+                const chosen = exact || buttons[0];
+                if (!chosen) {
+                    throw new Error(
+                        'No bookable button on search results page'
+                    );
                 }
-                throw new Error('No matching slot button found on search results page');
+                chosen.click();
+                return {
+                    matchedExact: Boolean(exact),
+                    equipmentId: chosen.getAttribute('equipmentid'),
+                    courtId: chosen.getAttribute('courtid'),
+                    dateDeb: chosen.getAttribute('datedeb'),
+                    dateFin: chosen.getAttribute('datefin'),
+                };
             }""",
             {
                 "equipmentId": slot.equipment_id,
@@ -309,6 +375,7 @@ class ParisTennisClient:
                 "dateFin": slot.date_fin,
             },
         )
+        self._logger.info("Phase 1 clicked button: %s", clicked)
         page.wait_for_url("**reservation**captcha**", timeout=120_000)
         page.wait_for_load_state("networkidle", timeout=120_000)
         page.unroute("**/captcha.liveidentity.com/**")
@@ -469,6 +536,49 @@ class ParisTennisClient:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _dump_debug(self, reason: str) -> Path | None:
+        """Save a screenshot + HTML + URL of the current page for post-mortems.
+
+        Called from the top-level public methods' except clauses so every
+        failure inside a Playwright flow leaves behind a reviewable snapshot.
+        Safe to call with no page attached — just returns None.  Errors here
+        are swallowed to a log line: we never want debug capture to mask
+        the real booking failure the caller is propagating.
+        """
+
+        if self._debug_dir is None or self._page is None:
+            return None
+        try:
+            self._debug_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as err:  # noqa: BLE001
+            self._logger.warning(
+                "Debug dir %s unusable: %s", self._debug_dir, err
+            )
+            return None
+        timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        safe_reason = re.sub(r"[^A-Za-z0-9._-]+", "_", reason).strip("_")[:80]
+        stem = self._debug_dir / f"{timestamp}_{safe_reason or 'error'}"
+        try:
+            self._page.screenshot(
+                path=str(stem) + ".png", full_page=True, timeout=10_000
+            )
+        except Exception as err:  # noqa: BLE001
+            self._logger.warning("Debug screenshot failed (%s): %s", stem, err)
+        try:
+            stem.with_suffix(".html").write_text(
+                self._page.content(), encoding="utf-8"
+            )
+        except Exception as err:  # noqa: BLE001
+            self._logger.warning("Debug HTML dump failed (%s): %s", stem, err)
+        try:
+            stem.with_suffix(".url.txt").write_text(
+                self._page.url, encoding="utf-8"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        self._logger.warning("Debug dump saved at %s", stem)
+        return stem
 
     def _require_page(self) -> Page:
         self.open()

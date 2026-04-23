@@ -13,6 +13,9 @@ primary_region = "cdg"
   PARIS_TENNIS_WEBAPP_PORT = "8000"
   PARIS_TENNIS_WEBAPP_DB = "/data/paris_tennis_webapp.sqlite3"
   PARIS_TENNIS_WEBAPP_TIMEZONE = "Europe/Paris"
+  # Playwright screenshot + HTML dumps on any booking error.  Lives on the
+  # mounted volume so post-mortems survive deploys and machine restarts.
+  PARIS_TENNIS_DEBUG_DIR = "/data/debug"
   # Warm-up logs into every user's Paris account on startup.  Disable on
   # canary so a cold boot doesn't hammer tennis.paris.fr with 2x logins
   # while both VPS and Fly instances exist.

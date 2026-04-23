@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -617,6 +618,98 @@ def test_book_slot_runs_browser_flow(monkeypatch) -> None:
     monkeypatch.setattr(client, "_submit_payment_step", lambda: None)
     html = client.book_slot(slot=_slot(), captcha_request_id="captcha-request-id")
     assert html == "<html>final</html>"
+
+
+def test_book_slot_phase1_has_first_button_fallback(monkeypatch) -> None:
+    """Phase-1 evaluate must pick any bookable button when the exact one is gone."""
+
+    client = _authenticated_client()
+    page = MagicMock()
+    page.expect_navigation.return_value = _NoopContext()
+    page.content.return_value = "<html>final</html>"
+    page.url = "https://tennis.paris.fr/captcha"
+    monkeypatch.setattr(client, "_require_page", lambda: page)
+    monkeypatch.setattr(
+        "paris_tennis_api.client.parse_antibot_config",
+        lambda html: AntiBotConfig(
+            method="IMAGE",
+            fallback_method="AUDIO",
+            locale="FR",
+            sp_key="sp",
+            base_url="https://captcha.liveidentity.com/captcha",
+            container_id="li-antibot",
+            custom_css_url=None,
+            antibot_id="ab",
+            request_id="rq",
+        ),
+    )
+    client._captcha_solver = MagicMock()
+    client._captcha_solver.solve.return_value = AntiBotToken(
+        container_id="li-antibot", token="token", token_code="code"
+    )
+    monkeypatch.setattr(client, "_submit_validation_step", lambda: None)
+    monkeypatch.setattr(client, "_submit_payment_step", lambda: None)
+    client.book_slot(slot=_slot(), captcha_request_id="captcha-request-id")
+    phase1_script = page.evaluate.call_args_list[0].args[0]
+    # The fallback clause is the whole point of the change; keep it asserted.
+    assert "exact || buttons[0]" in phase1_script
+
+
+def test_book_slot_dumps_debug_on_failure(monkeypatch, tmp_path) -> None:
+    """Any exception inside book_slot must leave a reviewable dump behind."""
+
+    client = _authenticated_client()
+    client._debug_dir = tmp_path
+    client._page = MagicMock()
+    client._page.url = "https://tennis.paris.fr/reservation_creneau"
+    client._page.content.return_value = "<html>crash</html>"
+
+    def _boom(*_args, **_kwargs) -> None:
+        raise RuntimeError("phase 1 exploded")
+
+    monkeypatch.setattr(client, "_require_page", lambda: client._page)
+    monkeypatch.setattr(client._page, "route", lambda *a, **k: None)
+    client._page.evaluate.side_effect = _boom
+
+    with pytest.raises(RuntimeError, match="phase 1 exploded"):
+        client.book_slot(slot=_slot(), captcha_request_id="captcha-request-id")
+
+    # Screenshot is a Playwright side-effect (would write a PNG live); in unit
+    # tests we assert it was invoked and that the HTML/URL dumps made it to
+    # disk — that's the post-mortem surface the user actually reviews.
+    assert client._page.screenshot.called
+    dumps = sorted(tmp_path.iterdir())
+    suffixes = {path.suffix for path in dumps}
+    assert {".html", ".txt"}.issubset(suffixes)
+
+
+def test_dump_debug_noop_when_no_page() -> None:
+    """Dump helper must not crash when called before a page exists."""
+
+    client = _authenticated_client()
+    client._debug_dir = Path("/tmp/unused")
+    client._page = None
+    assert client._dump_debug("no_page") is None
+
+
+def test_resolve_debug_dir_reads_env(monkeypatch, tmp_path) -> None:
+    """Env var should set the debug directory when the constructor arg is omitted."""
+
+    monkeypatch.setenv("PARIS_TENNIS_DEBUG_DIR", str(tmp_path))
+    client = ParisTennisClient(
+        email="user@example.com", password="pwd", captcha_api_key="captcha"
+    )
+    assert client._debug_dir == tmp_path
+
+
+def test_resolve_debug_dir_none_when_unset(monkeypatch) -> None:
+    """Debug dumps should be disabled by default so local runs stay clean."""
+
+    monkeypatch.delenv("PARIS_TENNIS_DEBUG_DIR", raising=False)
+    client = ParisTennisClient(
+        email="user@example.com", password="pwd", captcha_api_key="captcha"
+    )
+    assert client._debug_dir is None
 
 
 def test_get_profile_tab_returns_html_when_authenticated(monkeypatch) -> None:

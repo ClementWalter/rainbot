@@ -65,6 +65,7 @@ jobs:
               --name rainbot \
               --restart unless-stopped \
               -v rainbot-data:/app/data \
+              -e PARIS_TENNIS_DEBUG_DIR=/app/data/debug \
               -p 8000:8000 \
               "$IMAGE"
 
