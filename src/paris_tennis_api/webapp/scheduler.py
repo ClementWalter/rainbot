@@ -471,24 +471,43 @@ class SchedulerService:
         def _book(client: Any) -> tuple[str, Any]:
             chosen_venue = ""
             chosen_result = None
-            for venue_name in search.venue_names:
-                result = client.search_slots(
-                    SearchRequest(
-                        venue_name=venue_name,
-                        date_iso=target_date,
-                        hour_start=search.hour_start,
-                        hour_end=search.hour_end,
-                        surface_ids=all_surface_ids,
-                        in_out_codes=effective_in_out_codes,
+            # The probe→auth gap can be 3-20s (login, navigation, catalog
+            # fetch).  A slot can vanish during that window and reappear
+            # moments later on a refresh (mid-render state, burst-traffic
+            # throttling).  Two short retries catch that without blowing
+            # the 60s tick budget; a truly gone slot still fails fast.
+            attempts = 0
+            max_attempts = 3
+            while attempts < max_attempts and chosen_result is None:
+                attempts += 1
+                for venue_name in search.venue_names:
+                    result = client.search_slots(
+                        SearchRequest(
+                            venue_name=venue_name,
+                            date_iso=target_date,
+                            hour_start=search.hour_start,
+                            hour_end=search.hour_end,
+                            surface_ids=all_surface_ids,
+                            in_out_codes=effective_in_out_codes,
+                        )
                     )
-                )
-                if result.slots:
-                    chosen_venue = venue_name
-                    chosen_result = result
-                    break
+                    if result.slots:
+                        chosen_venue = venue_name
+                        chosen_result = result
+                        break
+                if chosen_result is None and attempts < max_attempts:
+                    time.sleep(1.0)
             if chosen_result is None:
                 raise ParisTennisError(
-                    "Slot disappeared between probe and book attempt."
+                    "Slot disappeared between probe and book attempt "
+                    f"(venues={list(search.venue_names)}, "
+                    f"auth_passes={attempts})."
+                )
+            if attempts > 1:
+                LOGGER.info(
+                    "Auth search recovered slot for search %s on pass %d",
+                    search.id,
+                    attempts,
                 )
             if not chosen_result.captcha_request_id:
                 raise ParisTennisError("Result missing captcha_request_id.")
